@@ -2,8 +2,9 @@ import React, {useState} from 'react';
 import {ActivityIndicator, StatusBar, StyleSheet, View} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {useCameraPermission} from 'react-native-vision-camera';
-import {colors} from './src/config';
+import {colors, toFeedbackConfiguration} from './src/config';
 import {usePreferences} from './src/hooks/usePreferences';
+import {ClearAheadModule} from './src/native/ClearAheadModule';
 import {AssistScreen} from './src/screens/AssistScreen';
 import {HomeScreen} from './src/screens/HomeScreen';
 import {OnboardingScreen} from './src/screens/OnboardingScreen';
@@ -38,6 +39,14 @@ export default function App() {
           canRequestCameraPermission={cameraPermission.canRequestPermission}
           requestCameraPermission={cameraPermission.requestPermission}
           onMountingModeChange={mountingMode => setPreferences({mountingMode})}
+          onTestFeedback={async () => {
+            await ClearAheadModule.updateConfiguration(
+              toFeedbackConfiguration(preferences),
+            );
+            await ClearAheadModule.startDemo('crossing-person');
+            await new Promise(resolve => setTimeout(resolve, 2200));
+            await ClearAheadModule.stopDemo();
+          }}
           onComplete={() => setPreferences({onboardingComplete: true})}
         />
       </SafeAreaProvider>

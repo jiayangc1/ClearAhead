@@ -15,6 +15,7 @@ public protocol HybridClearAheadVisionSpec_protocol: HybridObject {
 
   // Methods
   func processFrame(frame: (any HybridFrameSpec)) throws -> Void
+  func reportDroppedFrame(reason: String) throws -> Void
 }
 
 public extension HybridClearAheadVisionSpec_protocol {

@@ -17,4 +17,8 @@ class HybridClearAheadVision: HybridClearAheadVisionSpec {
 
         ClearAheadEngine.shared.process(sampleBuffer: sampleBuffer)
     }
+
+    func reportDroppedFrame(reason: String) throws {
+        ClearAheadEngine.shared.reportDroppedFrame(reason: reason)
+    }
 }

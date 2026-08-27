@@ -139,4 +139,15 @@ open class HybridClearAheadVisionSpec_cxx {
       return bridge.create_Result_void_(__exceptionPtr)
     }
   }
+  
+  @inline(__always)
+  public final func reportDroppedFrame(reason: std.string) -> bridge.Result_void_ {
+    do {
+      try self.__implementation.reportDroppedFrame(reason: String(reason))
+      return bridge.create_Result_void_()
+    } catch (let __error) {
+      let __exceptionPtr = __error.toCpp()
+      return bridge.create_Result_void_(__exceptionPtr)
+    }
+  }
 }

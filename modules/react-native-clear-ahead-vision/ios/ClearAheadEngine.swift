@@ -1,5 +1,7 @@
 import Accelerate
+import AVFoundation
 import CoreML
+import CoreMotion
 import Foundation
 import Vision
 
@@ -10,6 +12,7 @@ final class ClearAheadEngine {
     private let frameLock = NSLock()
     private let prioritizer = EventPrioritizer()
     private let feedback = FeedbackCoordinator()
+    private let motionManager = CMMotionManager()
     private var configuration = CAFeedbackConfiguration()
     private var sessionActive = false
     private var demoTimer: DispatchSourceTimer?
@@ -30,6 +33,8 @@ final class ClearAheadEngine {
     private var metricWindowStart = ProcessInfo.processInfo.systemUptime
     private var latestLatencyMs = 0.0
     private var lastQuality = "good"
+    private var transientQualityUntil: TimeInterval = 0
+    private var interruptedSessionWasActive = false
 
     private init() {
         NotificationCenter.default.addObserver(
@@ -38,6 +43,13 @@ final class ClearAheadEngine {
             queue: nil
         ) { [weak self] _ in
             self?.emitThermalQuality()
+        }
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            self?.handleAudioInterruption(notification)
         }
     }
 
@@ -48,6 +60,7 @@ final class ClearAheadEngine {
         stateLock.unlock()
         prioritizer.reset()
         resetMetrics()
+        startMotionMonitoring()
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "running",
             "message": modelStatusMessage(),
@@ -60,6 +73,7 @@ final class ClearAheadEngine {
         stateLock.unlock()
         stopDemo()
         feedback.stop()
+        motionManager.stopDeviceMotionUpdates()
         prioritizer.reset()
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "idle",
@@ -120,6 +134,20 @@ final class ClearAheadEngine {
 
         latestLatencyMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
         emitMetricsIfNeeded(now: startedAt)
+    }
+
+    func reportDroppedFrame(reason: String) {
+        stateLock.lock()
+        droppedFrameCount += 1
+        let shouldWarn = droppedFrameCount >= 6
+        stateLock.unlock()
+        if shouldWarn {
+            markTransientQuality(
+                "overloaded",
+                message: "Processing is behind. Hold the phone steady.",
+                duration: 1.5
+            )
+        }
     }
 
     func startDemo(scenario: String) {
@@ -259,6 +287,8 @@ final class ClearAheadEngine {
     }
 
     private func evaluateImageQuality(pixelBuffer: CVPixelBuffer) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now < transientQualityUntil { return }
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return }
@@ -299,6 +329,58 @@ final class ClearAheadEngine {
         let state = ProcessInfo.processInfo.thermalState
         if state == .serious || state == .critical {
             emitQuality("thermal-limited", message: "Device is warm. Processing has slowed.")
+        }
+    }
+
+    private func startMotionMonitoring() {
+        guard motionManager.isDeviceMotionAvailable,
+              !motionManager.isDeviceMotionActive else { return }
+        motionManager.deviceMotionUpdateInterval = 0.1
+        motionManager.startDeviceMotionUpdates(to: OperationQueue()) { [weak self] motion, _ in
+            guard let self, let rate = motion?.rotationRate else { return }
+            let magnitude = sqrt(rate.x * rate.x + rate.y * rate.y + rate.z * rate.z)
+            if magnitude > 3.2 {
+                markTransientQuality(
+                    "moving-too-fast",
+                    message: "Phone is moving too quickly. Slow down.",
+                    duration: 1.1
+                )
+            }
+        }
+    }
+
+    private func markTransientQuality(_ quality: String, message: String, duration: TimeInterval) {
+        transientQualityUntil = max(
+            transientQualityUntil,
+            ProcessInfo.processInfo.systemUptime + duration
+        )
+        emitQuality(quality, message: message)
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+        if type == .began {
+            stateLock.lock()
+            interruptedSessionWasActive = sessionActive
+            sessionActive = false
+            stateLock.unlock()
+            ClearAheadModule.emit(name: "sessionStatus", body: [
+                "state": "paused",
+                "message": "Paused while audio is interrupted",
+            ])
+        } else {
+            stateLock.lock()
+            let shouldResume = interruptedSessionWasActive
+            sessionActive = shouldResume
+            interruptedSessionWasActive = false
+            stateLock.unlock()
+            if shouldResume {
+                ClearAheadModule.emit(name: "sessionStatus", body: [
+                    "state": "running",
+                    "message": "Audio restored. Assist mode resumed.",
+                ])
+            }
         }
     }
 
@@ -353,10 +435,22 @@ final class ClearAheadEngine {
         configuration.computeUnits = .all
         for bundle in bundles {
             for name in candidates {
-                if let url = bundle.url(forResource: name, withExtension: "mlmodelc"),
-                   let model = try? MLModel(contentsOf: url, configuration: configuration),
-                   let visionModel = try? VNCoreMLModel(for: model) {
-                    return visionModel
+                for fileExtension in ["mlmodelc", "mlmodel", "mlpackage"] {
+                    guard let assetURL = bundle.url(forResource: name, withExtension: fileExtension) else {
+                        continue
+                    }
+                    let modelURL: URL
+                    if fileExtension == "mlmodelc" {
+                        modelURL = assetURL
+                    } else if let compiledURL = try? MLModel.compileModel(at: assetURL) {
+                        modelURL = compiledURL
+                    } else {
+                        continue
+                    }
+                    if let model = try? MLModel(contentsOf: modelURL, configuration: configuration),
+                       let visionModel = try? VNCoreMLModel(for: model) {
+                        return visionModel
+                    }
                 }
             }
         }

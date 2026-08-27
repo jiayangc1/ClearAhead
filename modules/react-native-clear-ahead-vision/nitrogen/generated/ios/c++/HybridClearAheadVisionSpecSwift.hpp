@@ -17,6 +17,7 @@ namespace margelo::nitro::camera { class HybridFrameSpec; }
 
 #include <memory>
 #include <VisionCamera/HybridFrameSpec.hpp>
+#include <string>
 
 #include "ClearAheadVision-Swift-Cxx-Umbrella.hpp"
 
@@ -70,6 +71,12 @@ namespace margelo::nitro::clearaheadvision {
     // Methods
     inline void processFrame(const std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>& frame) override {
       auto __result = _swiftPart.processFrame(frame);
+      if (__result.hasError()) [[unlikely]] {
+        std::rethrow_exception(__result.error());
+      }
+    }
+    inline void reportDroppedFrame(const std::string& reason) override {
+      auto __result = _swiftPart.reportDroppedFrame(reason);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }

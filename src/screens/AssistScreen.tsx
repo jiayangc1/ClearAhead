@@ -41,6 +41,7 @@ export function AssistScreen({
   const [quality, setQuality] = useState<SessionQuality>('good');
   const [event, setEvent] = useState<SpatialEvent>();
   const [metrics, setMetrics] = useState<PipelineMetrics>();
+  const [isForeground, setIsForeground] = useState(AppState.currentState === 'active');
   const isDemo = demoScenario != null;
 
   const frameOutput = useFrameOutput({
@@ -53,6 +54,9 @@ export function AssistScreen({
       'worklet';
       ClearAheadVision.processFrame(frame);
       frame.dispose();
+    },
+    onFrameDropped(reason) {
+      ClearAheadVision.reportDroppedFrame(reason);
     },
   });
 
@@ -68,18 +72,26 @@ export function AssistScreen({
     ];
 
     const configuration = toFeedbackConfiguration(preferences);
-    const start = isDemo
-      ? ClearAheadModule.startDemo(demoScenario)
-      : ClearAheadModule.startSession(configuration);
+    const start = ClearAheadModule.updateConfiguration(configuration).then(() =>
+      isDemo
+        ? ClearAheadModule.startDemo(demoScenario)
+        : ClearAheadModule.startSession(configuration),
+    );
     start.catch(error => {
       setSessionState('error');
       setStatusMessage(error instanceof Error ? error.message : 'Session could not start');
     });
 
     const appStateSubscription = AppState.addEventListener('change', next => {
+      setIsForeground(next === 'active');
       if (next !== 'active') {
         ClearAheadModule.stopSession().catch(() => undefined);
+        setSessionState('paused');
+        setStatusMessage('Paused while Clear Ahead is in the background');
         AccessibilityInfo.announceForAccessibility('Assist mode paused because Clear Ahead left the foreground.');
+      } else if (!isDemo) {
+        ClearAheadModule.startSession(configuration).catch(() => undefined);
+        AccessibilityInfo.announceForAccessibility('Assist mode resumed.');
       }
     });
 
@@ -111,7 +123,7 @@ export function AssistScreen({
         <Camera
           style={StyleSheet.absoluteFill}
           device="back"
-          isActive={sessionState !== 'paused' && sessionState !== 'error'}
+          isActive={isForeground && sessionState !== 'idle' && sessionState !== 'error'}
           constraints={[{fps: 30}]}
           outputs={[frameOutput]}
           resizeMode="cover"
@@ -119,10 +131,15 @@ export function AssistScreen({
           onError={error => {
             setSessionState('error');
             setStatusMessage(error.message);
+            ClearAheadModule.stopSession().catch(() => undefined);
           }}
           onInterruptionStarted={() => {
             setSessionState('paused');
             setStatusMessage('Camera interrupted');
+          }}
+          onInterruptionEnded={() => {
+            setSessionState('running');
+            setStatusMessage('Camera active');
           }}
         />
       ) : (

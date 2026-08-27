@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.authors      = package["author"]
 
   s.platforms    = { :ios => min_ios_version_supported, :visionos => 1.0 }
-  s.source       = { :git => "https://github.com/jiayangchen/react-native-clear-ahead-vision.git", :tag => "#{s.version}" }
+  s.source       = { :git => "https://github.com/jiayangc1/cac.git", :tag => "#{s.version}" }
 
   s.source_files = [
     # Implementation (Swift)
@@ -23,8 +23,8 @@ Pod::Spec.new do |s|
   ]
   s.exclude_files = ["ios/Tests/**/*"]
 
-  s.frameworks = ["AVFoundation", "Accelerate", "CoreHaptics", "CoreML", "Vision"]
-  s.resources = ["models/**/*.{mlmodel,mlpackage}"]
+  s.frameworks = ["AVFoundation", "Accelerate", "CoreHaptics", "CoreML", "CoreMotion", "Vision"]
+  s.resources = ["models/*.mlmodel", "models/*.mlpackage"]
 
   load 'nitrogen/generated/ios/ClearAheadVision+autolinking.rb'
   add_nitrogen_files(s)

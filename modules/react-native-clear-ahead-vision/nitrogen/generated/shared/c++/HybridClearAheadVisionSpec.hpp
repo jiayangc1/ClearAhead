@@ -18,6 +18,7 @@ namespace margelo::nitro::camera { class HybridFrameSpec; }
 
 #include <memory>
 #include <VisionCamera/HybridFrameSpec.hpp>
+#include <string>
 
 namespace margelo::nitro::clearaheadvision {
 
@@ -51,6 +52,7 @@ namespace margelo::nitro::clearaheadvision {
     public:
       // Methods
       virtual void processFrame(const std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>& frame) = 0;
+      virtual void reportDroppedFrame(const std::string& reason) = 0;
 
     protected:
       // Hybrid Setup

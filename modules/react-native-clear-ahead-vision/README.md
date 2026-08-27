@@ -1,29 +1,26 @@
-# react-native-clear-ahead-vision
+# ClearAheadVision
 
-react-native-clear-ahead-vision is a react native package built with Nitro
+Private iOS native package for the Clear Ahead app. It connects VisionCamera 5
+frames to Swift through a generated Nitro JSI interface; image buffers never
+enter React state or serialize across the bridge.
 
-[![Version](https://img.shields.io/npm/v/react-native-clear-ahead-vision.svg)](https://www.npmjs.com/package/react-native-clear-ahead-vision)
-[![Downloads](https://img.shields.io/npm/dm/react-native-clear-ahead-vision.svg)](https://www.npmjs.com/package/react-native-clear-ahead-vision)
-[![License](https://img.shields.io/npm/l/react-native-clear-ahead-vision.svg)](https://github.com/patrickkabwe/react-native-clear-ahead-vision/LICENSE)
+The Swift implementation owns Core ML inference, image-quality checks, motion
+monitoring, event prioritization, haptics, directional audio, speech, and
+low-frequency status events.
 
-## Requirements
+## Regenerate the interface
 
-- React Native v0.76.0 or higher
-- Node 18.0.0 or higher
+After changing `src/specs/clear-ahead-vision.nitro.ts`:
 
-> [!IMPORTANT]  
-> To Support `Nitro Views` you need to install React Native version v0.78.0 or higher.
-
-## Installation
-
-```bash
-npm install react-native-clear-ahead-vision react-native-nitro-modules
+```sh
+npm install
+npm run codegen
 ```
 
-## Credits
+The generated `nitrogen/` sources are committed so CocoaPods can build the
+local package deterministically.
 
-Bootstrapped with [create-nitro-module](https://github.com/patrickkabwe/create-nitro-module).
+## Models
 
-## Contributing
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+Model binaries are installed from the repository root with `npm run models`.
+See `models/README.md` for provenance and licenses.

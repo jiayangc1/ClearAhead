@@ -11,6 +11,7 @@ export function OnboardingScreen({
   canRequestCameraPermission,
   requestCameraPermission,
   onMountingModeChange,
+  onTestFeedback,
   onComplete,
 }: {
   mountingMode: MountingMode;
@@ -18,9 +19,18 @@ export function OnboardingScreen({
   canRequestCameraPermission: boolean;
   requestCameraPermission: () => Promise<boolean>;
   onMountingModeChange: (mode: MountingMode) => void;
+  onTestFeedback: () => Promise<void>;
   onComplete: () => void;
 }) {
   const [step, setStep] = useState(0);
+  const [isTestingFeedback, setIsTestingFeedback] = useState(false);
+
+  const testFeedback = () => {
+    setIsTestingFeedback(true);
+    onTestFeedback()
+      .catch(() => undefined)
+      .finally(() => setIsTestingFeedback(false));
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -110,6 +120,21 @@ export function OnboardingScreen({
                 then enable Camera.
               </Text>
             ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Test feedback cues"
+              accessibilityHint="Plays a short left and center person warning while you remain seated"
+              disabled={isTestingFeedback}
+              onPress={testFeedback}
+              style={({pressed}) => [
+                styles.testButton,
+                pressed && styles.pressed,
+                isTestingFeedback && {opacity: 0.5},
+              ]}>
+              <Text style={styles.testButtonText}>
+                {isTestingFeedback ? 'Playing feedback…' : 'Test feedback cues'}
+              </Text>
+            </Pressable>
             <PrimaryButton
               label={hasCameraPermission ? 'Finish setup' : 'Continue without camera'}
               hint="Opens the Clear Ahead home screen"
@@ -195,5 +220,15 @@ const styles = StyleSheet.create({
   permissionLabel: {color: colors.muted, fontSize: 13, fontWeight: '800', letterSpacing: 1.4},
   permissionValue: {color: colors.cyan, fontSize: 17, fontWeight: '800'},
   permissionHelp: {color: colors.amber, fontSize: 17, lineHeight: 24},
+  testButton: {
+    minHeight: 56,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: colors.cyan,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  testButtonText: {color: colors.cyan, fontSize: 17, fontWeight: '800'},
   pressed: {opacity: 0.74},
 });

@@ -19,6 +19,7 @@ namespace margelo::nitro::camera { class HybridFrameSpec; }
 #include <VisionCamera/HybridFrameSpec.hpp>
 #include <exception>
 #include <memory>
+#include <string>
 
 // C++ helpers for Swift
 #include "ClearAheadVision-Swift-Cxx-Bridge.hpp"
