@@ -27,7 +27,7 @@ export function HomeScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>CLEAR AHEAD</Text>
           <Text accessibilityRole="header" style={styles.title}>
             Ready when you are.
@@ -39,7 +39,9 @@ export function HomeScreen({
           onPress={onSettings}
           hitSlop={10}
           style={styles.settingsButton}>
-          <Text style={styles.settingsText}>SETTINGS</Text>
+          <Text accessibilityElementsHidden style={styles.settingsIcon}>
+            {'\u2699\uFE0E'}
+          </Text>
         </Pressable>
       </View>
 
@@ -93,11 +95,24 @@ export function HomeScreen({
 
 const styles = StyleSheet.create({
   safeArea: {flex: 1, backgroundColor: colors.night, paddingHorizontal: 22},
-  header: {paddingTop: 18, flexDirection: 'row', justifyContent: 'space-between', gap: 12},
+  header: {paddingTop: 18, position: 'relative'},
+  headerCopy: {minWidth: 0},
   eyebrow: {color: colors.cyan, fontSize: 12, fontWeight: '900', letterSpacing: 2},
   title: {color: colors.text, fontSize: 31, lineHeight: 37, fontWeight: '800', marginTop: 5},
-  settingsButton: {minHeight: 48, justifyContent: 'center'},
-  settingsText: {color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.2},
+  settingsButton: {
+    width: 44,
+    height: 44,
+    position: 'absolute',
+    top: 18,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+  },
+  settingsIcon: {color: colors.cyan, fontSize: 23, lineHeight: 25},
   field: {flex: 1, minHeight: 260, alignItems: 'center', justifyContent: 'center', overflow: 'hidden'},
   arcOuter: {position: 'absolute', width: 350, height: 350, borderRadius: 175, borderWidth: 1, borderColor: '#55D6FF22'},
   arcMiddle: {position: 'absolute', width: 240, height: 240, borderRadius: 120, borderWidth: 1, borderColor: '#55D6FF44'},
