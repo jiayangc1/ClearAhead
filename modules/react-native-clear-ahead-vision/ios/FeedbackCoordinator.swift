@@ -7,7 +7,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
     private let audioEngine = AVAudioEngine()
     private let audioPlayer = AVAudioPlayerNode()
     private let speechSynthesizer = AVSpeechSynthesizer()
-    private var audioBuffer: AVAudioPCMBuffer?
+    private var audioFormat: AVAudioFormat?
 
     override init() {
         super.init()
@@ -27,7 +27,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
             playHaptic(direction: event.direction, urgency: event.urgency, intensity: configuration.hapticIntensity)
         }
         if configuration.audioEnabled {
-            playTone(direction: event.direction, urgency: event.urgency, volume: configuration.audioVolume)
+            playTone(for: event, configuration: configuration)
         }
         if configuration.speechEnabled,
            configuration.spokenCategories.contains(event.kind.rawValue),
@@ -83,23 +83,15 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func prepareAudio() {
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
-        let frameCount = AVAudioFrameCount(44_100 * 0.085)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
-        buffer.frameLength = frameCount
-        for frame in 0..<Int(frameCount) {
-            let envelope = sin(Double(frame) / Double(frameCount) * .pi)
-            let sample = Float(sin(2 * .pi * 880 * Double(frame) / 44_100) * envelope * 0.34)
-            buffer.floatChannelData?[0][frame] = sample
-            buffer.floatChannelData?[1][frame] = sample
-        }
-        audioBuffer = buffer
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2) else { return }
+        audioFormat = format
         audioEngine.attach(audioPlayer)
         audioEngine.connect(audioPlayer, to: audioEngine.mainMixerNode, format: format)
     }
 
-    private func playTone(direction: CADirection, urgency: Double, volume: Double) {
-        guard let audioBuffer else { return }
+    private func playTone(for event: CASpatialEvent, configuration: CAFeedbackConfiguration) {
+        let profile = AudioCueProfile(event: event, configuration: configuration)
+        guard let audioBuffer = makeAudioBuffer(profile: profile) else { return }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(
@@ -109,14 +101,48 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
             )
             try session.setActive(true)
             if !audioEngine.isRunning { try audioEngine.start() }
-            audioPlayer.pan = direction.pan
-            audioPlayer.volume = Float(min(max(volume * (0.5 + urgency * 0.5), 0), 1))
+            audioPlayer.pan = profile.pan
+            audioPlayer.volume = profile.gain
             audioPlayer.stop()
             audioPlayer.scheduleBuffer(audioBuffer, at: nil, options: [], completionHandler: nil)
             audioPlayer.play()
         } catch {
             // Audio failures are surfaced by session quality elsewhere; never block haptics.
         }
+    }
+
+    private func makeAudioBuffer(profile: AudioCueProfile) -> AVAudioPCMBuffer? {
+        guard let audioFormat else { return nil }
+        let sampleRate = audioFormat.sampleRate
+        let pulseFrames = Int(profile.pulseDuration * sampleRate)
+        let gapFrames = Int(profile.pulseGap * sampleRate)
+        let frameCount = profile.pulseCount * pulseFrames + (profile.pulseCount - 1) * gapFrames
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: audioFormat,
+            frameCapacity: AVAudioFrameCount(frameCount)
+        ) else { return nil }
+        buffer.frameLength = AVAudioFrameCount(frameCount)
+        guard let channels = buffer.floatChannelData else { return nil }
+        for frame in 0..<frameCount {
+            channels[0][frame] = 0
+            channels[1][frame] = 0
+        }
+
+        for pulse in 0..<profile.pulseCount {
+            let pulseStart = pulse * (pulseFrames + gapFrames)
+            for frame in 0..<pulseFrames {
+                let progress = Double(frame) / Double(max(pulseFrames - 1, 1))
+                let elapsed = Double(frame) / sampleRate
+                let sweepRate = (profile.endFrequency - profile.startFrequency) / profile.pulseDuration
+                let phase = 2 * Double.pi
+                    * (profile.startFrequency * elapsed + 0.5 * sweepRate * elapsed * elapsed)
+                let envelope = pow(sin(Double.pi * progress), 2)
+                let sample = Float((sin(phase) + 0.12 * sin(phase * 2)) * envelope * 0.3)
+                channels[0][pulseStart + frame] = sample
+                channels[1][pulseStart + frame] = sample
+            }
+        }
+        return buffer
     }
 
     private func speak(_ event: CASpatialEvent) {

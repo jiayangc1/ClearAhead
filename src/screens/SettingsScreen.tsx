@@ -52,7 +52,9 @@ export function SettingsScreen({
           />
           <ToggleRow
             label="Directional audio"
-            description="Short tones positioned left, center, or right."
+            description={
+              'Pitch shows distance, pulse speed shows urgency, and stereo position shows direction.'
+            }
             value={preferences.audioEnabled}
             onValueChange={value => onChange({audioEnabled: value})}
           />
