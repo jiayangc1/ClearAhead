@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
   AppState,
@@ -43,6 +43,20 @@ export function AssistScreen({
   const [metrics, setMetrics] = useState<PipelineMetrics>();
   const [isForeground, setIsForeground] = useState(AppState.currentState === 'active');
   const isDemo = demoScenario != null;
+  const previousQuality = useRef(quality);
+
+  useEffect(() => {
+    if (quality !== previousQuality.current && quality !== 'good') {
+      AccessibilityInfo.announceForAccessibility(qualityMessage(quality));
+    }
+    previousQuality.current = quality;
+  }, [quality]);
+
+  useEffect(() => {
+    if (sessionState === 'error') {
+      AccessibilityInfo.announceForAccessibility(statusMessage);
+    }
+  }, [sessionState, statusMessage]);
 
   const frameOutput = useFrameOutput({
     targetResolution: CommonResolutions.HD_16_9,
@@ -143,18 +157,19 @@ export function AssistScreen({
           }}
         />
       ) : (
-        <View style={[StyleSheet.absoluteFill, styles.demoBackdrop]}>
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, styles.demoBackdrop]}>
           <Text style={styles.demoWord}>DEMO</Text>
         </View>
       )}
       <SoundField event={event} />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
         <View
+          accessible
           accessibilityLiveRegion="polite"
           accessibilityLabel={`${statusMessage}. ${qualityMessage(quality)}`}
           style={styles.statusPill}>
           <View style={[styles.statusDot, quality !== 'good' && styles.statusDotWarning]} />
-          <Text numberOfLines={1} style={styles.statusText}>
+          <Text style={styles.statusText}>
             {quality === 'good' ? statusMessage : qualityMessage(quality)}
           </Text>
           {metrics ? (
@@ -166,7 +181,6 @@ export function AssistScreen({
 
         <View
           accessible
-          accessibilityLiveRegion="assertive"
           accessibilityLabel={eventDescription}
           style={[
             styles.eventCard,
@@ -195,17 +209,17 @@ export function AssistScreen({
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: colors.black},
   safeArea: {flex: 1, padding: 18},
-  statusPill: {minHeight: 48, alignSelf: 'stretch', borderRadius: 16, backgroundColor: '#071018DD', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, gap: 10},
+  statusPill: {minHeight: 52, alignSelf: 'stretch', borderRadius: 16, backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', padding: 15, gap: 10},
   statusDot: {width: 10, height: 10, borderRadius: 5, backgroundColor: colors.cyan},
   statusDotWarning: {backgroundColor: colors.amber},
-  statusText: {color: colors.text, fontSize: 15, fontWeight: '700', flex: 1},
+  statusText: {color: colors.text, fontSize: 16, fontWeight: '700', flex: 1},
   latency: {color: colors.muted, fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 1},
   spacer: {flex: 1},
-  eventCard: {backgroundColor: '#071018E8', borderLeftWidth: 5, borderLeftColor: colors.cyan, borderRadius: 18, padding: 18, marginBottom: 12},
+  eventCard: {backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line, borderLeftWidth: 5, borderLeftColor: colors.cyan, borderRadius: 18, padding: 20, marginBottom: 12},
   eventCardCritical: {borderLeftColor: colors.critical},
   eventEyebrow: {color: colors.cyan, fontSize: 11, fontWeight: '900', letterSpacing: 1.6},
-  eventTitle: {color: colors.text, fontSize: 31, lineHeight: 35, fontWeight: '900', textTransform: 'capitalize', marginTop: 4},
-  eventDescription: {color: colors.muted, fontSize: 16, lineHeight: 22, marginTop: 4},
+  eventTitle: {color: colors.text, fontSize: 31, fontWeight: '900', textTransform: 'capitalize', marginTop: 4},
+  eventDescription: {color: colors.text, fontSize: 16, marginTop: 6},
   demoBackdrop: {backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center'},
   demoWord: {color: colors.line, fontSize: 74, fontWeight: '900', letterSpacing: 7, transform: [{rotate: '-12deg'}]},
 });

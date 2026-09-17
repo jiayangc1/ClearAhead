@@ -1,5 +1,5 @@
-import React, {useState} from 'react';
-import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {AccessibilityInfo, findNodeHandle, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {colors} from '../config';
 import {PrimaryButton} from '../components/Controls';
@@ -24,6 +24,19 @@ export function OnboardingScreen({
 }) {
   const [step, setStep] = useState(0);
   const [isTestingFeedback, setIsTestingFeedback] = useState(false);
+  const scrollRef = useRef<React.ElementRef<typeof ScrollView>>(null);
+  const titleRef = useRef<React.ElementRef<typeof Text>>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({y: 0, animated: false});
+    const frame = requestAnimationFrame(() => {
+      const node = findNodeHandle(titleRef.current);
+      if (node) {
+        AccessibilityInfo.setAccessibilityFocus(node);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [step]);
 
   const testFeedback = () => {
     setIsTestingFeedback(true);
@@ -35,13 +48,14 @@ export function OnboardingScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.content}
         accessibilityViewIsModal
         keyboardShouldPersistTaps="handled">
         <Text style={styles.eyebrow}>CLEAR AHEAD · SETUP {step + 1} OF 3</Text>
         {step === 0 ? (
           <>
-            <Text accessibilityRole="header" style={styles.title}>
+            <Text ref={titleRef} accessibilityRole="header" style={styles.title}>
               Awareness, not a guarantee.
             </Text>
             <Text style={styles.body}>
@@ -65,7 +79,7 @@ export function OnboardingScreen({
 
         {step === 1 ? (
           <>
-            <Text accessibilityRole="header" style={styles.title}>
+            <Text ref={titleRef} accessibilityRole="header" style={styles.title}>
               Where will you carry your phone?
             </Text>
             <Text style={styles.body}>
@@ -94,7 +108,7 @@ export function OnboardingScreen({
 
         {step === 2 ? (
           <>
-            <Text accessibilityRole="header" style={styles.title}>
+            <Text ref={titleRef} accessibilityRole="header" style={styles.title}>
               Camera access stays on this phone.
             </Text>
             <Text style={styles.body}>
@@ -161,6 +175,7 @@ function Choice({
   return (
     <Pressable
       accessibilityRole="radio"
+      accessibilityLabel={`${label}. ${description}`}
       accessibilityState={{checked: selected}}
       onPress={onPress}
       style={({pressed}) => [
@@ -181,7 +196,7 @@ const styles = StyleSheet.create({
   safeArea: {flex: 1, backgroundColor: colors.night},
   content: {flexGrow: 1, padding: 24, paddingTop: 38, gap: 22},
   eyebrow: {color: colors.cyan, fontSize: 12, fontWeight: '800', letterSpacing: 1.6},
-  title: {color: colors.text, fontSize: 39, lineHeight: 43, fontWeight: '800'},
+  title: {color: colors.text, fontSize: 39, fontWeight: '800'},
   body: {color: colors.muted, fontSize: 19, lineHeight: 28},
   warning: {
     backgroundColor: colors.surface,
