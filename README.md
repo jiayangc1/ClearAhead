@@ -17,8 +17,9 @@ haptics, stereo audio cues, and optional short speech.
 - VisionCamera 5 frame output connected to a typed Nitro Swift module
 - On-device Core ML object detection and relative-depth integration
 - Temporal tracking, urgency ranking, hysteresis, and cue cooldowns
-- Core Haptics direction patterns, spatially panned AVAudioEngine tones, and
-  interruptible AVSpeechSynthesizer output
+- Core Haptics direction patterns, spatially panned AVAudioEngine cues whose
+  pitch and pulse rhythm encode distance and urgency, and interruptible
+  AVSpeechSynthesizer output
 - Low-light, covered-camera, thermal-pressure, and frame-overload reporting
 - No account, backend, analytics, frame storage, or camera upload
 
@@ -87,7 +88,7 @@ VisionCamera preview + 30 FPS frame output
                        |
               native feedback engine
               /         |          \
-         Core Haptics  stereo tone  speech
+         Core Haptics  spatial cue  speech
                        |
           throttled status/overlay events
                        |
