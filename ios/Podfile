@@ -30,5 +30,15 @@ target 'ClearAhead' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Hermes selects the matching Debug or Release binary at build time, so
+    # this generated script intentionally runs on every build.
+    installer.pods_project.targets.each do |pod_target|
+      pod_target.shell_script_build_phases.each do |script_phase|
+        if script_phase.name.include?('[Hermes] Replace Hermes')
+          script_phase.always_out_of_date = '1'
+        end
+      end
+    end
   end
 end
