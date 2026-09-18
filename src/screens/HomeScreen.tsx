@@ -3,16 +3,18 @@ import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {PrimaryButton} from '../components/Controls';
 import {colors} from '../config';
-import type {AppPreferences} from '../types';
+import type {AppPreferences, PipelineMetrics} from '../types';
 
 export function HomeScreen({
   preferences,
+  lastMetrics,
   hasCameraPermission,
   onStart,
   onDemo,
   onSettings,
 }: {
   preferences: AppPreferences;
+  lastMetrics?: PipelineMetrics;
   hasCameraPermission: boolean;
   onStart: () => void;
   onDemo: () => void;
@@ -67,6 +69,16 @@ export function HomeScreen({
               {preferences.mountingMode === 'handheld' ? 'In hand' : 'Chest mounted'}
             </Text>
           </View>
+          {preferences.showFps ? (
+            <View style={styles.statusItem}>
+              <Text style={styles.statusLabel}>LAST ASSIST SESSION</Text>
+              <Text style={styles.statusValue}>
+                {lastMetrics
+                  ? `Processed ${lastMetrics.cameraFps.toFixed(1)} fps · Objects ${lastMetrics.detectorFps.toFixed(1)} · Depth ${lastMetrics.depthFps.toFixed(1)}`
+                  : 'No frame rate recorded yet'}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.actions}>

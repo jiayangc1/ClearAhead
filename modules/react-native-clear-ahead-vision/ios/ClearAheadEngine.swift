@@ -25,6 +25,7 @@ final class ClearAheadEngine {
     private var lastObjectInference: TimeInterval = 0
     private var lastDepthInference: TimeInterval = 0
     private var lastQualityCheck: TimeInterval = 0
+    private var inferenceCount = 0
     private var lastMetricsEmission: TimeInterval = 0
     private var frameCount = 0
     private var objectInferenceCount = 0
@@ -59,7 +60,12 @@ final class ClearAheadEngine {
         sessionActive = true
         stateLock.unlock()
         prioritizer.reset()
+        inferenceCount = 0
+        stateLock.lock()
+        droppedFrameCount = 0
+        stateLock.unlock()
         resetMetrics()
+        lastMetricsEmission = ProcessInfo.processInfo.systemUptime
         startMotionMonitoring()
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "running",
@@ -95,7 +101,9 @@ final class ClearAheadEngine {
         guard active, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         guard frameLock.try() else {
+            stateLock.lock()
             droppedFrameCount += 1
+            stateLock.unlock()
             return
         }
         defer { frameLock.unlock() }
@@ -104,22 +112,28 @@ final class ClearAheadEngine {
         frameCount += 1
         let thermalState = ProcessInfo.processInfo.thermalState
         let thermallyLimited = thermalState == .serious || thermalState == .critical
+        let responsive = currentConfiguration.processingMode == "responsive"
         let objectInterval = thermallyLimited ? 0.22 : 0.11
-        let depthInterval = thermallyLimited ? 0.34 : 0.18
+        let depthInterval = thermallyLimited ? 0.5 : (responsive ? 0.5 : 0.18)
 
         if startedAt - lastQualityCheck >= 0.65 {
             evaluateImageQuality(pixelBuffer: pixelBuffer)
             lastQualityCheck = startedAt
         }
 
-        if startedAt - lastObjectInference >= objectInterval {
-            objectEvents = detectObjects(pixelBuffer: pixelBuffer, now: startedAt)
-            lastObjectInference = startedAt
-            objectInferenceCount += 1
-        } else if startedAt - lastDepthInference >= depthInterval {
+        let objectDue = objectModel != nil && startedAt - lastObjectInference >= objectInterval
+        let depthDue = depthModel != nil && startedAt - lastDepthInference >= depthInterval
+        let depthStride = responsive ? 4 : 2
+        if depthDue && (!objectDue || inferenceCount % depthStride == depthStride - 1) {
             depthEvents = estimateDepthEvents(pixelBuffer: pixelBuffer, now: startedAt)
             lastDepthInference = startedAt
             depthInferenceCount += 1
+            inferenceCount += 1
+        } else if objectDue {
+            objectEvents = detectObjects(pixelBuffer: pixelBuffer, now: startedAt)
+            lastObjectInference = startedAt
+            objectInferenceCount += 1
+            inferenceCount += 1
         }
 
         let freshEvents = (objectEvents + depthEvents).filter { startedAt - $0.timestamp < 0.7 }
@@ -399,11 +413,15 @@ final class ClearAheadEngine {
     private func emitMetricsIfNeeded(now: TimeInterval) {
         guard now - lastMetricsEmission >= 1 else { return }
         let duration = max(now - metricWindowStart, 0.001)
+        stateLock.lock()
+        let droppedFrames = droppedFrameCount
+        droppedFrameCount = 0
+        stateLock.unlock()
         ClearAheadModule.emit(name: "performanceMetrics", body: [
             "cameraFps": Double(frameCount) / duration,
             "detectorFps": Double(objectInferenceCount) / duration,
             "depthFps": Double(depthInferenceCount) / duration,
-            "droppedFrames": droppedFrameCount,
+            "droppedFrames": droppedFrames,
             "endToEndLatencyMs": latestLatencyMs,
             "thermalState": thermalStateName(ProcessInfo.processInfo.thermalState),
         ])
@@ -415,7 +433,6 @@ final class ClearAheadEngine {
         frameCount = 0
         objectInferenceCount = 0
         depthInferenceCount = 0
-        droppedFrameCount = 0
         metricWindowStart = ProcessInfo.processInfo.systemUptime
     }
 

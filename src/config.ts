@@ -25,6 +25,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   warningDistanceMeters: 6,
   feedbackFrequency: 0.55,
   mountingMode: 'handheld',
+  processingMode: 'responsive',
+  showFps: true,
   spokenCategories: ['person', 'vehicle', 'device-warning'],
 };
 
@@ -42,6 +44,7 @@ export function toFeedbackConfiguration(
     warningDistanceMeters: preferences.warningDistanceMeters,
     feedbackFrequency: preferences.feedbackFrequency,
     mountingMode: preferences.mountingMode,
+    processingMode: preferences.processingMode,
     spokenCategories: preferences.spokenCategories,
   };
 }
