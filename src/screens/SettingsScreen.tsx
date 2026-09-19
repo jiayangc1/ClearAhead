@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Animated, Easing, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Animated, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {ChevronDown} from 'lucide-react-native';
 import {BrandLogo} from '../components/BrandLogo';
@@ -194,14 +194,8 @@ export function SettingsScreen({
 function Section({title, expanded, onToggle, children}: {title: string; expanded: boolean; onToggle: () => void; children: React.ReactNode}) {
   const reduceMotion = useReducedMotion();
   const progress = useRef(new Animated.Value(expanded ? 1 : 0)).current;
-  const previousExpanded = useRef(expanded);
-  const [contentHeight, setContentHeight] = useState(0);
 
   useEffect(() => {
-    if (previousExpanded.current === expanded) {
-      return;
-    }
-    previousExpanded.current = expanded;
     progress.stopAnimation();
     if (reduceMotion) {
       progress.setValue(expanded ? 1 : 0);
@@ -210,19 +204,9 @@ function Section({title, expanded, onToggle, children}: {title: string; expanded
     Animated.timing(progress, {
       toValue: expanded ? 1 : 0,
       duration: motion.standard,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
+      useNativeDriver: true,
     }).start();
   }, [expanded, progress, reduceMotion]);
-
-  const animatedHeight = contentHeight
-    ? progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, contentHeight],
-      })
-    : expanded
-    ? undefined
-    : 0;
 
   return (
     <View style={styles.section}>
@@ -244,24 +228,11 @@ function Section({title, expanded, onToggle, children}: {title: string; expanded
           <ChevronDown color={colors.cyan} size={24} strokeWidth={2.5} />
         </Animated.View>
       </SpringPressable>
-      <Animated.View
-        pointerEvents={expanded ? 'auto' : 'none'}
-        accessibilityElementsHidden={!expanded}
-        importantForAccessibility={expanded ? 'auto' : 'no-hide-descendants'}
-        style={[styles.sectionBodyClip, {height: animatedHeight, opacity: progress}]}
-      >
-        <View
-          style={styles.sectionBodySpacing}
-          onLayout={event => {
-            const nextHeight = event.nativeEvent.layout.height;
-            if (nextHeight !== contentHeight) {
-              setContentHeight(nextHeight);
-            }
-          }}
-        >
+      {expanded ? (
+        <View style={styles.sectionBodySpacing}>
           <View style={styles.sectionBody}>{children}</View>
         </View>
-      </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -322,7 +293,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     overflow: 'hidden',
   },
-  sectionBodyClip: {overflow: 'hidden'},
   sectionBodySpacing: {paddingTop: 8},
   sectionHelp: {
     color: colors.muted,
