@@ -254,7 +254,7 @@ export function AssistScreen({
               : event?.collisionRisk === 'caution'
                 ? 'Caution'
                 : event
-                  ? event.kind.replace('-', ' ')
+                  ? event.label ?? event.kind.replace('-', ' ')
                   : 'Listening'}
           </Text>
           <Text style={styles.eventDescription}>{eventDescription}</Text>

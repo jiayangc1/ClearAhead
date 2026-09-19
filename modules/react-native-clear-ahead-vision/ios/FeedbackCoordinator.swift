@@ -222,11 +222,12 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func speak(_ event: CASpatialEvent) {
+        let label = event.label ?? event.kind.rawValue
         let distance = event.approximateDistanceMeters.map { String(format: "about %.1f meters", $0) }
             ?? event.proximity.rawValue
         let clock = event.direction == .left ? "10 o'clock" : event.direction == .right ? "2 o'clock" : "12 o'clock"
         requestSpeech(
-            text: "\(event.kind.rawValue), \(distance), \(clock)",
+            text: "\(label), \(distance), \(clock)",
             key: "event:\(event.id):\(event.proximity.rawValue)",
             priority: event.urgency,
             mayInterrupt: false
@@ -234,10 +235,11 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func speakCollision(_ event: CASpatialEvent) {
+        let label = event.label ?? event.kind.rawValue
         let direction = event.direction == .center ? "ahead" : "to the \(event.direction.rawValue)"
         let instruction = event.collisionRisk == .imminent ? "Stop." : "Caution."
         requestSpeech(
-            text: "\(instruction) \(event.kind.rawValue) \(direction).",
+            text: "\(instruction) \(label) \(direction).",
             key: "collision:\(event.id):\(event.collisionRisk.rawValue)",
             priority: event.collisionRisk == .imminent ? 2 : 1,
             mayInterrupt: event.collisionRisk == .imminent

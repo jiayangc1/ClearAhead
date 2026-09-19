@@ -32,6 +32,7 @@ export interface NormalizedBox {
 export interface SpatialEvent {
   id: string;
   kind: EventKind;
+  label?: string;
   direction: Direction;
   proximity: Proximity;
   approximateDistanceMeters?: number;
