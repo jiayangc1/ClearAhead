@@ -283,6 +283,7 @@ final class ClearAheadEngine {
                 let box = observation.boundingBox
                 return CAObjectDetection(
                     kind: kind,
+                    label: normalizedObjectLabel(label.identifier),
                     box: box,
                     distanceMeters: latestDepthMap?.distance(inVisionBox: box)
                         ?? approximateDistance(kind: kind, boundingBox: box),
@@ -295,9 +296,11 @@ final class ClearAheadEngine {
             detections = featureArrays
                 .flatMap(CAModelOutputDecoder.detections)
                 .compactMap { detection in
-                    guard let kind = eventKind(forCOCOClass: detection.classIdentifier) else { return nil }
+                    guard let label = cocoLabel(for: detection.classIdentifier),
+                          let kind = eventKind(forCOCOClass: detection.classIdentifier) else { return nil }
                     return CAObjectDetection(
                         kind: kind,
+                        label: label,
                         box: detection.box,
                         distanceMeters: latestDepthMap?.distance(inVisionBox: detection.box)
                             ?? approximateDistance(kind: kind, boundingBox: detection.box),
@@ -612,21 +615,36 @@ final class ClearAheadEngine {
         case "car", "truck", "bus", "motorbike", "motorcycle", "bicycle": return .vehicle
         case "chair", "couch", "sofa", "bed", "diningtable", "dining table", "bench": return .furniture
         case "fire hydrant", "stop sign", "parking meter", "pottedplant", "potted plant": return .obstacle
-        default: return nil
+        default: return .obstacle
         }
     }
 
     private func eventKind(forCOCOClass identifier: Int) -> CAEventKind? {
+        guard cocoLabel(for: identifier) != nil else { return nil }
         switch identifier {
         case 0: return .person
         case 1, 2, 3, 4, 5, 6, 7, 8: return .vehicle
         case 13, 56, 57, 58, 59, 60: return .furniture
-        case 9, 10, 11, 12, 14, 15, 16, 24, 25, 26, 28, 32, 33, 39, 41, 42, 43,
-             44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 61, 62, 63, 64, 65,
-             66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79:
-            return .obstacle
-        default: return nil
+        default: return .obstacle
         }
+    }
+
+    private func cocoLabel(for identifier: Int) -> String? {
+        let labels = [
+            "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+            "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+            "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+            "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle",
+            "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
+            "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed",
+            "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
+            "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
+        ]
+        return labels.indices.contains(identifier) ? labels[identifier] : nil
+    }
+
+    private func normalizedObjectLabel(_ label: String) -> String {
+        label.replacingOccurrences(of: "_", with: " ").lowercased()
     }
 
     private func approximateDistance(kind: CAEventKind, boundingBox: CGRect) -> Double? {

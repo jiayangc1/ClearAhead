@@ -39,7 +39,9 @@ export function SoundField({event}: {event?: SpatialEvent}) {
                 event.urgency > 0.76 ? colors.critical : colors.amber,
             },
           ]}>
-          <Text style={styles.boxLabel}>{event.kind.toUpperCase()}</Text>
+          <Text style={styles.boxLabel} numberOfLines={1}>
+            {(event.label ?? event.kind).toUpperCase()}
+          </Text>
         </View>
       ) : null}
     </View>
