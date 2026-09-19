@@ -1,58 +1,103 @@
-import React from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-  type AccessibilityActionEvent,
-} from 'react-native';
+import React, {useEffect, useRef} from 'react';
+import {Animated, Easing, StyleSheet, Switch, Text, View, type AccessibilityActionEvent} from 'react-native';
 import {colors} from '../config';
+import {motion, SpringPressable} from './Motion';
+import {useReducedMotion} from '../hooks/useReducedMotion';
 
-export function PrimaryButton({
-  label,
-  hint,
-  onPress,
-  destructive = false,
-  disabled = false,
-}: {
-  label: string;
-  hint?: string;
-  onPress: () => void;
-  destructive?: boolean;
-  disabled?: boolean;
-}) {
+export function PrimaryButton({label, hint, onPress, destructive = false, disabled = false}: {label: string; hint?: string; onPress: () => void; destructive?: boolean; disabled?: boolean}) {
+  const reduceMotion = useReducedMotion();
+  const sheen = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (reduceMotion || disabled) {
+      sheen.stopAnimation();
+      sheen.setValue(0);
+      return;
+    }
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1300),
+        Animated.timing(sheen, {
+          toValue: 1,
+          duration: 740,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(1900),
+        Animated.timing(sheen, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [disabled, reduceMotion, sheen]);
+
   return (
-    <Pressable
+    <SpringPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
       disabled={disabled}
       onPress={onPress}
-      style={({pressed}) => [
-        styles.primaryButton,
-        destructive && styles.destructiveButton,
-        disabled && styles.disabled,
-        pressed && styles.pressed,
-      ]}>
+      style={[styles.primaryButton, destructive && styles.destructiveButton, disabled && styles.disabled]}
+    >
       <Text style={styles.primaryButtonText}>{label}</Text>
-    </Pressable>
+      {!destructive && !disabled ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.sheen,
+            {
+              transform: [
+                {
+                  translateX: sheen.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-130, 430],
+                  }),
+                },
+                {rotate: '-18deg'},
+              ],
+            },
+          ]}
+        />
+      ) : null}
+    </SpringPressable>
   );
 }
 
-export function ToggleRow({
-  label,
-  description,
-  value,
-  onValueChange,
-}: {
-  label: string;
-  description: string;
-  value: boolean;
-  onValueChange: (value: boolean) => void;
-}) {
+export function ToggleRow({label, description, value, onValueChange}: {label: string; description: string; value: boolean; onValueChange: (value: boolean) => void}) {
+  const reduceMotion = useReducedMotion();
+  const emphasis = useRef(new Animated.Value(1)).current;
+  const previousValue = useRef(value);
+
+  useEffect(() => {
+    if (previousValue.current === value) {
+      return;
+    }
+    previousValue.current = value;
+    if (reduceMotion) {
+      return;
+    }
+    Animated.sequence([
+      Animated.spring(emphasis, {
+        toValue: 1.025,
+        ...motion.spring,
+        useNativeDriver: true,
+      }),
+      Animated.spring(emphasis, {
+        toValue: 1,
+        ...motion.spring,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [emphasis, reduceMotion, value]);
+
   return (
-    <View style={styles.row} accessible={false}>
+    <Animated.View style={[styles.row, {transform: [{scale: emphasis}]}]} accessible={false}>
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
         <Text style={styles.rowDescription}>{description}</Text>
@@ -65,21 +110,31 @@ export function ToggleRow({
         trackColor={{false: colors.line, true: colors.cyan}}
         thumbColor={value ? colors.night : colors.text}
       />
-    </View>
+    </Animated.View>
   );
 }
 
-export function AdjustableRow({
-  label,
-  valueLabel,
-  onIncrement,
-  onDecrement,
-}: {
-  label: string;
-  valueLabel: string;
-  onIncrement: () => void;
-  onDecrement: () => void;
-}) {
+export function AdjustableRow({label, valueLabel, onIncrement, onDecrement}: {label: string; valueLabel: string; onIncrement: () => void; onDecrement: () => void}) {
+  const reduceMotion = useReducedMotion();
+  const valueScale = useRef(new Animated.Value(1)).current;
+  const previousValue = useRef(valueLabel);
+
+  useEffect(() => {
+    if (previousValue.current === valueLabel) {
+      return;
+    }
+    previousValue.current = valueLabel;
+    if (reduceMotion) {
+      return;
+    }
+    valueScale.setValue(0.88);
+    Animated.spring(valueScale, {
+      toValue: 1,
+      ...motion.spring,
+      useNativeDriver: true,
+    }).start();
+  }, [reduceMotion, valueLabel, valueScale]);
+
   const onAccessibilityAction = (event: AccessibilityActionEvent) => {
     if (event.nativeEvent.actionName === 'increment') {
       onIncrement();
@@ -99,28 +154,19 @@ export function AdjustableRow({
         {name: 'decrement', label: `Decrease ${label}`},
       ]}
       onAccessibilityAction={onAccessibilityAction}
-      style={styles.adjustable}>
+      style={styles.adjustable}
+    >
       <View>
         <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.adjustableValue}>{valueLabel}</Text>
+        <Animated.Text style={[styles.adjustableValue, {transform: [{scale: valueScale}]}]}>{valueLabel}</Animated.Text>
       </View>
       <View style={styles.stepper} accessible={false}>
-        <Pressable
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          hitSlop={8}
-          onPress={onDecrement}
-          style={styles.stepButton}>
+        <SpringPressable accessibilityElementsHidden importantForAccessibility="no-hide-descendants" hitSlop={8} onPress={onDecrement} style={styles.stepButton}>
           <Text style={styles.stepText}>−</Text>
-        </Pressable>
-        <Pressable
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          hitSlop={8}
-          onPress={onIncrement}
-          style={styles.stepButton}>
+        </SpringPressable>
+        <SpringPressable accessibilityElementsHidden importantForAccessibility="no-hide-descendants" hitSlop={8} onPress={onIncrement} style={styles.stepButton}>
           <Text style={styles.stepText}>+</Text>
-        </Pressable>
+        </SpringPressable>
       </View>
     </View>
   );
@@ -134,6 +180,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 22,
+    overflow: 'hidden',
   },
   destructiveButton: {backgroundColor: colors.critical},
   primaryButtonText: {
@@ -142,8 +189,14 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     fontWeight: '800',
   },
-  pressed: {opacity: 0.74},
   disabled: {opacity: 0.4},
+  sheen: {
+    position: 'absolute',
+    top: -24,
+    bottom: -24,
+    width: 44,
+    backgroundColor: '#FFFFFF38',
+  },
   row: {
     minHeight: 78,
     flexDirection: 'row',
@@ -154,8 +207,18 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
   },
   rowCopy: {flex: 1},
-  rowLabel: {color: colors.text, fontSize: 18, lineHeight: 23, fontWeight: '700'},
-  rowDescription: {color: colors.muted, fontSize: 15, lineHeight: 21, marginTop: 3},
+  rowLabel: {
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '700',
+  },
+  rowDescription: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 21,
+    marginTop: 3,
+  },
   adjustable: {
     minHeight: 80,
     flexDirection: 'row',
@@ -180,5 +243,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepText: {color: colors.text, fontSize: 28, lineHeight: 30, fontWeight: '600'},
+  stepText: {
+    color: colors.text,
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '600',
+  },
 });

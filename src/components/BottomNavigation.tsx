@@ -1,12 +1,8 @@
 import React from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
-import {
-  House,
-  ScanEye,
-  Settings,
-  type LucideIcon,
-} from 'lucide-react-native';
+import {StyleSheet, Text, View} from 'react-native';
+import {House, ScanEye, Settings, type LucideIcon} from 'lucide-react-native';
 import {colors} from '../config';
+import {Pulse, SpringPressable} from './Motion';
 
 type Tab = 'home' | 'assist' | 'settings';
 
@@ -25,72 +21,44 @@ export function BottomNavigation({
 }) {
   return (
     <View accessibilityRole="tablist" style={styles.navigation}>
-      <NavigationItem
-        icon={House}
-        label="Home"
-        selected={active === 'home'}
-        onPress={onHome}
-      />
-      <Pressable
+      <NavigationItem icon={House} label="Home" selected={active === 'home'} onPress={onHome} />
+      <SpringPressable
         accessibilityRole="tab"
         accessibilityLabel={assistDisabled ? 'Assist unavailable' : 'Start Assist Mode'}
         accessibilityHint={assistDisabled ? 'Camera access is required' : 'Starts the camera and environmental feedback'}
         accessibilityState={{selected: false, disabled: assistDisabled}}
         disabled={assistDisabled}
         onPress={onAssist}
-        style={({pressed}) => [
-          styles.assistItem,
-          assistDisabled && styles.disabled,
-          pressed && styles.pressed,
-        ]}>
+        containerStyle={styles.assistItemContainer}
+        pressedScale={0.93}
+        style={[styles.assistItem, assistDisabled && styles.disabled]}
+      >
+        {!assistDisabled ? (
+          <Pulse minScale={0.72} duration={1400} style={styles.assistPulse}>
+            <View style={styles.assistPulseRing} />
+          </Pulse>
+        ) : null}
         <View style={styles.assistContent}>
-          <View
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants">
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <ScanEye color={colors.cyan} size={24} strokeWidth={2.4} />
           </View>
           <Text style={styles.assistLabel}>Assist</Text>
         </View>
-      </Pressable>
-      <NavigationItem
-        icon={Settings}
-        label="Settings"
-        selected={active === 'settings'}
-        onPress={onSettings}
-      />
+      </SpringPressable>
+      <NavigationItem icon={Settings} label="Settings" selected={active === 'settings'} onPress={onSettings} />
     </View>
   );
 }
 
-function NavigationItem({
-  icon: Icon,
-  label,
-  selected,
-  onPress,
-}: {
-  icon: LucideIcon;
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
+function NavigationItem({icon: Icon, label, selected, onPress}: {icon: LucideIcon; label: string; selected: boolean; onPress: () => void}) {
   return (
-    <Pressable
-      accessibilityRole="tab"
-      accessibilityLabel={label}
-      accessibilityState={{selected}}
-      onPress={onPress}
-      style={({pressed}) => [styles.item, pressed && styles.pressed]}>
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants">
-        <Icon
-          color={selected ? colors.cyan : colors.muted}
-          size={22}
-          strokeWidth={selected ? 2.4 : 2}
-        />
+    <SpringPressable accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{selected}} onPress={onPress} containerStyle={styles.item} pressedScale={0.9} style={styles.itemContent}>
+      {selected ? <View style={styles.selectedGlow} /> : null}
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <Icon color={selected ? colors.cyan : colors.muted} size={22} strokeWidth={selected ? 2.4 : 2} />
       </View>
       <Text style={[styles.label, selected && styles.labelSelected]}>{label}</Text>
-    </Pressable>
+    </SpringPressable>
   );
 }
 
@@ -108,6 +76,9 @@ const styles = StyleSheet.create({
   },
   item: {
     flex: 1,
+  },
+  itemContent: {
+    flex: 1,
     minHeight: 58,
     alignItems: 'center',
     justifyContent: 'center',
@@ -115,16 +86,38 @@ const styles = StyleSheet.create({
   },
   label: {color: colors.muted, fontSize: 13, fontWeight: '600'},
   labelSelected: {color: colors.text},
-  assistItem: {
+  selectedGlow: {
+    position: 'absolute',
+    top: 1,
+    width: 34,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.cyan,
+    shadowColor: colors.cyan,
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+  },
+  assistItemContainer: {
     flex: 1,
-    minHeight: 58,
     marginTop: -8,
     marginBottom: -6,
     marginHorizontal: 5,
+  },
+  assistItem: {
+    flex: 1,
+    minHeight: 58,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     backgroundColor: '#13253A',
     overflow: 'hidden',
+  },
+  assistPulse: {position: 'absolute', left: '50%', marginLeft: -22, top: 9},
+  assistPulseRing: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#3291FF88',
   },
   assistContent: {
     flex: 1,
@@ -134,6 +127,5 @@ const styles = StyleSheet.create({
     paddingTop: 7,
   },
   assistLabel: {color: colors.text, fontSize: 15, fontWeight: '800'},
-  pressed: {opacity: 0.7},
   disabled: {opacity: 0.4},
 });

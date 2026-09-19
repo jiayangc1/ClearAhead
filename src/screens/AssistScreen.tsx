@@ -1,31 +1,14 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {
-  AccessibilityInfo,
-  AppState,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import {AccessibilityInfo, AppState, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {
-  Camera,
-  CommonResolutions,
-  useFrameOutput,
-  type Frame,
-} from 'react-native-vision-camera';
+import {Camera, CommonResolutions, useFrameOutput, type Frame} from 'react-native-vision-camera';
 import {ClearAheadVision} from 'react-native-clear-ahead-vision';
 import {PrimaryButton} from '../components/Controls';
+import {Entrance, Pulse} from '../components/Motion';
 import {SoundField} from '../components/SoundField';
 import {colors, toFeedbackConfiguration} from '../config';
 import {ClearAheadModule} from '../native/ClearAheadModule';
-import type {
-  AppPreferences,
-  DemoScenario,
-  PipelineMetrics,
-  SessionQuality,
-  SessionState,
-  SpatialEvent,
-} from '../types';
+import type {AppPreferences, DemoScenario, PipelineMetrics, SessionQuality, SessionState, SpatialEvent} from '../types';
 import {describeEvent, qualityMessage} from '../utils/eventLogic';
 
 export function AssistScreen({
@@ -71,10 +54,7 @@ export function AssistScreen({
   }, []);
 
   const frameOutput = useFrameOutput({
-    targetResolution:
-      preferences.processingMode === 'responsive'
-        ? CommonResolutions.VGA_16_9
-        : CommonResolutions.HD_16_9,
+    targetResolution: preferences.processingMode === 'responsive' ? CommonResolutions.VGA_16_9 : CommonResolutions.HD_16_9,
     pixelFormat: 'yuv',
     dropFramesWhileBusy: true,
     enablePreviewSizedOutputBuffers: true,
@@ -83,10 +63,7 @@ export function AssistScreen({
       ClearAheadVision.reportDroppedFrame(reason);
     },
   });
-  const cameraConstraints = useMemo(
-    () => [{fps: preferences.processingMode === 'responsive' ? 15 : 30}],
-    [preferences.processingMode],
-  );
+  const cameraConstraints = useMemo(() => [{fps: preferences.processingMode === 'responsive' ? 15 : 30}], [preferences.processingMode]);
   const cameraOutputs = useMemo(() => [frameOutput], [frameOutput]);
 
   useEffect(() => {
@@ -107,11 +84,7 @@ export function AssistScreen({
     ];
 
     const configuration = toFeedbackConfiguration(preferences);
-    const start = ClearAheadModule.updateConfiguration(configuration).then(() =>
-      isDemo
-        ? ClearAheadModule.startDemo(demoScenario)
-        : ClearAheadModule.startSession(configuration),
-    );
+    const start = ClearAheadModule.updateConfiguration(configuration).then(() => (isDemo ? ClearAheadModule.startDemo(demoScenario) : ClearAheadModule.startSession(configuration)));
     start.catch(error => {
       setSessionState('error');
       setStatusMessage(error instanceof Error ? error.message : 'Session could not start');
@@ -141,15 +114,10 @@ export function AssistScreen({
     ClearAheadModule.updateConfiguration(toFeedbackConfiguration(preferences)).catch(() => undefined);
   }, [preferences]);
 
-  const eventDescription = useMemo(
-    () => (event ? describeEvent(event) : 'No priority event'),
-    [event],
-  );
+  const eventDescription = useMemo(() => (event ? describeEvent(event) : 'No priority event'), [event]);
 
   const stop = () => {
-    (isDemo ? ClearAheadModule.stopDemo() : ClearAheadModule.stopSession())
-      .catch(() => undefined)
-      .finally(onStop);
+    (isDemo ? ClearAheadModule.stopDemo() : ClearAheadModule.stopSession()).catch(() => undefined).finally(onStop);
   };
 
   return (
@@ -179,79 +147,79 @@ export function AssistScreen({
         />
       ) : (
         <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, styles.demoBackdrop]}>
+          <Pulse minScale={0.68} duration={1700} style={styles.demoPulseOuter}>
+            <View style={styles.demoRingOuter} />
+          </Pulse>
+          <Pulse minScale={0.78} duration={1200} style={styles.demoPulseInner}>
+            <View style={styles.demoRingInner} />
+          </Pulse>
           <Text style={styles.demoWord}>DEMO</Text>
         </View>
       )}
       <SoundField event={event} />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
-        <View
-          accessible
-          accessibilityLiveRegion="polite"
-          accessibilityLabel={`${statusMessage}. ${qualityMessage(quality)}`}
-          style={styles.statusPill}>
-          <View style={[styles.statusDot, quality !== 'good' && styles.statusDotWarning]} />
-          <Text style={styles.statusText}>
-            {quality === 'good' ? statusMessage : qualityMessage(quality)}
-          </Text>
-          {metrics ? (
-            <Text style={styles.latency}>{Math.round(metrics.endToEndLatencyMs)} ms</Text>
-          ) : null}
-        </View>
+        <Entrance distance={-12} scaleFrom={0.98} style={styles.statusEntrance}>
+          <View accessible accessibilityLiveRegion="polite" accessibilityLabel={`${statusMessage}. ${qualityMessage(quality)}`} style={styles.statusPill}>
+            <Pulse minScale={0.5} duration={quality === 'good' ? 950 : 520}>
+              <View style={[styles.statusDot, quality !== 'good' && styles.statusDotWarning]} />
+            </Pulse>
+            <Text style={styles.statusText}>{quality === 'good' ? statusMessage : qualityMessage(quality)}</Text>
+            {metrics ? <Text style={styles.latency}>{Math.round(metrics.endToEndLatencyMs)} ms</Text> : null}
+          </View>
+        </Entrance>
 
         {preferences.showFps ? (
-          <View accessible accessibilityLabel={metrics
-            ? `Processed ${metrics.cameraFps.toFixed(1)} frames per second. Objects ${metrics.detectorFps.toFixed(1)} per second. Depth ${metrics.depthFps.toFixed(1)} per second. ${metrics.droppedFrames} dropped frames.`
-            : 'Waiting for frame rate measurements'} style={styles.fpsLine}>
-            <Text style={styles.fpsText}>
-              {metrics
-                ? `${metrics.cameraFps.toFixed(0)} fps  ·  objects ${metrics.detectorFps.toFixed(0)}  ·  depth ${metrics.depthFps.toFixed(0)}`
-                : 'Measuring performance…'}
-            </Text>
-          </View>
+          <Entrance delay={120} distance={-8}>
+            <View
+              accessible
+              accessibilityLabel={
+                metrics
+                  ? `Processed ${metrics.cameraFps.toFixed(1)} frames per second. Objects ${metrics.detectorFps.toFixed(1)} per second. Depth ${metrics.depthFps.toFixed(1)} per second. ${
+                      metrics.droppedFrames
+                    } dropped frames.`
+                  : 'Waiting for frame rate measurements'
+              }
+              style={styles.fpsLine}
+            >
+              <Text style={styles.fpsText}>
+                {metrics ? `${metrics.cameraFps.toFixed(0)} fps  ·  objects ${metrics.detectorFps.toFixed(0)}  ·  depth ${metrics.depthFps.toFixed(0)}` : 'Measuring performance…'}
+              </Text>
+            </View>
+          </Entrance>
         ) : null}
 
         <View style={styles.spacer} />
 
         <View style={styles.bottomGroup}>
-          <View
-            accessible
-            accessibilityLiveRegion="polite"
-            accessibilityLabel={eventDescription}
-            style={[
-              styles.eventCard,
-              event?.collisionRisk === 'caution' && styles.eventCardCaution,
-              event?.collisionRisk === 'imminent' && styles.eventCardCritical,
-            ]}>
-            <View style={styles.eventHeader}>
-              <Text style={styles.eventEyebrow}>
-                {event?.collisionRisk === 'imminent'
-                  ? 'COLLISION LIKELY'
-                  : event?.collisionRisk === 'caution'
+          <Entrance key={`${event?.id ?? 'clear'}-${event?.collisionRisk ?? 'none'}`} distance={16} scaleFrom={0.96}>
+            <View
+              accessible
+              accessibilityLiveRegion="polite"
+              accessibilityLabel={eventDescription}
+              style={[styles.eventCard, event?.collisionRisk === 'caution' && styles.eventCardCaution, event?.collisionRisk === 'imminent' && styles.eventCardCritical]}
+            >
+              <View style={styles.eventHeader}>
+                <Text style={styles.eventEyebrow}>
+                  {event?.collisionRisk === 'imminent'
+                    ? 'COLLISION LIKELY'
+                    : event?.collisionRisk === 'caution'
                     ? 'POSSIBLE COLLISION'
                     : event
-                      ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
-                      : 'FIELD CLEAR'}
+                    ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
+                    : 'FIELD CLEAR'}
+                </Text>
+                {!event ? <View style={styles.clearMark} /> : null}
+              </View>
+              <Text style={styles.eventTitle}>
+                {event?.collisionRisk === 'imminent' ? 'Stop' : event?.collisionRisk === 'caution' ? 'Caution' : event ? event.kind.replace('-', ' ') : 'Listening'}
               </Text>
-              {!event ? <View style={styles.clearMark} /> : null}
+              {event ? <Text style={styles.eventDescription}>{eventDescription}</Text> : null}
             </View>
-            <Text style={styles.eventTitle}>
-              {event?.collisionRisk === 'imminent'
-                ? 'Stop'
-                : event?.collisionRisk === 'caution'
-                  ? 'Caution'
-                  : event
-                    ? event.kind.replace('-', ' ')
-                    : 'Listening'}
-            </Text>
-            {event ? <Text style={styles.eventDescription}>{eventDescription}</Text> : null}
-          </View>
+          </Entrance>
 
-          <PrimaryButton
-            label={isDemo ? 'Stop demo' : 'Stop Assist Mode'}
-            hint="Stops the camera and all feedback immediately"
-            destructive
-            onPress={stop}
-          />
+          <Entrance delay={120} distance={12}>
+            <PrimaryButton label={isDemo ? 'Stop demo' : 'Stop Assist Mode'} hint="Stops the camera and all feedback immediately" destructive onPress={stop} />
+          </Entrance>
         </View>
       </SafeAreaView>
     </View>
@@ -261,23 +229,118 @@ export function AssistScreen({
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: colors.black},
   safeArea: {flex: 1, paddingHorizontal: 14, paddingVertical: 10},
-  statusPill: {minHeight: 44, alignSelf: 'stretch', borderRadius: 9, backgroundColor: '#080808E8', borderWidth: 1, borderColor: '#FFFFFF24', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 8},
-  statusDot: {width: 7, height: 7, borderRadius: 4, backgroundColor: colors.cyan},
+  statusEntrance: {alignSelf: 'stretch'},
+  statusPill: {
+    minHeight: 44,
+    alignSelf: 'stretch',
+    borderRadius: 9,
+    backgroundColor: '#080808E8',
+    borderWidth: 1,
+    borderColor: '#FFFFFF24',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.cyan,
+  },
   statusDotWarning: {backgroundColor: colors.amber},
   statusText: {color: colors.text, fontSize: 14, fontWeight: '700', flex: 1},
-  latency: {color: colors.muted, fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums']},
-  fpsLine: {alignSelf: 'flex-start', marginTop: 7, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 6, backgroundColor: '#080808CC'},
-  fpsText: {color: '#D4D4D4', fontSize: 10, fontWeight: '600', fontVariant: ['tabular-nums']},
+  latency: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  fpsLine: {
+    alignSelf: 'flex-start',
+    marginTop: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: '#080808CC',
+  },
+  fpsText: {
+    color: '#D4D4D4',
+    fontSize: 10,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
   spacer: {flex: 1},
   bottomGroup: {gap: 10},
-  eventCard: {backgroundColor: '#080808E8', borderWidth: 1, borderColor: '#FFFFFF24', borderLeftWidth: 3, borderLeftColor: colors.cyan, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12},
+  eventCard: {
+    backgroundColor: '#080808E8',
+    borderWidth: 1,
+    borderColor: '#FFFFFF24',
+    borderLeftWidth: 3,
+    borderLeftColor: colors.cyan,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
   eventCardCaution: {borderLeftColor: colors.amber},
   eventCardCritical: {borderLeftColor: colors.critical},
-  eventHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
-  clearMark: {width: 7, height: 7, borderRadius: 4, backgroundColor: colors.cyan},
-  eventEyebrow: {color: colors.cyan, fontSize: 10, fontWeight: '800', letterSpacing: 1.4},
-  eventTitle: {color: colors.text, fontSize: 24, lineHeight: 29, fontWeight: '800', textTransform: 'capitalize', marginTop: 2},
-  eventDescription: {color: '#D4D4D4', fontSize: 14, lineHeight: 19, marginTop: 2},
-  demoBackdrop: {backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center'},
-  demoWord: {color: colors.line, fontSize: 54, fontWeight: '900', letterSpacing: 6},
+  eventHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  clearMark: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.cyan,
+  },
+  eventEyebrow: {
+    color: colors.cyan,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  eventTitle: {
+    color: colors.text,
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '800',
+    textTransform: 'capitalize',
+    marginTop: 2,
+  },
+  eventDescription: {
+    color: '#D4D4D4',
+    fontSize: 14,
+    lineHeight: 19,
+    marginTop: 2,
+  },
+  demoBackdrop: {
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  demoPulseOuter: {position: 'absolute'},
+  demoPulseInner: {position: 'absolute'},
+  demoRingOuter: {
+    width: 310,
+    height: 310,
+    borderRadius: 155,
+    borderWidth: 1,
+    borderColor: '#3291FF32',
+  },
+  demoRingInner: {
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    borderWidth: 1,
+    borderColor: '#3291FF52',
+  },
+  demoWord: {
+    color: colors.line,
+    fontSize: 54,
+    fontWeight: '900',
+    letterSpacing: 6,
+  },
 });
