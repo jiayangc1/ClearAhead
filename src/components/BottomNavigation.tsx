@@ -43,12 +43,14 @@ export function BottomNavigation({
           assistDisabled && styles.disabled,
           pressed && styles.pressed,
         ]}>
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants">
-          <ScanEye color={colors.cyan} size={23} strokeWidth={2.4} />
+        <View style={styles.assistContent}>
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants">
+            <ScanEye color={colors.cyan} size={24} strokeWidth={2.4} />
+          </View>
+          <Text style={styles.assistLabel}>Assist</Text>
         </View>
-        <Text style={styles.assistLabel}>Assist</Text>
       </Pressable>
       <NavigationItem
         icon={Settings}
@@ -116,14 +118,20 @@ const styles = StyleSheet.create({
   assistItem: {
     flex: 1,
     minHeight: 58,
+    marginTop: -8,
+    marginBottom: -6,
+    marginHorizontal: 5,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    backgroundColor: '#13253A',
+    overflow: 'hidden',
+  },
+  assistContent: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    marginHorizontal: 4,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.cyan,
-    backgroundColor: colors.surfaceRaised,
+    paddingTop: 7,
   },
   assistLabel: {color: colors.text, fontSize: 15, fontWeight: '800'},
   pressed: {opacity: 0.7},
