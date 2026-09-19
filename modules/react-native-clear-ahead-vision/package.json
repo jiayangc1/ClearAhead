@@ -43,7 +43,7 @@
   "repository": "https://github.com/jiayangc1/cac.git",
   "homepage": "https://github.com/jiayangc1/cac/tree/main/modules/react-native-clear-ahead-vision",
   "author": "Jiayang Chen",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "devDependencies": {
     "@types/react": "19.2.0",
     "nitrogen": "0.37.0",

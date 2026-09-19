@@ -71,6 +71,7 @@ yarn-error.log
 modules/react-native-clear-ahead-vision/models/*.mlmodel
 modules/react-native-clear-ahead-vision/models/*.mlpackage/
 modules/react-native-clear-ahead-vision/models/__MACOSX/
+modules/react-native-clear-ahead-vision/models/model-manifest.json
 
 # Yarn
 .yarn/*

@@ -1,15 +1,26 @@
 # Core ML models
 
-Run `npm run models` from the repository root to download and verify:
+The application uses two Ultralytics YOLO26 nano models:
 
-- Apple YOLOv3 Tiny Int8 LUT for COCO object localization (MIT model card)
-- Apple Depth Anything V2 Small F16 P6 for relative depth (Apache-2.0)
+- `YOLO26n.mlpackage` for COCO object detection
+- `YOLO26nDepth.mlpackage` for dense monocular metric depth
 
-The binary model assets are intentionally ignored by Git. The download script
-uses fixed Apple URLs and SHA-256 checksums, and CocoaPods packages the resulting
-`.mlmodel` and `.mlpackage` resources into the iOS app.
+Install the pinned exporter in a Python virtual environment, then build and
+verify both packages:
 
-Source and license information:
+```sh
+python3 -m pip install -r scripts/model-requirements.txt
+npm run models
+```
 
-- https://huggingface.co/apple/coreml-YOLOv3
-- https://huggingface.co/apple/coreml-depth-anything-v2-small
+The installer downloads `yolo26n.pt` and `yolo26n-depth.pt` from the official
+Ultralytics `v8.4.0` assets release, verifies GitHub's published SHA-256 digest,
+exports fixed 640-pixel INT8 Core ML packages, and rejects unexpected output
+shapes. Generated packages and their manifest are intentionally ignored by Git.
+
+Ultralytics software and model weights are licensed under AGPL-3.0. ClearAhead
+is distributed on that basis; deployments that cannot meet AGPL-3.0 must obtain
+an Ultralytics Enterprise license before distributing these models.
+
+- https://github.com/ultralytics/ultralytics
+- https://www.gnu.org/licenses/agpl-3.0.html

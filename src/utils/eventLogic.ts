@@ -55,6 +55,7 @@ export function qualityMessage(quality: SessionQuality): string {
     good: 'Camera view is clear',
     'low-light': 'Low light. Detection may be less reliable.',
     'camera-covered': 'Camera may be covered. Check the lens.',
+    'camera-too-close': 'Camera too close. Move it back.',
     'moving-too-fast': 'Phone is moving too quickly. Slow down.',
     'thermal-limited': 'Device is warm. Processing has slowed.',
     overloaded: 'Processing is behind. Hold the phone steady.',
