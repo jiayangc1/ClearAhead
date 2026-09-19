@@ -1,9 +1,7 @@
 import React from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {colors} from '../config';
-import type {Direction, SpatialEvent} from '../types';
-
-const directions: Direction[] = ['left', 'center', 'right'];
+import type {SpatialEvent} from '../types';
 
 export function SoundField({event}: {event?: SpatialEvent}) {
   return (
@@ -12,20 +10,6 @@ export function SoundField({event}: {event?: SpatialEvent}) {
       accessible={false}
       importantForAccessibility="no-hide-descendants"
       style={StyleSheet.absoluteFill}>
-      <View style={styles.sectors}>
-        {directions.map(direction => (
-          <View
-            key={direction}
-            style={[
-              styles.sector,
-              direction !== 'right' && styles.sectorDivider,
-              event?.direction === direction && styles.activeSector,
-            ]}>
-            <Text style={styles.directionLabel}>{direction.toUpperCase()}</Text>
-          </View>
-        ))}
-      </View>
-      <View style={styles.horizon} />
       {event?.box ? (
         <View
           style={[
@@ -35,11 +19,15 @@ export function SoundField({event}: {event?: SpatialEvent}) {
               top: `${event.box.y * 100}%`,
               width: `${event.box.width * 100}%`,
               height: `${event.box.height * 100}%`,
-              borderColor:
-                event.urgency > 0.76 ? colors.critical : colors.amber,
             },
           ]}>
-          <Text style={styles.boxLabel}>{event.kind.toUpperCase()}</Text>
+          <View style={[styles.corner, styles.topLeft, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
+          <View style={[styles.corner, styles.topRight, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
+          <View style={[styles.corner, styles.bottomLeft, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
+          <View style={[styles.corner, styles.bottomRight, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
+          <Text style={[styles.boxLabel, event.urgency > 0.76 && styles.criticalLabel]}>
+            {event.kind.replace('-', ' ')}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -47,32 +35,23 @@ export function SoundField({event}: {event?: SpatialEvent}) {
 }
 
 const styles = StyleSheet.create({
-  sectors: {flex: 1, flexDirection: 'row'},
-  sector: {flex: 1, paddingTop: 14, alignItems: 'center'},
-  sectorDivider: {borderRightWidth: 1, borderRightColor: '#F7FBFF44'},
-  activeSector: {backgroundColor: '#55D6FF22'},
-  directionLabel: {
-    color: '#F7FBFFAA',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.8,
-  },
-  horizon: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    top: '62%',
-    height: 1,
-    backgroundColor: '#F7FBFF55',
-  },
-  detectionBox: {position: 'absolute', borderWidth: 3, borderRadius: 12},
+  detectionBox: {position: 'absolute'},
+  corner: {position: 'absolute', width: 20, height: 20},
+  cautionCorner: {borderColor: colors.amber},
+  criticalCorner: {borderColor: colors.critical},
+  topLeft: {left: 0, top: 0, borderLeftWidth: 2, borderTopWidth: 2},
+  topRight: {right: 0, top: 0, borderRightWidth: 2, borderTopWidth: 2},
+  bottomLeft: {left: 0, bottom: 0, borderLeftWidth: 2, borderBottomWidth: 2},
+  bottomRight: {right: 0, bottom: 0, borderRightWidth: 2, borderBottomWidth: 2},
   boxLabel: {
     alignSelf: 'flex-start',
     color: colors.night,
     backgroundColor: colors.amber,
-    fontSize: 11,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '800',
     paddingHorizontal: 6,
     paddingVertical: 3,
+    textTransform: 'capitalize',
   },
+  criticalLabel: {backgroundColor: colors.critical, color: colors.text},
 });

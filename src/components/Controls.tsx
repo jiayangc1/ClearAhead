@@ -128,8 +128,8 @@ export function AdjustableRow({
 
 const styles = StyleSheet.create({
   primaryButton: {
-    minHeight: 64,
-    borderRadius: 18,
+    minHeight: 58,
+    borderRadius: 9,
     backgroundColor: colors.cyan,
     alignItems: 'center',
     justifyContent: 'center',
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
   destructiveButton: {backgroundColor: colors.critical},
   primaryButtonText: {
     color: colors.night,
-    fontSize: 20,
+    fontSize: 18,
     lineHeight: 25,
     fontWeight: '800',
   },
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   stepButton: {
     width: 48,
     height: 48,
-    borderRadius: 16,
+    borderRadius: 8,
     backgroundColor: colors.surfaceRaised,
     alignItems: 'center',
     justifyContent: 'center',

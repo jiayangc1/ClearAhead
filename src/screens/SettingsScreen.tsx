@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {BrandLogo} from '../components/BrandLogo';
+import {BottomNavigation} from '../components/BottomNavigation';
 import {AdjustableRow, ToggleRow} from '../components/Controls';
 import {colors} from '../config';
 import type {AppPreferences, EventKind, MountingMode, ProcessingMode} from '../types';
@@ -17,11 +19,17 @@ const speechCategories: Array<{kind: EventKind; label: string}> = [
 export function SettingsScreen({
   preferences,
   onChange,
-  onDone,
+  onHome,
+  onAssist,
+  onSettings,
+  hasCameraPermission,
 }: {
   preferences: AppPreferences;
   onChange: (update: Partial<AppPreferences>) => void;
-  onDone: () => void;
+  onHome: () => void;
+  onAssist: () => void;
+  onSettings: () => void;
+  hasCameraPermission: boolean;
 }) {
   const [openSection, setOpenSection] = useState<string | null>('Performance');
   const sectionProps = (title: string) => ({
@@ -40,14 +48,9 @@ export function SettingsScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
+        <BrandLogo width={64} />
         <Text accessibilityRole="header" style={styles.title}>Settings</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Done with settings"
-          onPress={onDone}
-          style={styles.doneButton}>
-          <Text style={styles.doneText}>Done</Text>
-        </Pressable>
+        <Text style={styles.subtitle}>Tune feedback and detection for the way you move.</Text>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         <Section {...sectionProps('Performance')}>
@@ -156,6 +159,13 @@ export function SettingsScreen({
           Clear Ahead is experimental and can miss hazards. It does not replace a cane, guide dog, or mobility training.
         </Text>
       </ScrollView>
+      <BottomNavigation
+        active="settings"
+        onHome={onHome}
+        onAssist={onAssist}
+        onSettings={onSettings}
+        assistDisabled={!hasCameraPermission}
+      />
     </SafeAreaView>
   );
 }
@@ -208,16 +218,15 @@ function MountingChoice({mode, current, label, onPress}: {mode: MountingMode; cu
 
 const styles = StyleSheet.create({
   safeArea: {flex: 1, backgroundColor: colors.night},
-  header: {paddingHorizontal: 22, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
-  title: {color: colors.text, fontSize: 34, fontWeight: '800'},
-  doneButton: {minWidth: 60, minHeight: 48, alignItems: 'flex-end', justifyContent: 'center'},
-  doneText: {color: colors.cyan, fontSize: 18, fontWeight: '800'},
-  content: {paddingHorizontal: 22, paddingBottom: 44, gap: 28},
+  header: {paddingHorizontal: 20, paddingTop: 28, paddingBottom: 24},
+  title: {color: colors.text, fontSize: 36, lineHeight: 41, fontWeight: '800', letterSpacing: -1.2, marginTop: 10},
+  subtitle: {color: colors.muted, fontSize: 16, lineHeight: 23, marginTop: 8},
+  content: {paddingHorizontal: 20, paddingBottom: 32, gap: 18},
   section: {gap: 8},
-  sectionHeader: {minHeight: 56, paddingHorizontal: 18, borderRadius: 16, backgroundColor: colors.surfaceRaised, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+  sectionHeader: {minHeight: 56, paddingHorizontal: 16, borderRadius: 10, backgroundColor: colors.surfaceRaised, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
   sectionTitle: {color: colors.text, fontSize: 18, fontWeight: '800'},
   sectionIndicator: {color: colors.cyan, fontSize: 25, fontWeight: '700'},
-  sectionBody: {backgroundColor: colors.surface, borderRadius: 20, paddingHorizontal: 18, overflow: 'hidden'},
+  sectionBody: {backgroundColor: colors.surface, borderRadius: 10, paddingHorizontal: 16, overflow: 'hidden'},
   sectionHelp: {color: colors.muted, fontSize: 15, lineHeight: 21, paddingTop: 18, paddingBottom: 8},
   processingChoice: {minHeight: 92, paddingVertical: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line},
   processingChoiceSelected: {borderLeftWidth: 4, borderLeftColor: colors.cyan, paddingLeft: 12},

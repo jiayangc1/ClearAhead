@@ -1,15 +1,15 @@
 import type {AppPreferences, FeedbackConfiguration} from './types';
 
 export const colors = {
-  night: '#071018',
-  surface: '#101D27',
-  surfaceRaised: '#182A37',
-  text: '#F7FBFF',
-  muted: '#A8BBC8',
-  cyan: '#55D6FF',
-  amber: '#FFB547',
-  critical: '#FF665E',
-  line: '#294250',
+  night: '#000000',
+  surface: '#111111',
+  surfaceRaised: '#1C1C1C',
+  text: '#F2F2F2',
+  muted: '#A1A1A1',
+  cyan: '#3291FF',
+  amber: '#F5A623',
+  critical: '#FF4545',
+  line: '#2E2E2E',
   black: '#000000',
 } as const;
 

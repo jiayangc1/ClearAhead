@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {ActivityIndicator, StatusBar, StyleSheet, View} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {useCameraPermission} from 'react-native-vision-camera';
+import {BrandLogo} from './src/components/BrandLogo';
 import {colors, toFeedbackConfiguration} from './src/config';
 import {usePreferences} from './src/hooks/usePreferences';
 import {ClearAheadModule} from './src/native/ClearAheadModule';
@@ -25,6 +26,7 @@ export default function App() {
   if (!isHydrated) {
     return (
       <View style={styles.loading} accessibilityLabel="Loading Clear Ahead">
+        <BrandLogo width={112} accessible={false} />
         <ActivityIndicator size="large" color={colors.cyan} />
       </View>
     );
@@ -67,13 +69,17 @@ export default function App() {
             setRoute({name: 'assist', demoScenario: 'crossing-person'})
           }
           onSettings={() => setRoute({name: 'settings'})}
+          onHome={() => setRoute({name: 'home'})}
         />
       ) : null}
       {route.name === 'settings' ? (
         <SettingsScreen
           preferences={preferences}
           onChange={setPreferences}
-          onDone={() => setRoute({name: 'home'})}
+          hasCameraPermission={cameraPermission.hasPermission}
+          onHome={() => setRoute({name: 'home'})}
+          onAssist={() => setRoute({name: 'assist'})}
+          onSettings={() => setRoute({name: 'settings'})}
         />
       ) : null}
       {route.name === 'assist' ? (
@@ -94,5 +100,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.night,
+    gap: 24,
   },
 });

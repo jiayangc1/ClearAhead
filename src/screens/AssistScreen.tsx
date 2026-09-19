@@ -2,7 +2,6 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
   AppState,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -185,7 +184,6 @@ export function AssistScreen({
       )}
       <SoundField event={event} />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.overlayContent}>
         <View
           accessible
           accessibilityLiveRegion="polite"
@@ -196,64 +194,65 @@ export function AssistScreen({
             {quality === 'good' ? statusMessage : qualityMessage(quality)}
           </Text>
           {metrics ? (
-            <Text style={styles.latency}>{Math.round(metrics.endToEndLatencyMs)} MS</Text>
+            <Text style={styles.latency}>{Math.round(metrics.endToEndLatencyMs)} ms</Text>
           ) : null}
         </View>
 
         {preferences.showFps ? (
           <View accessible accessibilityLabel={metrics
             ? `Processed ${metrics.cameraFps.toFixed(1)} frames per second. Objects ${metrics.detectorFps.toFixed(1)} per second. Depth ${metrics.depthFps.toFixed(1)} per second. ${metrics.droppedFrames} dropped frames.`
-            : 'Waiting for frame rate measurements'} style={styles.fpsCard}>
-            <Text style={styles.fpsLabel}>PROCESSING RATE</Text>
-            <Text style={styles.fpsValue}>
-              {metrics ? `${metrics.cameraFps.toFixed(1)} fps` : 'Measuring…'}
+            : 'Waiting for frame rate measurements'} style={styles.fpsLine}>
+            <Text style={styles.fpsText}>
+              {metrics
+                ? `${metrics.cameraFps.toFixed(0)} fps  ·  objects ${metrics.detectorFps.toFixed(0)}  ·  depth ${metrics.depthFps.toFixed(0)}`
+                : 'Measuring performance…'}
             </Text>
-            {metrics ? (
-              <Text style={styles.fpsDetail}>
-                Objects {metrics.detectorFps.toFixed(1)} · Depth {metrics.depthFps.toFixed(1)} · Dropped {metrics.droppedFrames}
-              </Text>
-            ) : null}
           </View>
         ) : null}
 
         <View style={styles.spacer} />
 
-        <View
-          accessible
-          accessibilityLabel={eventDescription}
-          style={[
-            styles.eventCard,
-            event?.collisionRisk === 'caution' && styles.eventCardCaution,
-            event?.collisionRisk === 'imminent' && styles.eventCardCritical,
-          ]}>
-          <Text style={styles.eventEyebrow}>
-            {event?.collisionRisk === 'imminent'
-              ? 'COLLISION LIKELY'
-              : event?.collisionRisk === 'caution'
-                ? 'POSSIBLE COLLISION'
-                : event
-                  ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
-                  : 'FIELD CLEAR'}
-          </Text>
-          <Text style={styles.eventTitle}>
-            {event?.collisionRisk === 'imminent'
-              ? 'Stop'
-              : event?.collisionRisk === 'caution'
-                ? 'Caution'
-                : event
-                  ? event.kind.replace('-', ' ')
-                  : 'Listening'}
-          </Text>
-          <Text style={styles.eventDescription}>{eventDescription}</Text>
-        </View>
+        <View style={styles.bottomGroup}>
+          <View
+            accessible
+            accessibilityLiveRegion="polite"
+            accessibilityLabel={eventDescription}
+            style={[
+              styles.eventCard,
+              event?.collisionRisk === 'caution' && styles.eventCardCaution,
+              event?.collisionRisk === 'imminent' && styles.eventCardCritical,
+            ]}>
+            <View style={styles.eventHeader}>
+              <Text style={styles.eventEyebrow}>
+                {event?.collisionRisk === 'imminent'
+                  ? 'COLLISION LIKELY'
+                  : event?.collisionRisk === 'caution'
+                    ? 'POSSIBLE COLLISION'
+                    : event
+                      ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
+                      : 'FIELD CLEAR'}
+              </Text>
+              {!event ? <View style={styles.clearMark} /> : null}
+            </View>
+            <Text style={styles.eventTitle}>
+              {event?.collisionRisk === 'imminent'
+                ? 'Stop'
+                : event?.collisionRisk === 'caution'
+                  ? 'Caution'
+                  : event
+                    ? event.kind.replace('-', ' ')
+                    : 'Listening'}
+            </Text>
+            {event ? <Text style={styles.eventDescription}>{eventDescription}</Text> : null}
+          </View>
 
-        <PrimaryButton
-          label={isDemo ? 'Stop demo' : 'Stop assist mode'}
-          hint="Stops the camera and all feedback immediately"
-          destructive
-          onPress={stop}
-        />
-        </ScrollView>
+          <PrimaryButton
+            label={isDemo ? 'Stop demo' : 'Stop Assist Mode'}
+            hint="Stops the camera and all feedback immediately"
+            destructive
+            onPress={stop}
+          />
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -261,24 +260,24 @@ export function AssistScreen({
 
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: colors.black},
-  safeArea: {flex: 1, padding: 18},
-  overlayContent: {flexGrow: 1},
-  statusPill: {minHeight: 52, alignSelf: 'stretch', borderRadius: 16, backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', padding: 15, gap: 10},
-  statusDot: {width: 10, height: 10, borderRadius: 5, backgroundColor: colors.cyan},
+  safeArea: {flex: 1, paddingHorizontal: 14, paddingVertical: 10},
+  statusPill: {minHeight: 44, alignSelf: 'stretch', borderRadius: 9, backgroundColor: '#080808E8', borderWidth: 1, borderColor: '#FFFFFF24', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 8},
+  statusDot: {width: 7, height: 7, borderRadius: 4, backgroundColor: colors.cyan},
   statusDotWarning: {backgroundColor: colors.amber},
-  statusText: {color: colors.text, fontSize: 16, fontWeight: '700', flex: 1},
-  latency: {color: colors.muted, fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 1},
-  fpsCard: {marginTop: 10, padding: 14, borderRadius: 16, backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line},
-  fpsLabel: {color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.2},
-  fpsValue: {color: colors.cyan, fontSize: 25, fontWeight: '800', fontVariant: ['tabular-nums']},
-  fpsDetail: {color: colors.text, fontSize: 14, marginTop: 3},
+  statusText: {color: colors.text, fontSize: 14, fontWeight: '700', flex: 1},
+  latency: {color: colors.muted, fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums']},
+  fpsLine: {alignSelf: 'flex-start', marginTop: 7, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 6, backgroundColor: '#080808CC'},
+  fpsText: {color: '#D4D4D4', fontSize: 10, fontWeight: '600', fontVariant: ['tabular-nums']},
   spacer: {flex: 1},
-  eventCard: {backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line, borderLeftWidth: 5, borderLeftColor: colors.cyan, borderRadius: 18, padding: 20, marginBottom: 12},
+  bottomGroup: {gap: 10},
+  eventCard: {backgroundColor: '#080808E8', borderWidth: 1, borderColor: '#FFFFFF24', borderLeftWidth: 3, borderLeftColor: colors.cyan, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12},
   eventCardCaution: {borderLeftColor: colors.amber},
   eventCardCritical: {borderLeftColor: colors.critical},
-  eventEyebrow: {color: colors.cyan, fontSize: 11, fontWeight: '900', letterSpacing: 1.6},
-  eventTitle: {color: colors.text, fontSize: 31, fontWeight: '900', textTransform: 'capitalize', marginTop: 4},
-  eventDescription: {color: colors.text, fontSize: 16, marginTop: 6},
+  eventHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+  clearMark: {width: 7, height: 7, borderRadius: 4, backgroundColor: colors.cyan},
+  eventEyebrow: {color: colors.cyan, fontSize: 10, fontWeight: '800', letterSpacing: 1.4},
+  eventTitle: {color: colors.text, fontSize: 24, lineHeight: 29, fontWeight: '800', textTransform: 'capitalize', marginTop: 2},
+  eventDescription: {color: '#D4D4D4', fontSize: 14, lineHeight: 19, marginTop: 2},
   demoBackdrop: {backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center'},
-  demoWord: {color: colors.line, fontSize: 74, fontWeight: '900', letterSpacing: 7, transform: [{rotate: '-12deg'}]},
+  demoWord: {color: colors.line, fontSize: 54, fontWeight: '900', letterSpacing: 6},
 });
