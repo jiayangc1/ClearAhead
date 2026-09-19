@@ -3,11 +3,29 @@ import CoreHaptics
 import Foundation
 
 final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
+    private struct PendingSpeech {
+        let text: String
+        let key: String
+        let priority: Double
+        let createdAt: TimeInterval
+    }
+
+    private struct PendingTone {
+        let profile: AudioCueProfile
+        let priority: Double
+    }
+
     private var hapticEngine: CHHapticEngine?
     private let audioEngine = AVAudioEngine()
     private let audioPlayer = AVAudioPlayerNode()
     private let speechSynthesizer = AVSpeechSynthesizer()
+    private let audioQueue = DispatchQueue(label: "com.clearahead.feedback.audio", qos: .userInitiated)
     private var audioFormat: AVAudioFormat?
+    private var tonePlaying = false
+    private var pendingTone: PendingTone?
+    private var pendingSpeech: PendingSpeech?
+    private var lastSpokenKey: String?
+    private var lastSpokenTime: TimeInterval = 0
 
     override init() {
         super.init()
@@ -17,8 +35,16 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     func stop() {
-        audioPlayer.stop()
-        speechSynthesizer.stopSpeaking(at: .immediate)
+        audioQueue.async { [weak self] in
+            self?.pendingTone = nil
+            self?.tonePlaying = false
+            self?.audioPlayer.stop()
+            self?.audioEngine.stop()
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.pendingSpeech = nil
+            self?.speechSynthesizer.stopSpeaking(at: .immediate)
+        }
         hapticEngine?.stop(completionHandler: nil)
     }
 
@@ -32,7 +58,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
             )
         }
         if configuration.audioEnabled {
-            playTone(for: event, configuration: configuration)
+            enqueueTone(for: event, configuration: configuration)
         }
         if configuration.speechEnabled, event.urgency >= 0.68 {
             if event.collisionRisk != .none {
@@ -45,11 +71,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
 
     func speakWarning(_ message: String, configuration: CAFeedbackConfiguration) {
         guard configuration.speechEnabled else { return }
-        speechSynthesizer.stopSpeaking(at: .word)
-        let utterance = AVSpeechUtterance(string: message)
-        utterance.rate = 0.56
-        utterance.preUtteranceDelay = 0
-        speechSynthesizer.speak(utterance)
+        requestSpeech(text: message, key: "warning:\(message)", priority: 2, mayInterrupt: true)
     }
 
     private func prepareHaptics() {
@@ -104,28 +126,62 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         audioFormat = format
         audioEngine.attach(audioPlayer)
         audioEngine.connect(audioPlayer, to: audioEngine.mainMixerNode, format: format)
+        activateAudioEngine()
     }
 
-    private func playTone(for event: CASpatialEvent, configuration: CAFeedbackConfiguration) {
-        let profile = AudioCueProfile(event: event, configuration: configuration)
-        guard let audioBuffer = makeAudioBuffer(profile: profile) else { return }
+    private func activateAudioEngine() {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(
                 .playback,
-                mode: .spokenAudio,
+                mode: .default,
                 options: [.mixWithOthers, .duckOthers, .allowBluetoothA2DP]
             )
             try session.setActive(true)
             if !audioEngine.isRunning { try audioEngine.start() }
-            audioPlayer.pan = profile.pan
-            audioPlayer.volume = profile.gain
-            audioPlayer.stop()
-            audioPlayer.scheduleBuffer(audioBuffer, at: nil, options: [], completionHandler: nil)
-            audioPlayer.play()
         } catch {
-            // Audio failures are surfaced by session quality elsewhere; never block haptics.
+            // A later cue retries activation and engine startup.
         }
+    }
+
+    private func enqueueTone(for event: CASpatialEvent, configuration: CAFeedbackConfiguration) {
+        let pending = PendingTone(
+            profile: AudioCueProfile(event: event, configuration: configuration),
+            priority: event.urgency + (event.collisionRisk == .imminent ? 1 : 0)
+        )
+        audioQueue.async { [weak self] in
+            guard let self else { return }
+            if tonePlaying {
+                if pending.priority >= (pendingTone?.priority ?? -1) {
+                    pendingTone = pending
+                }
+                return
+            }
+            playTone(pending)
+        }
+    }
+
+    private func playTone(_ pending: PendingTone) {
+        guard let audioBuffer = makeAudioBuffer(profile: pending.profile) else { return }
+        activateAudioEngine()
+        guard audioEngine.isRunning else { return }
+        tonePlaying = true
+        audioPlayer.scheduleBuffer(
+            audioBuffer,
+            at: nil,
+            options: [],
+            completionCallbackType: .dataPlayedBack
+        ) { [weak self] _ in
+            self?.audioQueue.async {
+                guard let self else { return }
+                tonePlaying = false
+                if let next = pendingTone {
+                    pendingTone = nil
+                    playTone(next)
+                }
+            }
+        }
+        if !audioPlayer.isPlaying { audioPlayer.play() }
     }
 
     private func makeAudioBuffer(profile: AudioCueProfile) -> AVAudioPCMBuffer? {
@@ -145,6 +201,9 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
             channels[1][frame] = 0
         }
 
+        let normalizedPan = min(max((Double(profile.pan) + 1) / 2, 0), 1)
+        let leftGain = Float(sqrt(1 - normalizedPan)) * profile.gain
+        let rightGain = Float(sqrt(normalizedPan)) * profile.gain
         for pulse in 0..<profile.pulseCount {
             let pulseStart = pulse * (pulseFrames + gapFrames)
             for frame in 0..<pulseFrames {
@@ -155,35 +214,80 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
                     * (profile.startFrequency * elapsed + 0.5 * sweepRate * elapsed * elapsed)
                 let envelope = pow(sin(Double.pi * progress), 2)
                 let sample = Float((sin(phase) + 0.12 * sin(phase * 2)) * envelope * 0.3)
-                channels[0][pulseStart + frame] = sample
-                channels[1][pulseStart + frame] = sample
+                channels[0][pulseStart + frame] = sample * leftGain
+                channels[1][pulseStart + frame] = sample * rightGain
             }
         }
         return buffer
     }
 
     private func speak(_ event: CASpatialEvent) {
-        speechSynthesizer.stopSpeaking(at: .word)
-        let distance: String
-        if let meters = event.approximateDistanceMeters {
-            distance = String(format: "about %.1f meters", meters)
-        } else {
-            distance = event.proximity.rawValue
-        }
+        let distance = event.approximateDistanceMeters.map { String(format: "about %.1f meters", $0) }
+            ?? event.proximity.rawValue
         let clock = event.direction == .left ? "10 o'clock" : event.direction == .right ? "2 o'clock" : "12 o'clock"
-        let utterance = AVSpeechUtterance(string: "\(event.kind.rawValue), \(distance), \(clock)")
+        requestSpeech(
+            text: "\(event.kind.rawValue), \(distance), \(clock)",
+            key: "event:\(event.id):\(event.proximity.rawValue)",
+            priority: event.urgency,
+            mayInterrupt: false
+        )
+    }
+
+    private func speakCollision(_ event: CASpatialEvent) {
+        let direction = event.direction == .center ? "ahead" : "to the \(event.direction.rawValue)"
+        let instruction = event.collisionRisk == .imminent ? "Stop." : "Caution."
+        requestSpeech(
+            text: "\(instruction) \(event.kind.rawValue) \(direction).",
+            key: "collision:\(event.id):\(event.collisionRisk.rawValue)",
+            priority: event.collisionRisk == .imminent ? 2 : 1,
+            mayInterrupt: event.collisionRisk == .imminent
+        )
+    }
+
+    private func requestSpeech(text: String, key: String, priority: Double, mayInterrupt: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            guard key != lastSpokenKey || now - lastSpokenTime >= 2.5 else { return }
+            let speech = PendingSpeech(text: text, key: key, priority: priority, createdAt: now)
+            if mayInterrupt, speechSynthesizer.isSpeaking {
+                pendingSpeech = nil
+                speechSynthesizer.stopSpeaking(at: .immediate)
+                startSpeech(speech)
+            } else if speechSynthesizer.isSpeaking {
+                if priority >= (pendingSpeech?.priority ?? -1) {
+                    pendingSpeech = speech
+                }
+            } else {
+                startSpeech(speech)
+            }
+        }
+    }
+
+    private func startSpeech(_ speech: PendingSpeech) {
+        lastSpokenKey = speech.key
+        lastSpokenTime = ProcessInfo.processInfo.systemUptime
+        let utterance = AVSpeechUtterance(string: speech.text)
         utterance.rate = 0.58
         utterance.preUtteranceDelay = 0
         speechSynthesizer.speak(utterance)
     }
 
-    private func speakCollision(_ event: CASpatialEvent) {
-        speechSynthesizer.stopSpeaking(at: .immediate)
-        let direction = event.direction == .center ? "ahead" : "to the \(event.direction.rawValue)"
-        let instruction = event.collisionRisk == .imminent ? "Stop." : "Caution."
-        let utterance = AVSpeechUtterance(string: "\(instruction) \(event.kind.rawValue) \(direction).")
-        utterance.rate = 0.58
-        utterance.preUtteranceDelay = 0
-        speechSynthesizer.speak(utterance)
+    private func drainPendingSpeech() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !speechSynthesizer.isSpeaking, let pendingSpeech else { return }
+            self.pendingSpeech = nil
+            if ProcessInfo.processInfo.systemUptime - pendingSpeech.createdAt <= 1.5 {
+                startSpeech(pendingSpeech)
+            }
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        drainPendingSpeech()
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        drainPendingSpeech()
     }
 }

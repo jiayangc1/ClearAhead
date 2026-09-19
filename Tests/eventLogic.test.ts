@@ -68,6 +68,7 @@ test('collision descriptions prioritize predicted impact over approximate distan
 
 test('quality messages provide a corrective action', () => {
   assert.match(qualityMessage('camera-covered'), /Check the lens/);
+  assert.match(qualityMessage('camera-too-close'), /Move it back/);
   assert.match(qualityMessage('moving-too-fast'), /Slow down/);
   assert.match(qualityMessage('thermal-limited'), /slowed/);
 });

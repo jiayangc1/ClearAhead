@@ -11,6 +11,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {
   Camera,
   CommonResolutions,
+  useCameraDevices,
   useFrameOutput,
   type Frame,
 } from 'react-native-vision-camera';
@@ -48,6 +49,18 @@ export function AssistScreen({
   const [isForeground, setIsForeground] = useState(AppState.currentState === 'active');
   const isDemo = demoScenario != null;
   const previousQuality = useRef(quality);
+  const cameraDevices = useCameraDevices();
+  const cameraDevice = useMemo(() => {
+    const backDevices = cameraDevices.filter(device => device.position === 'back');
+    return (
+      backDevices.find(device => device.type === 'ultra-wide-angle') ??
+      [...backDevices].sort(
+        (left, right) =>
+          (left.focalLength ?? Number.MAX_VALUE) -
+          (right.focalLength ?? Number.MAX_VALUE),
+      )[0]
+    );
+  }, [cameraDevices]);
 
   useEffect(() => {
     if (quality !== previousQuality.current && quality !== 'good') {
@@ -155,10 +168,10 @@ export function AssistScreen({
 
   return (
     <View style={styles.root}>
-      {!isDemo ? (
+      {!isDemo && cameraDevice ? (
         <Camera
           style={StyleSheet.absoluteFill}
-          device="back"
+          device={cameraDevice}
           isActive={isForeground && sessionState !== 'idle' && sessionState !== 'error'}
           constraints={cameraConstraints}
           outputs={cameraOutputs}
@@ -178,11 +191,11 @@ export function AssistScreen({
             setStatusMessage('Camera active');
           }}
         />
-      ) : (
+      ) : isDemo ? (
         <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, styles.demoBackdrop]}>
           <Text style={styles.demoWord}>DEMO</Text>
         </View>
-      )}
+      ) : null}
       <SoundField event={event} />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.overlayContent}>

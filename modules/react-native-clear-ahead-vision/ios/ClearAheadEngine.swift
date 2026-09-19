@@ -19,10 +19,11 @@ final class ClearAheadEngine {
     private var sessionActive = false
     private var demoTimer: DispatchSourceTimer?
 
-    private lazy var objectModel = loadModel(named: ["YOLOv3TinyInt8LUT", "YOLOv3TinyFP16", "YOLOv3Tiny"])
-    private lazy var depthModel = loadModel(named: ["DepthAnythingV2SmallF16P6", "DepthAnythingV2SmallF16"])
+    private lazy var objectModel = loadModel(named: ["YOLO26n"])
+    private lazy var depthModel = loadModel(named: ["YOLO26nDepth"])
     private var objectEvents: [CASpatialEvent] = []
     private var depthEvents: [CASpatialEvent] = []
+    private var latestDepthMap: CADepthMap?
     private var loomingEvent: CASpatialEvent?
     private var depthPersistence: [CADirection: Int] = [:]
     private var latestDepthSupport = 0.0
@@ -41,6 +42,11 @@ final class ClearAheadEngine {
     private var metricWindowStart = ProcessInfo.processInfo.systemUptime
     private var latestLatencyMs = 0.0
     private var lastQuality = "good"
+    private var baseImageQuality = "good"
+    private var baseImageQualityMessage = "Camera view is clear"
+    private var cameraTooClose = false
+    private var closeDepthFrames = 0
+    private var clearDepthFrames = 0
     private var transientQualityUntil: TimeInterval = 0
     private var interruptedSessionWasActive = false
     private var hasVisibleEvent = false
@@ -72,11 +78,16 @@ final class ClearAheadEngine {
         opticalFlowAnalyzer.reset()
         objectEvents = []
         depthEvents = []
+        latestDepthMap = nil
         loomingEvent = nil
         depthPersistence = [:]
         latestDepthSupport = 0
         latestDepthSupportTime = 0
         hasVisibleEvent = false
+        cameraTooClose = false
+        closeDepthFrames = 0
+        clearDepthFrames = 0
+        lastQuality = ""
         inferenceCount = 0
         stateLock.lock()
         droppedFrameCount = 0
@@ -157,7 +168,11 @@ final class ClearAheadEngine {
         let depthDue = depthModel != nil && startedAt - lastDepthInference >= depthInterval
         let depthStride = responsive ? 4 : 2
         if depthDue && (!objectDue || inferenceCount % depthStride == depthStride - 1) {
-            depthEvents = estimateDepthEvents(pixelBuffer: pixelBuffer, now: startedAt)
+            depthEvents = estimateDepthEvents(
+                pixelBuffer: pixelBuffer,
+                now: startedAt,
+                configuration: currentConfiguration
+            )
             lastDepthInference = startedAt
             depthInferenceCount += 1
             inferenceCount += 1
@@ -259,17 +274,36 @@ final class ClearAheadEngine {
             return []
         }
 
-        let detections = (request.results as? [VNRecognizedObjectObservation] ?? []).compactMap { observation -> CAObjectDetection? in
-            guard let label = observation.labels.first,
-                  let kind = eventKind(for: label.identifier) else { return nil }
-            let box = observation.boundingBox
-            let distance = approximateDistance(kind: kind, boundingBox: box)
-            return CAObjectDetection(
-                kind: kind,
-                box: box,
-                distanceMeters: distance,
-                confidence: Double(label.confidence)
-            )
+        let recognized = request.results as? [VNRecognizedObjectObservation] ?? []
+        let detections: [CAObjectDetection]
+        if !recognized.isEmpty {
+            detections = recognized.compactMap { observation in
+                guard let label = observation.labels.first,
+                      let kind = eventKind(for: label.identifier) else { return nil }
+                let box = observation.boundingBox
+                return CAObjectDetection(
+                    kind: kind,
+                    box: box,
+                    distanceMeters: latestDepthMap?.distance(inVisionBox: box)
+                        ?? approximateDistance(kind: kind, boundingBox: box),
+                    confidence: Double(label.confidence)
+                )
+            }
+        } else {
+            let featureArrays = (request.results as? [VNCoreMLFeatureValueObservation] ?? [])
+                .compactMap { $0.featureValue.multiArrayValue }
+            detections = featureArrays
+                .flatMap(CAModelOutputDecoder.detections)
+                .compactMap { detection in
+                    guard let kind = eventKind(forCOCOClass: detection.classIdentifier) else { return nil }
+                    return CAObjectDetection(
+                        kind: kind,
+                        box: detection.box,
+                        distanceMeters: latestDepthMap?.distance(inVisionBox: detection.box)
+                            ?? approximateDistance(kind: kind, boundingBox: detection.box),
+                        confidence: detection.confidence
+                    )
+                }
         }
         return collisionTracker.update(
             detections: detections,
@@ -279,7 +313,11 @@ final class ClearAheadEngine {
         )
     }
 
-    private func estimateDepthEvents(pixelBuffer: CVPixelBuffer, now: TimeInterval) -> [CASpatialEvent] {
+    private func estimateDepthEvents(
+        pixelBuffer: CVPixelBuffer,
+        now: TimeInterval,
+        configuration: CAFeedbackConfiguration
+    ) -> [CASpatialEvent] {
         guard let depthModel else { return [] }
         let request = VNCoreMLRequest(model: depthModel)
         request.imageCropAndScaleOption = .scaleFill
@@ -294,45 +332,40 @@ final class ClearAheadEngine {
         }), let array = feature.featureValue.multiArrayValue else {
             return []
         }
-        return depthEvents(from: array, now: now)
+        guard let depthMap = CADepthMap(array: array) else { return [] }
+        latestDepthMap = depthMap
+        updateCloseCameraState(from: depthMap)
+        return depthEvents(from: depthMap, now: now, configuration: configuration)
     }
 
-    private func depthEvents(from array: MLMultiArray, now: TimeInterval) -> [CASpatialEvent] {
-        let shape = array.shape.map(\.intValue)
-        guard shape.count >= 2 else { return [] }
-        let height = shape[shape.count - 2]
-        let width = shape[shape.count - 1]
-        guard width > 6, height > 6 else { return [] }
-
-        let sampleStep = max(2, min(width, height) / 36)
-        var global: [Double] = []
-        var sectors: [[Double]] = Array(repeating: [], count: 3)
-        for y in stride(from: height / 3, to: height, by: sampleStep) {
-            for x in stride(from: 0, to: width, by: sampleStep) {
-                let value = array[y * width + x].doubleValue
-                guard value.isFinite else { continue }
-                global.append(value)
-                sectors[min(2, x * 3 / width)].append(value)
-            }
+    private func depthEvents(
+        from depthMap: CADepthMap,
+        now: TimeInterval,
+        configuration: CAFeedbackConfiguration
+    ) -> [CASpatialEvent] {
+        let sectors = (0..<3).map { index in
+            depthMap.samples(
+                in: CGRect(x: Double(index) / 3, y: 0.28, width: 1.0 / 3, height: 0.72),
+                step: max(2, min(depthMap.width, depthMap.height) / 40)
+            )
         }
-        guard global.count > 20,
-              let minimum = global.min(),
-              let maximum = global.max(),
-              maximum - minimum > 0.0001 else { return [] }
-        let median = percentile(global, fraction: 0.5)
         let directions: [CADirection] = [.left, .center, .right]
         var observedDirections = Set<CADirection>()
         let events = sectors.enumerated().compactMap { index, values -> CASpatialEvent? in
-            guard values.count > 5 else { return nil }
-            let nearValue = percentile(values, fraction: 0.86)
-            let normalizedContrast = (nearValue - median) / (maximum - minimum)
-            guard normalizedContrast > 0.2 else { return nil }
-            let proximity: CAProximity = normalizedContrast > 0.58 ? .near : .medium
+            guard values.count > 12 else { return nil }
+            let nearDistance = CADepthMap.percentile(values, fraction: 0.22)
+            let closeCoverage = Double(values.filter { $0 <= configuration.warningDistanceMeters }.count)
+                / Double(values.count)
+            guard nearDistance <= configuration.warningDistanceMeters, closeCoverage >= 0.08 else {
+                return nil
+            }
+            let proximity = CAProximity.from(distance: nearDistance)
             let direction = directions[index]
             observedDirections.insert(direction)
             let persistence = (depthPersistence[direction] ?? 0) + 1
             depthPersistence[direction] = persistence
-            let confidence = min(0.5 + normalizedContrast * 0.45, 0.88)
+            let distanceConfidence = 1 - min(nearDistance / configuration.warningDistanceMeters, 1)
+            let confidence = min(0.52 + closeCoverage * 0.28 + distanceConfidence * 0.18, 0.96)
             let trajectoryConfidence = confidence * min(Double(persistence) / 3, 1)
             let collisionRisk: CACollisionRisk = direction == .center
                 && proximity == .near
@@ -343,7 +376,7 @@ final class ClearAheadEngine {
                 kind: .obstacle,
                 direction: direction,
                 proximity: proximity,
-                approximateDistanceMeters: nil,
+                approximateDistanceMeters: (nearDistance * 10).rounded() / 10,
                 approachSpeed: 0,
                 motionState: collisionRisk == .none ? .stationary : .approaching,
                 collisionRisk: collisionRisk,
@@ -358,12 +391,32 @@ final class ClearAheadEngine {
             depthPersistence[direction] = 0
         }
         let centerValues = sectors[1]
-        if centerValues.count > 5 {
-            let centerNear = percentile(centerValues, fraction: 0.86)
-            latestDepthSupport = min(max((centerNear - median) / (maximum - minimum), 0), 1)
+        if centerValues.count > 12 {
+            let centerNear = CADepthMap.percentile(centerValues, fraction: 0.22)
+            latestDepthSupport = 1 - min(centerNear / configuration.warningDistanceMeters, 1)
             latestDepthSupportTime = now
         }
         return events
+    }
+
+    private func updateCloseCameraState(from depthMap: CADepthMap) {
+        let values = depthMap.samples(in: CGRect(x: 0.08, y: 0.08, width: 0.84, height: 0.84), step: 4)
+        guard values.count > 20 else { return }
+        let coverage = Double(values.filter { $0 <= 0.35 }.count) / Double(values.count)
+        if coverage >= 0.45 {
+            closeDepthFrames += 1
+            clearDepthFrames = 0
+        } else if coverage < 0.25 {
+            clearDepthFrames += 1
+            closeDepthFrames = 0
+        }
+        if !cameraTooClose, closeDepthFrames >= 3 {
+            cameraTooClose = true
+            emitEffectiveQuality()
+        } else if cameraTooClose, clearDepthFrames >= 3 {
+            cameraTooClose = false
+            emitEffectiveQuality()
+        }
     }
 
     private func evaluateImageQuality(pixelBuffer: CVPixelBuffer) {
@@ -402,7 +455,9 @@ final class ClearAheadEngine {
             quality = "good"
             message = "Camera view is clear"
         }
-        emitQuality(quality, message: message)
+        baseImageQuality = quality
+        baseImageQualityMessage = message
+        emitEffectiveQuality()
     }
 
     private func emitThermalQuality() {
@@ -479,6 +534,14 @@ final class ClearAheadEngine {
         }
     }
 
+    private func emitEffectiveQuality() {
+        if cameraTooClose {
+            emitQuality("camera-too-close", message: "Camera too close. Move it back.")
+        } else {
+            emitQuality(baseImageQuality, message: baseImageQualityMessage)
+        }
+    }
+
     private func emitMetricsIfNeeded(now: TimeInterval) {
         guard now - lastMetricsEmission >= 1 else { return }
         let duration = max(now - metricWindowStart, 0.001)
@@ -507,10 +570,10 @@ final class ClearAheadEngine {
 
     private func modelStatusMessage() -> String {
         if objectModel == nil && depthModel == nil {
-            return "Camera active. Baseline models are not installed."
+            return "Camera active. YOLO26 models are not installed."
         }
         if objectModel == nil || depthModel == nil {
-            return "Camera active. One baseline model is unavailable."
+            return "Camera active. One YOLO26 model is unavailable."
         }
         return "Camera and on-device models active"
     }
@@ -553,6 +616,19 @@ final class ClearAheadEngine {
         }
     }
 
+    private func eventKind(forCOCOClass identifier: Int) -> CAEventKind? {
+        switch identifier {
+        case 0: return .person
+        case 1, 2, 3, 4, 5, 6, 7, 8: return .vehicle
+        case 13, 56, 57, 58, 59, 60: return .furniture
+        case 9, 10, 11, 12, 14, 15, 16, 24, 25, 26, 28, 32, 33, 39, 41, 42, 43,
+             44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 61, 62, 63, 64, 65,
+             66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79:
+            return .obstacle
+        default: return nil
+        }
+    }
+
     private func approximateDistance(kind: CAEventKind, boundingBox: CGRect) -> Double? {
         let referenceHeight: Double
         switch kind {
@@ -588,11 +664,6 @@ final class ClearAheadEngine {
             timestamp: now,
             box: CGRect(x: 0.3, y: 0.25, width: 0.4, height: 0.75)
         )
-    }
-
-    private func percentile(_ values: [Double], fraction: Double) -> Double {
-        let sorted = values.sorted()
-        return sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * fraction))]
     }
 
     private func thermalStateName(_ state: ProcessInfo.ThermalState) -> String {
