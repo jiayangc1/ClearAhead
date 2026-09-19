@@ -9,7 +9,7 @@ import {AssistScreen} from './src/screens/AssistScreen';
 import {HomeScreen} from './src/screens/HomeScreen';
 import {OnboardingScreen} from './src/screens/OnboardingScreen';
 import {SettingsScreen} from './src/screens/SettingsScreen';
-import type {DemoScenario} from './src/types';
+import type {DemoScenario, PipelineMetrics} from './src/types';
 
 type Route =
   | {name: 'home'}
@@ -20,6 +20,7 @@ export default function App() {
   const {preferences, setPreferences, isHydrated} = usePreferences();
   const cameraPermission = useCameraPermission();
   const [route, setRoute] = useState<Route>({name: 'home'});
+  const [lastMetrics, setLastMetrics] = useState<PipelineMetrics>();
 
   if (!isHydrated) {
     return (
@@ -59,6 +60,7 @@ export default function App() {
       {route.name === 'home' ? (
         <HomeScreen
           preferences={preferences}
+          lastMetrics={lastMetrics}
           hasCameraPermission={cameraPermission.hasPermission}
           onStart={() => setRoute({name: 'assist'})}
           onDemo={() =>
@@ -78,6 +80,7 @@ export default function App() {
         <AssistScreen
           preferences={preferences}
           demoScenario={route.demoScenario}
+          onMetrics={setLastMetrics}
           onStop={() => setRoute({name: 'home'})}
         />
       ) : null}

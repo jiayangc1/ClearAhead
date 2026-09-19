@@ -21,6 +21,7 @@ haptics, stereo audio cues, and optional short speech.
   pitch and pulse rhythm encode distance and urgency, and interruptible
   AVSpeechSynthesizer output
 - Low-light, covered-camera, thermal-pressure, and frame-overload reporting
+- Responsive and detailed processing modes, with an optional processed-frame-rate display
 - No account, backend, analytics, frame storage, or camera upload
 
 ## Requirements
@@ -95,10 +96,17 @@ VisionCamera preview + 30 FPS frame output
               React Native interface
 ```
 
-The detector and depth estimator alternate on a bounded frame schedule. New
+The detector and depth estimator share a bounded frame schedule. New
 frames are dropped while the native processor is busy, preventing an unbounded
 camera queue. Serious thermal pressure reduces model frequency while retaining
 the light quality checks and existing feedback path.
+
+Responsive mode requests smaller frame buffers and checks depth less often to
+favor object updates. Detailed mode requests larger buffers and checks depth
+more often. The on-screen FPS value counts frames accepted for processing, not
+the camera capture rate; object and depth rates are shown separately. The home
+screen displays the last live assist-session reading. Device profiling is still
+needed to establish the actual rate and detection tradeoffs on an iPhone 12.
 
 ## Distance and safety behavior
 

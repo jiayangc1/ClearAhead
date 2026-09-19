@@ -90,6 +90,7 @@ struct CAFeedbackConfiguration {
     var warningDistanceMeters = 6.0
     var feedbackFrequency = 0.55
     var mountingMode = "handheld"
+    var processingMode = "responsive"
     var spokenCategories: Set<String> = ["person", "vehicle", "device-warning"]
 
     init() {}
@@ -104,6 +105,8 @@ struct CAFeedbackConfiguration {
         warningDistanceMeters = min(max(dictionary["warningDistanceMeters"] as? Double ?? 6, 1), 12)
         feedbackFrequency = Self.clamp(dictionary["feedbackFrequency"] as? Double ?? 0.55)
         mountingMode = dictionary["mountingMode"] as? String ?? "handheld"
+        let requestedMode = dictionary["processingMode"] as? String
+        processingMode = requestedMode == "detailed" ? "detailed" : "responsive"
         spokenCategories = Set(dictionary["spokenCategories"] as? [String] ?? [])
     }
 

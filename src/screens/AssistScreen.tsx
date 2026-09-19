@@ -1,7 +1,8 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
   AppState,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -11,6 +12,7 @@ import {
   Camera,
   CommonResolutions,
   useFrameOutput,
+  type Frame,
 } from 'react-native-vision-camera';
 import {ClearAheadVision} from 'react-native-clear-ahead-vision';
 import {PrimaryButton} from '../components/Controls';
@@ -30,10 +32,12 @@ import {describeEvent, qualityMessage} from '../utils/eventLogic';
 export function AssistScreen({
   preferences,
   demoScenario,
+  onMetrics,
   onStop,
 }: {
   preferences: AppPreferences;
   demoScenario?: DemoScenario;
+  onMetrics: (metrics: PipelineMetrics) => void;
   onStop: () => void;
 }) {
   const [sessionState, setSessionState] = useState<SessionState>('starting');
@@ -58,21 +62,33 @@ export function AssistScreen({
     }
   }, [sessionState, statusMessage]);
 
+  const processFrame = useCallback((frame: Frame) => {
+    'worklet';
+    try {
+      ClearAheadVision.processFrame(frame);
+    } finally {
+      frame.dispose();
+    }
+  }, []);
+
   const frameOutput = useFrameOutput({
-    targetResolution: CommonResolutions.HD_16_9,
+    targetResolution:
+      preferences.processingMode === 'responsive'
+        ? CommonResolutions.VGA_16_9
+        : CommonResolutions.HD_16_9,
     pixelFormat: 'yuv',
     dropFramesWhileBusy: true,
-    enableCameraMatrixDelivery: true,
     enablePreviewSizedOutputBuffers: true,
-    onFrame(frame) {
-      'worklet';
-      ClearAheadVision.processFrame(frame);
-      frame.dispose();
-    },
+    onFrame: processFrame,
     onFrameDropped(reason) {
       ClearAheadVision.reportDroppedFrame(reason);
     },
   });
+  const cameraConstraints = useMemo(
+    () => [{fps: preferences.processingMode === 'responsive' ? 15 : 30}],
+    [preferences.processingMode],
+  );
+  const cameraOutputs = useMemo(() => [frameOutput], [frameOutput]);
 
   useEffect(() => {
     const subscriptions = [
@@ -82,7 +98,12 @@ export function AssistScreen({
       }),
       ClearAheadModule.onEvent(payload => setEvent(payload)),
       ClearAheadModule.onQuality(payload => setQuality(payload.quality)),
-      ClearAheadModule.onMetrics(setMetrics),
+      ClearAheadModule.onMetrics(payload => {
+        setMetrics(payload);
+        if (!isDemo) {
+          onMetrics(payload);
+        }
+      }),
     ];
 
     const configuration = toFeedbackConfiguration(preferences);
@@ -114,7 +135,7 @@ export function AssistScreen({
       appStateSubscription.remove();
       (isDemo ? ClearAheadModule.stopDemo() : ClearAheadModule.stopSession()).catch(() => undefined);
     };
-  }, [demoScenario, isDemo, preferences]);
+  }, [demoScenario, isDemo, onMetrics, preferences]);
 
   useEffect(() => {
     ClearAheadModule.updateConfiguration(toFeedbackConfiguration(preferences)).catch(() => undefined);
@@ -138,8 +159,8 @@ export function AssistScreen({
           style={StyleSheet.absoluteFill}
           device="back"
           isActive={isForeground && sessionState !== 'idle' && sessionState !== 'error'}
-          constraints={[{fps: 30}]}
-          outputs={[frameOutput]}
+          constraints={cameraConstraints}
+          outputs={cameraOutputs}
           resizeMode="cover"
           onStarted={() => setStatusMessage('Camera active')}
           onError={error => {
@@ -163,6 +184,7 @@ export function AssistScreen({
       )}
       <SoundField event={event} />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
+        <ScrollView contentContainerStyle={styles.overlayContent}>
         <View
           accessible
           accessibilityLiveRegion="polite"
@@ -176,6 +198,22 @@ export function AssistScreen({
             <Text style={styles.latency}>{Math.round(metrics.endToEndLatencyMs)} MS</Text>
           ) : null}
         </View>
+
+        {preferences.showFps ? (
+          <View accessible accessibilityLabel={metrics
+            ? `Processed ${metrics.cameraFps.toFixed(1)} frames per second. Objects ${metrics.detectorFps.toFixed(1)} per second. Depth ${metrics.depthFps.toFixed(1)} per second. ${metrics.droppedFrames} dropped frames.`
+            : 'Waiting for frame rate measurements'} style={styles.fpsCard}>
+            <Text style={styles.fpsLabel}>PROCESSING RATE</Text>
+            <Text style={styles.fpsValue}>
+              {metrics ? `${metrics.cameraFps.toFixed(1)} fps` : 'Measuring…'}
+            </Text>
+            {metrics ? (
+              <Text style={styles.fpsDetail}>
+                Objects {metrics.detectorFps.toFixed(1)} · Depth {metrics.depthFps.toFixed(1)} · Dropped {metrics.droppedFrames}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.spacer} />
 
@@ -201,6 +239,7 @@ export function AssistScreen({
           destructive
           onPress={stop}
         />
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
@@ -209,11 +248,16 @@ export function AssistScreen({
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: colors.black},
   safeArea: {flex: 1, padding: 18},
+  overlayContent: {flexGrow: 1},
   statusPill: {minHeight: 52, alignSelf: 'stretch', borderRadius: 16, backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', padding: 15, gap: 10},
   statusDot: {width: 10, height: 10, borderRadius: 5, backgroundColor: colors.cyan},
   statusDotWarning: {backgroundColor: colors.amber},
   statusText: {color: colors.text, fontSize: 16, fontWeight: '700', flex: 1},
   latency: {color: colors.muted, fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: 1},
+  fpsCard: {marginTop: 10, padding: 14, borderRadius: 16, backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line},
+  fpsLabel: {color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.2},
+  fpsValue: {color: colors.cyan, fontSize: 25, fontWeight: '800', fontVariant: ['tabular-nums']},
+  fpsDetail: {color: colors.text, fontSize: 14, marginTop: 3},
   spacer: {flex: 1},
   eventCard: {backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line, borderLeftWidth: 5, borderLeftColor: colors.cyan, borderRadius: 18, padding: 20, marginBottom: 12},
   eventCardCritical: {borderLeftColor: colors.critical},

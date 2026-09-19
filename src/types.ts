@@ -1,4 +1,5 @@
 export type MountingMode = 'handheld' | 'chest';
+export type ProcessingMode = 'responsive' | 'detailed';
 export type Direction = 'left' | 'center' | 'right';
 export type Proximity = 'near' | 'medium' | 'far' | 'unknown';
 export type EventKind =
@@ -58,11 +59,13 @@ export interface FeedbackConfiguration {
   warningDistanceMeters: number;
   feedbackFrequency: number;
   mountingMode: MountingMode;
+  processingMode: ProcessingMode;
   spokenCategories: EventKind[];
 }
 
 export interface AppPreferences extends FeedbackConfiguration {
   onboardingComplete: boolean;
+  showFps: boolean;
 }
 
 export interface SessionStatusPayload {
