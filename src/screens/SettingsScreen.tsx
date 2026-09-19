@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Animated, Easing, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Animated, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {ChevronDown} from 'lucide-react-native';
 import {BrandLogo} from '../components/BrandLogo';
@@ -184,7 +184,22 @@ export function SettingsScreen({
           ))}
         </Section>
 
-        <Text style={styles.safetyNote}>Clear Ahead is experimental and can miss hazards. It does not replace a cane, guide dog, or mobility training.</Text>
+        <Section {...sectionProps('About')}>
+          <Text style={styles.sectionHelp}>
+            Clear Ahead is free software under the GNU Affero General Public License version 3, provided without warranty. YOLO26 models are supplied under the same license.
+          </Text>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="View Clear Ahead source code and license"
+            onPress={() => Linking.openURL('https://github.com/jiayangc1/cac')}
+            style={styles.licenseLink}>
+            <Text style={styles.licenseLinkText}>View source code and license</Text>
+          </Pressable>
+        </Section>
+
+        <Text style={styles.safetyNote}>
+          Clear Ahead is experimental and can miss hazards. It does not replace a cane, guide dog, or mobility training.
+        </Text>
       </ScrollView>
       <BottomNavigation active="settings" onHome={onHome} onAssist={onAssist} onSettings={onSettings} assistDisabled={!hasCameraPermission} />
     </SafeAreaView>
@@ -368,6 +383,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.line,
   },
+  licenseLink: {minHeight: 54, justifyContent: 'center'},
+  licenseLinkText: {color: colors.cyan, fontSize: 16, fontWeight: '800'},
   mountingLabel: {color: colors.text, fontSize: 18, fontWeight: '700'},
   mountingValue: {color: colors.cyan, fontSize: 15, fontWeight: '700'},
   safetyNote: {color: colors.muted, fontSize: 15, lineHeight: 22},

@@ -17,6 +17,7 @@ export type SessionQuality =
   | 'good'
   | 'low-light'
   | 'camera-covered'
+  | 'camera-too-close'
   | 'moving-too-fast'
   | 'thermal-limited'
   | 'overloaded';

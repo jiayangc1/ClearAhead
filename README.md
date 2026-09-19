@@ -43,6 +43,7 @@ Xcode and a physical iPhone.
 
 ```sh
 npm install
+python3 -m pip install -r scripts/model-requirements.txt
 npm run models
 bundle install
 cd ios && bundle exec pod install && cd ..
@@ -53,11 +54,11 @@ Open `ios/ClearAhead.xcworkspace` in Xcode and run on a physical iPhone. The
 safe demo works without camera input, but native audio and haptics still require
 an iOS build.
 
-`npm run models` downloads Apple-hosted model assets and verifies fixed SHA-256
-checksums before installing them into the local native package:
+Install the pinned Python exporter first. `npm run models` then downloads the
+official weights, verifies GitHub's published SHA-256 digests, and installs:
 
-- YOLOv3 Tiny Int8 LUT for selected COCO object classes
-- Depth Anything V2 Small F16 P6 for relative depth
+- YOLO26 nano INT8 Core ML for selected COCO object classes
+- YOLO26 nano depth INT8 Core ML for dense metric depth
 
 Model binaries are ignored by Git and reproduced by
 `scripts/download-models.sh`. Their source and license details are documented in
@@ -85,7 +86,7 @@ VisionCamera preview + 30 FPS frame output
                    |
     Swift bounded scheduler (frames never enter React state)
         |               |              |               |
-  object detector   relative depth  optical flow   quality checks
+  object detector    metric depth  optical flow   quality checks
         \               |              /               /
          stable tracks + relative trajectory prediction
                           |
@@ -114,14 +115,19 @@ needed to establish the actual rate and detection tradeoffs on an iPhone 12.
 
 ## Distance and safety behavior
 
-Depth Anything produces relative depth. Clear Ahead therefore reports
-near/medium/far for generic depth regions. Approximate meters are emitted only
-for object classes with simple physical-size priors and are explicitly spoken
-as “about” values. Collision timing is based on relative closing motion, box
-expansion, and low-resolution optical looming rather than claimed absolute
-object velocity. Camera rotation suppresses motion-derived warnings until the
+YOLO26 depth produces a dense metric estimate. Clear Ahead uses robust regional
+samples for generic walls and obstacles and samples inside detected boxes before
+falling back to physical-size priors. Distances are still spoken as “about”
+values because monocular estimates depend on scene and camera calibration.
+Collision timing combines depth change, box expansion, and low-resolution
+optical looming. Camera rotation suppresses motion-derived warnings until the
 view stabilizes. This is a baseline for calibration and real-world testing, not
 validated collision-avoidance accuracy.
+
+Ultralytics software and YOLO26 weights are AGPL-3.0. This repository and any
+distributed app containing those models must satisfy the corresponding-source
+requirements; use an Ultralytics Enterprise license for incompatible
+distribution terms.
 
 The initial physical-device performance target is median urgent-event
 camera-to-cue latency below 150 ms with no growing frame backlog. Validate it
