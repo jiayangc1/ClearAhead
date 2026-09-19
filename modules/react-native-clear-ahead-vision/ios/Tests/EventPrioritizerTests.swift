@@ -54,6 +54,41 @@ final class EventPrioritizerTests: XCTestCase {
         XCTAssertNotNil(prioritizer.select(from: [event], configuration: configuration, now: 12))
     }
 
+    func testImminentCollisionPreemptsCloserOrdinaryEvent() {
+        let prioritizer = EventPrioritizer()
+        let ordinary = makeEvent(id: "person:center", distance: 0.8)
+        let collision = makeEvent(
+            id: "vehicle:right",
+            kind: .vehicle,
+            direction: .right,
+            distance: 2.5,
+            collisionRisk: .imminent
+        )
+
+        let selected = prioritizer.select(
+            from: [ordinary, collision],
+            configuration: configuration,
+            now: 10
+        )
+
+        XCTAssertEqual(selected?.id, collision.id)
+    }
+
+    func testPrioritizerDoesNotRetainAStaleCollisionClassification() {
+        let prioritizer = EventPrioritizer()
+        let collision = makeEvent(collisionRisk: .imminent)
+        let cleared = makeEvent(collisionRisk: .none)
+
+        XCTAssertEqual(
+            prioritizer.select(from: [collision], configuration: configuration, now: 10)?.collisionRisk,
+            .imminent
+        )
+        XCTAssertEqual(
+            prioritizer.select(from: [cleared], configuration: configuration, now: 11)?.collisionRisk,
+            .none
+        )
+    }
+
     func testConfigurationClampsUnsafeInputRanges() {
         let parsed = CAFeedbackConfiguration(dictionary: [
             "hapticIntensity": 3.0,
@@ -110,7 +145,8 @@ final class EventPrioritizerTests: XCTestCase {
         kind: CAEventKind = .person,
         direction: CADirection = .center,
         distance: Double = 2,
-        confidence: Double = 0.9
+        confidence: Double = 0.9,
+        collisionRisk: CACollisionRisk = .none
     ) -> CASpatialEvent {
         CASpatialEvent(
             id: id,
@@ -119,6 +155,9 @@ final class EventPrioritizerTests: XCTestCase {
             proximity: CAProximity.from(distance: distance),
             approximateDistanceMeters: distance,
             approachSpeed: 0,
+            collisionRisk: collisionRisk,
+            timeToCollisionSeconds: collisionRisk == .none ? nil : 1,
+            trajectoryConfidence: collisionRisk == .none ? 0 : 0.9,
             confidence: confidence,
             urgency: 0,
             timestamp: 10,

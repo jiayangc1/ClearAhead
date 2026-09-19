@@ -97,6 +97,7 @@ export function AssistScreen({
         setStatusMessage(payload.message);
       }),
       ClearAheadModule.onEvent(payload => setEvent(payload)),
+      ClearAheadModule.onEventCleared(() => setEvent(undefined)),
       ClearAheadModule.onQuality(payload => setQuality(payload.quality)),
       ClearAheadModule.onMetrics(payload => {
         setMetrics(payload);
@@ -222,13 +223,26 @@ export function AssistScreen({
           accessibilityLabel={eventDescription}
           style={[
             styles.eventCard,
-            event && event.urgency > 0.76 && styles.eventCardCritical,
+            event?.collisionRisk === 'caution' && styles.eventCardCaution,
+            event?.collisionRisk === 'imminent' && styles.eventCardCritical,
           ]}>
           <Text style={styles.eventEyebrow}>
-            {event ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}` : 'FIELD CLEAR'}
+            {event?.collisionRisk === 'imminent'
+              ? 'COLLISION LIKELY'
+              : event?.collisionRisk === 'caution'
+                ? 'POSSIBLE COLLISION'
+                : event
+                  ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
+                  : 'FIELD CLEAR'}
           </Text>
           <Text style={styles.eventTitle}>
-            {event ? event.kind.replace('-', ' ') : 'Listening'}
+            {event?.collisionRisk === 'imminent'
+              ? 'Stop'
+              : event?.collisionRisk === 'caution'
+                ? 'Caution'
+                : event
+                  ? event.kind.replace('-', ' ')
+                  : 'Listening'}
           </Text>
           <Text style={styles.eventDescription}>{eventDescription}</Text>
         </View>
@@ -260,6 +274,7 @@ const styles = StyleSheet.create({
   fpsDetail: {color: colors.text, fontSize: 14, marginTop: 3},
   spacer: {flex: 1},
   eventCard: {backgroundColor: '#071018F2', borderWidth: 1, borderColor: colors.line, borderLeftWidth: 5, borderLeftColor: colors.cyan, borderRadius: 18, padding: 20, marginBottom: 12},
+  eventCardCaution: {borderLeftColor: colors.amber},
   eventCardCritical: {borderLeftColor: colors.critical},
   eventEyebrow: {color: colors.cyan, fontSize: 11, fontWeight: '900', letterSpacing: 1.6},
   eventTitle: {color: colors.text, fontSize: 31, fontWeight: '900', textTransform: 'capitalize', marginTop: 4},

@@ -14,7 +14,7 @@ final class ClearAheadModule: RCTEventEmitter {
     override static func requiresMainQueueSetup() -> Bool { true }
 
     override func supportedEvents() -> [String]! {
-        ["sessionStatus", "topEvent", "qualityChanged", "performanceMetrics"]
+        ["sessionStatus", "topEvent", "eventCleared", "qualityChanged", "performanceMetrics"]
     }
 
     override func startObserving() { hasListeners = true }

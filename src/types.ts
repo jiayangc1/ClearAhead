@@ -2,6 +2,8 @@ export type MountingMode = 'handheld' | 'chest';
 export type ProcessingMode = 'responsive' | 'detailed';
 export type Direction = 'left' | 'center' | 'right';
 export type Proximity = 'near' | 'medium' | 'far' | 'unknown';
+export type MotionState = 'stationary' | 'approaching' | 'receding' | 'crossing';
+export type CollisionRisk = 'none' | 'caution' | 'imminent';
 export type EventKind =
   | 'obstacle'
   | 'person'
@@ -33,6 +35,10 @@ export interface SpatialEvent {
   proximity: Proximity;
   approximateDistanceMeters?: number;
   approachSpeed: number;
+  motionState: MotionState;
+  collisionRisk: CollisionRisk;
+  timeToCollisionSeconds?: number;
+  trajectoryConfidence: number;
   confidence: number;
   urgency: number;
   timestamp: number;
