@@ -113,7 +113,7 @@ export function AssistScreen({
     ClearAheadModule.updateConfiguration(toFeedbackConfiguration(preferences)).catch(() => undefined);
   }, [preferences]);
 
-  const eventDescription = useMemo(() => (event ? describeEvent(event) : 'No priority event'), [event]);
+  const eventDescription = useMemo(() => (event ? describeEvent(event) : 'Field clear'), [event]);
 
   const stop = () => {
     (isDemo ? ClearAheadModule.stopDemo() : ClearAheadModule.stopSession()).catch(() => undefined).finally(onStop);
