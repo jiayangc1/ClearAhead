@@ -2,7 +2,7 @@ import React from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {House, ScanEye, Settings, type LucideIcon} from 'lucide-react-native';
 import {colors} from '../config';
-import {Pulse, SpringPressable} from './Motion';
+import {SpringPressable} from './Motion';
 
 type Tab = 'home' | 'assist' | 'settings';
 
@@ -33,11 +33,6 @@ export function BottomNavigation({
         pressedScale={0.93}
         style={[styles.assistItem, assistDisabled && styles.disabled]}
       >
-        {!assistDisabled ? (
-          <Pulse minScale={0.72} duration={1400} style={styles.assistPulse}>
-            <View style={styles.assistPulseRing} />
-          </Pulse>
-        ) : null}
         <View style={styles.assistContent}>
           <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <ScanEye color={colors.cyan} size={24} strokeWidth={2.4} />
@@ -110,14 +105,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 22,
     backgroundColor: '#13253A',
     overflow: 'hidden',
-  },
-  assistPulse: {position: 'absolute', left: '50%', marginLeft: -22, top: 9},
-  assistPulseRing: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#3291FF88',
   },
   assistContent: {
     flex: 1,

@@ -4,7 +4,6 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {Camera, CommonResolutions, useFrameOutput, type Frame} from 'react-native-vision-camera';
 import {ClearAheadVision} from 'react-native-clear-ahead-vision';
 import {PrimaryButton} from '../components/Controls';
-import {Entrance, Pulse} from '../components/Motion';
 import {SoundField} from '../components/SoundField';
 import {colors, toFeedbackConfiguration} from '../config';
 import {ClearAheadModule} from '../native/ClearAheadModule';
@@ -147,79 +146,63 @@ export function AssistScreen({
         />
       ) : (
         <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, styles.demoBackdrop]}>
-          <Pulse minScale={0.68} duration={1700} style={styles.demoPulseOuter}>
-            <View style={styles.demoRingOuter} />
-          </Pulse>
-          <Pulse minScale={0.78} duration={1200} style={styles.demoPulseInner}>
-            <View style={styles.demoRingInner} />
-          </Pulse>
+          <View style={styles.demoRingOuter} />
+          <View style={styles.demoRingInner} />
           <Text style={styles.demoWord}>DEMO</Text>
         </View>
       )}
       <SoundField event={event} />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
-        <Entrance distance={-12} scaleFrom={0.98} style={styles.statusEntrance}>
-          <View accessible accessibilityLiveRegion="polite" accessibilityLabel={`${statusMessage}. ${qualityMessage(quality)}`} style={styles.statusPill}>
-            <Pulse minScale={0.5} duration={quality === 'good' ? 950 : 520}>
-              <View style={[styles.statusDot, quality !== 'good' && styles.statusDotWarning]} />
-            </Pulse>
-            <Text style={styles.statusText}>{quality === 'good' ? statusMessage : qualityMessage(quality)}</Text>
-            {metrics ? <Text style={styles.latency}>{Math.round(metrics.endToEndLatencyMs)} ms</Text> : null}
-          </View>
-        </Entrance>
+        <View accessible accessibilityLiveRegion="polite" accessibilityLabel={`${statusMessage}. ${qualityMessage(quality)}`} style={styles.statusPill}>
+          <View style={[styles.statusDot, quality !== 'good' && styles.statusDotWarning]} />
+          <Text style={styles.statusText}>{quality === 'good' ? statusMessage : qualityMessage(quality)}</Text>
+          {metrics ? <Text style={styles.latency}>{Math.round(metrics.endToEndLatencyMs)} ms</Text> : null}
+        </View>
 
         {preferences.showFps ? (
-          <Entrance delay={120} distance={-8}>
-            <View
-              accessible
-              accessibilityLabel={
-                metrics
-                  ? `Processed ${metrics.cameraFps.toFixed(1)} frames per second. Objects ${metrics.detectorFps.toFixed(1)} per second. Depth ${metrics.depthFps.toFixed(1)} per second. ${
-                      metrics.droppedFrames
-                    } dropped frames.`
-                  : 'Waiting for frame rate measurements'
-              }
-              style={styles.fpsLine}
-            >
-              <Text style={styles.fpsText}>
-                {metrics ? `${metrics.cameraFps.toFixed(0)} fps  ·  objects ${metrics.detectorFps.toFixed(0)}  ·  depth ${metrics.depthFps.toFixed(0)}` : 'Measuring performance…'}
-              </Text>
-            </View>
-          </Entrance>
+          <View
+            accessible
+            accessibilityLabel={
+              metrics
+                ? `Processed ${metrics.cameraFps.toFixed(1)} frames per second. Objects ${metrics.detectorFps.toFixed(1)} per second. Depth ${metrics.depthFps.toFixed(1)} per second. ${
+                    metrics.droppedFrames
+                  } dropped frames.`
+                : 'Waiting for frame rate measurements'
+            }
+            style={styles.fpsLine}
+          >
+            <Text style={styles.fpsText}>
+              {metrics ? `${metrics.cameraFps.toFixed(0)} fps  ·  objects ${metrics.detectorFps.toFixed(0)}  ·  depth ${metrics.depthFps.toFixed(0)}` : 'Measuring performance…'}
+            </Text>
+          </View>
         ) : null}
 
         <View style={styles.spacer} />
 
         <View style={styles.bottomGroup}>
-          <Entrance key={`${event?.id ?? 'clear'}-${event?.collisionRisk ?? 'none'}`} distance={16} scaleFrom={0.96}>
-            <View
-              accessible
-              accessibilityLiveRegion="polite"
-              accessibilityLabel={eventDescription}
-              style={[styles.eventCard, event?.collisionRisk === 'caution' && styles.eventCardCaution, event?.collisionRisk === 'imminent' && styles.eventCardCritical]}
-            >
-              <View style={styles.eventHeader}>
-                <Text style={styles.eventEyebrow}>
-                  {event?.collisionRisk === 'imminent'
-                    ? 'COLLISION LIKELY'
-                    : event?.collisionRisk === 'caution'
-                    ? 'POSSIBLE COLLISION'
-                    : event
-                    ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
-                    : 'FIELD CLEAR'}
-                </Text>
-                {!event ? <View style={styles.clearMark} /> : null}
-              </View>
-              <Text style={styles.eventTitle}>
-                {event?.collisionRisk === 'imminent' ? 'Stop' : event?.collisionRisk === 'caution' ? 'Caution' : event ? event.kind.replace('-', ' ') : 'Listening'}
+          <View
+            accessible
+            accessibilityLiveRegion="polite"
+            accessibilityLabel={eventDescription}
+            style={[styles.eventCard, event?.collisionRisk === 'caution' && styles.eventCardCaution, event?.collisionRisk === 'imminent' && styles.eventCardCritical]}
+          >
+            <View style={styles.eventHeader}>
+              <Text style={styles.eventEyebrow}>
+                {event?.collisionRisk === 'imminent'
+                  ? 'COLLISION LIKELY'
+                  : event?.collisionRisk === 'caution'
+                  ? 'POSSIBLE COLLISION'
+                  : event
+                  ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
+                  : 'FIELD CLEAR'}
               </Text>
-              {event ? <Text style={styles.eventDescription}>{eventDescription}</Text> : null}
+              {!event ? <View style={styles.clearMark} /> : null}
             </View>
-          </Entrance>
+            <Text style={styles.eventTitle}>{event?.collisionRisk === 'imminent' ? 'Stop' : event?.collisionRisk === 'caution' ? 'Caution' : event ? event.kind.replace('-', ' ') : 'Listening'}</Text>
+            {event ? <Text style={styles.eventDescription}>{eventDescription}</Text> : null}
+          </View>
 
-          <Entrance delay={120} distance={12}>
-            <PrimaryButton label={isDemo ? 'Stop demo' : 'Stop Assist Mode'} hint="Stops the camera and all feedback immediately" destructive onPress={stop} />
-          </Entrance>
+          <PrimaryButton label={isDemo ? 'Stop demo' : 'Stop Assist Mode'} hint="Stops the camera and all feedback immediately" destructive onPress={stop} />
         </View>
       </SafeAreaView>
     </View>
@@ -229,7 +212,6 @@ export function AssistScreen({
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: colors.black},
   safeArea: {flex: 1, paddingHorizontal: 14, paddingVertical: 10},
-  statusEntrance: {alignSelf: 'stretch'},
   statusPill: {
     minHeight: 44,
     alignSelf: 'stretch',
@@ -321,9 +303,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  demoPulseOuter: {position: 'absolute'},
-  demoPulseInner: {position: 'absolute'},
   demoRingOuter: {
+    position: 'absolute',
     width: 310,
     height: 310,
     borderRadius: 155,
@@ -331,6 +312,7 @@ const styles = StyleSheet.create({
     borderColor: '#3291FF32',
   },
   demoRingInner: {
+    position: 'absolute',
     width: 210,
     height: 210,
     borderRadius: 105,

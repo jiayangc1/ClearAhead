@@ -1,9 +1,8 @@
 import React, {useCallback, useRef, useState} from 'react';
-import {ActivityIndicator, Animated, Easing, StatusBar, StyleSheet, View} from 'react-native';
+import {Animated, Easing, StatusBar, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {useCameraPermission} from 'react-native-vision-camera';
 import {BrandLogo} from './src/components/BrandLogo';
-import {Pulse} from './src/components/Motion';
 import {colors, toFeedbackConfiguration} from './src/config';
 import {usePreferences} from './src/hooks/usePreferences';
 import {useReducedMotion} from './src/hooks/useReducedMotion';
@@ -61,10 +60,8 @@ export default function App() {
   if (!isHydrated) {
     return (
       <View style={styles.loading} accessibilityLabel="Loading Clear Ahead">
-        <Pulse minScale={0.92} duration={1200}>
-          <BrandLogo width={112} accessible={false} />
-        </Pulse>
-        <ActivityIndicator size="large" color={colors.cyan} />
+        <BrandLogo width={112} accessible={false} />
+        <Text style={styles.loadingText}>Loading Clear Ahead</Text>
       </View>
     );
   }
@@ -152,4 +149,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.night,
     gap: 24,
   },
+  loadingText: {color: colors.muted, fontSize: 16, fontWeight: '700'},
 });

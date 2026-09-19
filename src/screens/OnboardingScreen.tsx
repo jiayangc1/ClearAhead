@@ -4,7 +4,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {BrandLogo} from '../components/BrandLogo';
 import {colors} from '../config';
 import {PrimaryButton} from '../components/Controls';
-import {Entrance, Pulse, SpringPressable} from '../components/Motion';
+import {Entrance, SpringPressable} from '../components/Motion';
 import type {MountingMode} from '../types';
 
 export function OnboardingScreen({
@@ -51,9 +51,7 @@ export function OnboardingScreen({
     <SafeAreaView style={styles.safeArea}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.content} accessibilityViewIsModal keyboardShouldPersistTaps="handled">
         <View style={styles.brandRow}>
-          <Pulse minScale={0.94} duration={1800}>
-            <BrandLogo width={52} />
-          </Pulse>
+          <BrandLogo width={52} />
           <View style={styles.progressCopy}>
             <Text style={styles.eyebrow}>SETUP {step + 1} OF 3</Text>
             <View style={styles.progressTrack}>
@@ -63,7 +61,7 @@ export function OnboardingScreen({
             </View>
           </View>
         </View>
-        <Entrance key={`setup-${step}`} distance={22} style={styles.stepContent}>
+        <StepTransition step={step}>
           {step === 0 ? (
             <>
               <Text ref={titleRef} accessibilityRole="header" style={styles.title}>
@@ -122,9 +120,21 @@ export function OnboardingScreen({
               <PrimaryButton label={hasCameraPermission ? 'Finish setup' : 'Continue without camera'} hint="Opens the Clear Ahead home screen" onPress={onComplete} />
             </>
           ) : null}
-        </Entrance>
+        </StepTransition>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function StepTransition({step, children}: {step: number; children: React.ReactNode}) {
+  if (step === 0) {
+    return <View style={styles.stepContent}>{children}</View>;
+  }
+
+  return (
+    <Entrance key={`setup-${step}`} distance={22} style={styles.stepContent}>
+      {children}
+    </Entrance>
   );
 }
 

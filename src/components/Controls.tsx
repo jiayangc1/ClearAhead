@@ -1,41 +1,10 @@
 import React, {useEffect, useRef} from 'react';
-import {Animated, Easing, StyleSheet, Switch, Text, View, type AccessibilityActionEvent} from 'react-native';
+import {Animated, StyleSheet, Switch, Text, View, type AccessibilityActionEvent} from 'react-native';
 import {colors} from '../config';
 import {motion, SpringPressable} from './Motion';
 import {useReducedMotion} from '../hooks/useReducedMotion';
 
 export function PrimaryButton({label, hint, onPress, destructive = false, disabled = false}: {label: string; hint?: string; onPress: () => void; destructive?: boolean; disabled?: boolean}) {
-  const reduceMotion = useReducedMotion();
-  const sheen = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (reduceMotion || disabled) {
-      sheen.stopAnimation();
-      sheen.setValue(0);
-      return;
-    }
-
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.delay(1300),
-        Animated.timing(sheen, {
-          toValue: 1,
-          duration: 740,
-          easing: Easing.inOut(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.delay(1900),
-        Animated.timing(sheen, {
-          toValue: 0,
-          duration: 0,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [disabled, reduceMotion, sheen]);
-
   return (
     <SpringPressable
       accessibilityRole="button"
@@ -46,25 +15,6 @@ export function PrimaryButton({label, hint, onPress, destructive = false, disabl
       style={[styles.primaryButton, destructive && styles.destructiveButton, disabled && styles.disabled]}
     >
       <Text style={styles.primaryButtonText}>{label}</Text>
-      {!destructive && !disabled ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.sheen,
-            {
-              transform: [
-                {
-                  translateX: sheen.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-130, 430],
-                  }),
-                },
-                {rotate: '-18deg'},
-              ],
-            },
-          ]}
-        />
-      ) : null}
     </SpringPressable>
   );
 }
@@ -190,13 +140,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   disabled: {opacity: 0.4},
-  sheen: {
-    position: 'absolute',
-    top: -24,
-    bottom: -24,
-    width: 44,
-    backgroundColor: '#FFFFFF38',
-  },
   row: {
     minHeight: 78,
     flexDirection: 'row',

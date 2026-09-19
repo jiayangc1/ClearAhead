@@ -4,7 +4,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {BrandLogo} from '../components/BrandLogo';
 import {BottomNavigation} from '../components/BottomNavigation';
 import {PrimaryButton} from '../components/Controls';
-import {Entrance, Pulse, SpringPressable} from '../components/Motion';
+import {SpringPressable} from '../components/Motion';
 import {colors} from '../config';
 import type {AppPreferences, PipelineMetrics} from '../types';
 
@@ -29,16 +29,8 @@ export function HomeScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.ambientField}>
-        <Pulse minScale={0.72} duration={2200} style={styles.ambientPulse}>
-          <View style={styles.ambientRingOuter} />
-        </Pulse>
-        <Pulse minScale={0.86} duration={1700} style={styles.ambientPulseInner}>
-          <View style={styles.ambientRingInner} />
-        </Pulse>
-      </View>
       <ScrollView contentContainerStyle={styles.content}>
-        <Entrance delay={40} distance={12} scaleFrom={0.93} style={styles.header}>
+        <View style={styles.header}>
           <View style={styles.logoStage}>
             <BrandLogo width={104} />
           </View>
@@ -46,13 +38,11 @@ export function HomeScreen({
             Move with more confidence.
           </Text>
           <Text style={styles.introduction}>Clear Ahead uses sound and vibration to call out nearby obstacles.</Text>
-        </Entrance>
+        </View>
 
-        <Entrance delay={150} style={styles.startPanel}>
+        <View style={styles.startPanel}>
           <View style={styles.readyRow} accessible accessibilityLabel="Ready to assist">
-            <Pulse minScale={0.55} duration={900}>
-              <View style={styles.readyMark} />
-            </Pulse>
+            <View style={styles.readyMark} />
             <Text style={styles.readyText}>Ready to assist</Text>
           </View>
           {!hasCameraPermission ? (
@@ -61,9 +51,9 @@ export function HomeScreen({
             </Text>
           ) : null}
           <PrimaryButton label="Start Assist Mode" hint="Starts the rear camera and environmental feedback" onPress={onStart} disabled={!hasCameraPermission} />
-        </Entrance>
+        </View>
 
-        <Entrance delay={250} style={styles.statusCard}>
+        <View style={styles.statusCard}>
           <View accessibilityLabel="Current setup" style={styles.statusCardContent}>
             <Text style={styles.sectionLabel}>CURRENT SETUP</Text>
             <View style={styles.statusItem}>
@@ -85,9 +75,9 @@ export function HomeScreen({
               </View>
             ) : null}
           </View>
-        </Entrance>
+        </View>
 
-        <Entrance delay={340} style={styles.actions}>
+        <View style={styles.actions}>
           <SpringPressable
             accessibilityRole="button"
             accessibilityLabel="Try a safe demo"
@@ -98,7 +88,7 @@ export function HomeScreen({
           >
             <Text style={styles.demoText}>Try a safe demo</Text>
           </SpringPressable>
-        </Entrance>
+        </View>
       </ScrollView>
       <BottomNavigation active="home" onHome={onHome} onAssist={onStart} onSettings={onSettings} assistDisabled={!hasCameraPermission} />
     </SafeAreaView>
@@ -107,32 +97,6 @@ export function HomeScreen({
 
 const styles = StyleSheet.create({
   safeArea: {flex: 1, backgroundColor: colors.night},
-  ambientField: {
-    position: 'absolute',
-    top: 5,
-    left: 0,
-    right: 0,
-    height: 250,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  ambientPulse: {position: 'absolute'},
-  ambientPulseInner: {position: 'absolute'},
-  ambientRingOuter: {
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    borderWidth: 1,
-    borderColor: '#3291FF24',
-  },
-  ambientRingInner: {
-    width: 168,
-    height: 168,
-    borderRadius: 84,
-    borderWidth: 1,
-    borderColor: '#3291FF38',
-  },
   content: {
     flexGrow: 1,
     paddingHorizontal: 20,
