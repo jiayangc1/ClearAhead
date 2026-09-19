@@ -174,10 +174,10 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         ) { [weak self] _ in
             self?.audioQueue.async {
                 guard let self else { return }
-                tonePlaying = false
-                if let next = pendingTone {
-                    pendingTone = nil
-                    playTone(next)
+                self.tonePlaying = false
+                if let next = self.pendingTone {
+                    self.pendingTone = nil
+                    self.playTone(next)
                 }
             }
         }

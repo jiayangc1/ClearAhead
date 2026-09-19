@@ -294,7 +294,7 @@ final class ClearAheadEngine {
             let featureArrays = (request.results as? [VNCoreMLFeatureValueObservation] ?? [])
                 .compactMap { $0.featureValue.multiArrayValue }
             detections = featureArrays
-                .flatMap(CAModelOutputDecoder.detections)
+                .flatMap { CAModelOutputDecoder.detections(from: $0) }
                 .compactMap { detection in
                     guard let label = cocoLabel(for: detection.classIdentifier),
                           let kind = eventKind(forCOCOClass: detection.classIdentifier) else { return nil }
