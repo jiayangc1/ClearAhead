@@ -35,10 +35,7 @@ export function HomeScreen({
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <View style={styles.logoStage}>
-            <View style={styles.logoGlow} />
-            <View style={styles.logoPlate}>
-              <BrandLogo width={104} />
-            </View>
+            <BrandLogo width={104} />
           </View>
           <Text accessibilityRole="header" style={styles.title}>
             Move with more confidence.
@@ -119,34 +116,11 @@ const styles = StyleSheet.create({
   content: {flexGrow: 1, paddingHorizontal: 20, paddingTop: 28, paddingBottom: 22},
   header: {alignItems: 'center', marginBottom: 32},
   logoStage: {
-    width: 144,
-    height: 136,
+    width: 104,
+    height: 104,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
-  },
-  logoGlow: {
-    position: 'absolute',
-    width: 136,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: 'rgba(50, 145, 255, 0.18)',
-    transform: [{scaleX: 1.12}],
-  },
-  logoPlate: {
-    width: 128,
-    height: 128,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: 'rgba(50, 145, 255, 0.38)',
-    borderRadius: 36,
-    shadowColor: colors.cyan,
-    shadowOffset: {width: 0, height: 10},
-    shadowOpacity: 0.24,
-    shadowRadius: 24,
-    elevation: 8,
+    marginBottom: 12,
   },
   title: {color: colors.text, fontSize: 36, lineHeight: 41, fontWeight: '800', letterSpacing: -1.2, marginTop: 12, maxWidth: 330, textAlign: 'center'},
   introduction: {color: colors.muted, fontSize: 17, lineHeight: 25, marginTop: 12, maxWidth: 350, textAlign: 'center'},
