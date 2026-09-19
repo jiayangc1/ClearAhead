@@ -216,7 +216,15 @@ export function AssistScreen({
               </Text>
               {!event ? <View style={styles.clearMark} /> : null}
             </View>
-            <Text style={styles.eventTitle}>{event?.collisionRisk === 'imminent' ? 'Stop' : event?.collisionRisk === 'caution' ? 'Caution' : event ? event.kind.replace('-', ' ') : 'Listening'}</Text>
+            <Text style={styles.eventTitle}>
+              {event?.collisionRisk === 'imminent'
+                ? 'Stop'
+                : event?.collisionRisk === 'caution'
+                ? 'Caution'
+                : event
+                ? event.label ?? event.kind.replace('-', ' ')
+                : 'Listening'}
+            </Text>
             {event ? <Text style={styles.eventDescription}>{eventDescription}</Text> : null}
           </View>
 

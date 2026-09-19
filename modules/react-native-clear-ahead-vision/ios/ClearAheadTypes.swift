@@ -70,6 +70,7 @@ enum CAEventKind: String {
 struct CASpatialEvent {
     let id: String
     let kind: CAEventKind
+    let label: String?
     let direction: CADirection
     let proximity: CAProximity
     let approximateDistanceMeters: Double?
@@ -86,6 +87,7 @@ struct CASpatialEvent {
     init(
         id: String,
         kind: CAEventKind,
+        label: String? = nil,
         direction: CADirection,
         proximity: CAProximity,
         approximateDistanceMeters: Double?,
@@ -101,6 +103,7 @@ struct CASpatialEvent {
     ) {
         self.id = id
         self.kind = kind
+        self.label = label
         self.direction = direction
         self.proximity = proximity
         self.approximateDistanceMeters = approximateDistanceMeters
@@ -131,6 +134,9 @@ struct CASpatialEvent {
         ]
         if let approximateDistanceMeters {
             payload["approximateDistanceMeters"] = approximateDistanceMeters
+        }
+        if let label {
+            payload["label"] = label
         }
         if let timeToCollisionSeconds {
             payload["timeToCollisionSeconds"] = timeToCollisionSeconds

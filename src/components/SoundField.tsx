@@ -35,7 +35,9 @@ export function SoundField({event}: {event?: SpatialEvent}) {
           <View style={[styles.corner, styles.topRight, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
           <View style={[styles.corner, styles.bottomLeft, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
           <View style={[styles.corner, styles.bottomRight, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
-          <Text style={[styles.boxLabel, event.urgency > 0.76 && styles.criticalLabel]}>{event.kind.replace('-', ' ')}</Text>
+          <Text style={[styles.boxLabel, event.urgency > 0.76 && styles.criticalLabel]} numberOfLines={1}>
+            {(event.label ?? event.kind).toUpperCase()}
+          </Text>
         </View>
       ) : null}
     </View>

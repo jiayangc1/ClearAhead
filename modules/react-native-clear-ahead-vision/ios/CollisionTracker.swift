@@ -2,15 +2,25 @@ import Foundation
 
 struct CAObjectDetection {
     let kind: CAEventKind
+    let label: String
     let box: CGRect
     let distanceMeters: Double?
     let confidence: Double
+
+    init(kind: CAEventKind, label: String? = nil, box: CGRect, distanceMeters: Double?, confidence: Double) {
+        self.kind = kind
+        self.label = label ?? kind.rawValue
+        self.box = box
+        self.distanceMeters = distanceMeters
+        self.confidence = confidence
+    }
 }
 
 final class CollisionTracker {
     private final class Track {
         let id: String
         let kind: CAEventKind
+        let label: String
         var box: CGRect
         var distanceMeters: Double?
         var confidence: Double
@@ -25,6 +35,7 @@ final class CollisionTracker {
         init(id: String, detection: CAObjectDetection, now: TimeInterval) {
             self.id = id
             kind = detection.kind
+            label = detection.label
             box = detection.box
             distanceMeters = detection.distanceMeters
             confidence = detection.confidence
@@ -52,7 +63,7 @@ final class CollisionTracker {
 
         for detection in detections.sorted(by: { $0.confidence > $1.confidence }) {
             let match = unmatched
-                .filter { tracks[$0].kind == detection.kind }
+                .filter { tracks[$0].label == detection.label }
                 .map { index in (index, associationCost(track: tracks[index], detection: detection, now: now)) }
                 .filter { $0.1 < 0.72 }
                 .min { $0.1 < $1.1 }
@@ -178,6 +189,7 @@ final class CollisionTracker {
         return CASpatialEvent(
             id: track.id,
             kind: track.kind,
+            label: track.label,
             direction: CADirection.from(horizontalMidpoint: track.box.midX),
             proximity: CAProximity.from(distance: track.distanceMeters),
             approximateDistanceMeters: track.distanceMeters,
