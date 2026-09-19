@@ -34,7 +34,12 @@ export function HomeScreen({
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <BrandLogo width={72} />
+          <View style={styles.logoStage}>
+            <View style={styles.logoGlow} />
+            <View style={styles.logoPlate}>
+              <BrandLogo width={104} />
+            </View>
+          </View>
           <Text accessibilityRole="header" style={styles.title}>
             Move with more confidence.
           </Text>
@@ -112,9 +117,39 @@ export function HomeScreen({
 const styles = StyleSheet.create({
   safeArea: {flex: 1, backgroundColor: colors.night},
   content: {flexGrow: 1, paddingHorizontal: 20, paddingTop: 28, paddingBottom: 22},
-  header: {marginBottom: 32},
-  title: {color: colors.text, fontSize: 36, lineHeight: 41, fontWeight: '800', letterSpacing: -1.2, marginTop: 12, maxWidth: 330},
-  introduction: {color: colors.muted, fontSize: 17, lineHeight: 25, marginTop: 12, maxWidth: 350},
+  header: {alignItems: 'center', marginBottom: 32},
+  logoStage: {
+    width: 144,
+    height: 136,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  logoGlow: {
+    position: 'absolute',
+    width: 136,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: 'rgba(50, 145, 255, 0.18)',
+    transform: [{scaleX: 1.12}],
+  },
+  logoPlate: {
+    width: 128,
+    height: 128,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(50, 145, 255, 0.38)',
+    borderRadius: 36,
+    shadowColor: colors.cyan,
+    shadowOffset: {width: 0, height: 10},
+    shadowOpacity: 0.24,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  title: {color: colors.text, fontSize: 36, lineHeight: 41, fontWeight: '800', letterSpacing: -1.2, marginTop: 12, maxWidth: 330, textAlign: 'center'},
+  introduction: {color: colors.muted, fontSize: 17, lineHeight: 25, marginTop: 12, maxWidth: 350, textAlign: 'center'},
   startPanel: {backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1, borderRadius: 12, padding: 16, gap: 16},
   readyRow: {flexDirection: 'row', alignItems: 'center', gap: 9},
   readyMark: {width: 8, height: 8, borderRadius: 4, backgroundColor: colors.cyan},
