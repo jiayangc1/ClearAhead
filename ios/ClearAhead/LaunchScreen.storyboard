@@ -16,27 +16,20 @@
                         <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" alignment="center" spacing="14" translatesAutoresizingMaskIntoConstraints="NO" id="QKZ-3Q-Dga">
-                                <rect key="frame" x="99" y="298" width="177" height="71"/>
+                            <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" alignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="QKZ-3Q-Dga">
+                                <rect key="frame" x="117.5" y="271.5" width="140" height="124"/>
                                 <subviews>
-                                    <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="uwL-Qn-0R2">
-                                        <rect key="frame" x="70.5" y="0.0" width="36" height="3"/>
-                                        <color key="backgroundColor" red="0.3333333333" green="0.8392156863" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                    <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="BrandLogo" translatesAutoresizingMaskIntoConstraints="NO" id="uwL-Qn-0R2">
+                                        <rect key="frame" x="18.5" y="0.0" width="140" height="124"/>
                                         <constraints>
-                                            <constraint firstAttribute="height" constant="3" id="1rE-Ui-TL1"/>
-                                            <constraint firstAttribute="width" constant="36" id="Q5o-lT-SLA"/>
+                                            <constraint firstAttribute="height" constant="124" id="1rE-Ui-TL1"/>
+                                            <constraint firstAttribute="width" constant="140" id="Q5o-lT-SLA"/>
                                         </constraints>
-                                    </view>
-                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Clear Ahead" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumScaleFactor="0.8" translatesAutoresizingMaskIntoConstraints="NO" id="GJd-Yh-RWb">
-                                        <rect key="frame" x="0.0" y="17" width="177" height="54"/>
-                                        <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="38"/>
-                                        <color key="textColor" red="0.968627451" green="0.9843137255" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                                        <nil key="highlightedColor"/>
-                                    </label>
+                                    </imageView>
                                 </subviews>
                             </stackView>
                         </subviews>
-                        <color key="backgroundColor" red="0.02745098039" green="0.06274509804" blue="0.09411764706" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                         <constraints>
                             <constraint firstItem="QKZ-3Q-Dga" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="Q3B-4B-g5h"/>
                             <constraint firstItem="QKZ-3Q-Dga" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="moa-c2-u7t"/>
@@ -51,4 +44,7 @@
             <point key="canvasLocation" x="52.173913043478265" y="375"/>
         </scene>
     </scenes>
+    <resources>
+        <image name="BrandLogo" width="512" height="453"/>
+    </resources>
 </document>

@@ -1,7 +1,10 @@
 import React from 'react';
-import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {BrandLogo} from '../components/BrandLogo';
+import {BottomNavigation} from '../components/BottomNavigation';
 import {PrimaryButton} from '../components/Controls';
+import {SpringPressable} from '../components/Motion';
 import {colors} from '../config';
 import type {AppPreferences, PipelineMetrics} from '../types';
 
@@ -12,6 +15,7 @@ export function HomeScreen({
   onStart,
   onDemo,
   onSettings,
+  onHome,
 }: {
   preferences: AppPreferences;
   lastMetrics?: PipelineMetrics;
@@ -19,124 +23,161 @@ export function HomeScreen({
   onStart: () => void;
   onDemo: () => void;
   onSettings: () => void;
+  onHome: () => void;
 }) {
-  const enabledModes = [
-    preferences.hapticsEnabled && 'Haptics',
-    preferences.audioEnabled && 'Audio',
-    preferences.speechEnabled && 'Speech',
-  ].filter(Boolean);
+  const enabledModes = [preferences.hapticsEnabled && 'Haptics', preferences.audioEnabled && 'Audio', preferences.speechEnabled && 'Speech'].filter(Boolean);
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <View style={styles.headerCopy}>
-            <Text style={styles.eyebrow}>CLEAR AHEAD</Text>
-            <Text accessibilityRole="header" style={styles.title}>
-              Ready when you are.
-            </Text>
+          <View style={styles.logoStage}>
+            <BrandLogo width={104} />
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open settings"
-            onPress={onSettings}
-            hitSlop={10}
-            style={styles.settingsButton}>
-            <Text accessibilityElementsHidden style={styles.settingsIcon}>
-              {'\u2699\uFE0E'}
-            </Text>
-          </Pressable>
+          <Text accessibilityRole="header" style={styles.title}>
+            Move with more confidence.
+          </Text>
+          <Text style={styles.introduction}>Clear Ahead uses sound and vibration to call out nearby obstacles.</Text>
         </View>
 
-        <View style={styles.field} accessible accessibilityLabel="Clear Ahead is idle">
-          <View style={styles.arcOuter} />
-          <View style={styles.arcMiddle} />
-          <View style={styles.arcInner} />
-          <View style={styles.centerMark} />
-          <Text style={styles.idleLabel}>IDLE</Text>
+        <View style={styles.startPanel}>
+          <View style={styles.readyRow} accessible accessibilityLabel="Ready to assist">
+            <View style={styles.readyMark} />
+            <Text style={styles.readyText}>Ready to assist</Text>
+          </View>
+          {!hasCameraPermission ? (
+            <Text accessibilityRole="alert" style={styles.cameraWarning}>
+              Camera access is off. Enable Camera in iOS Settings or try the safe demo.
+            </Text>
+          ) : null}
+          <PrimaryButton label="Start Assist Mode" hint="Starts the rear camera and environmental feedback" onPress={onStart} disabled={!hasCameraPermission} />
         </View>
 
         <View style={styles.statusCard}>
-          <View style={styles.statusItem}>
-            <Text style={styles.statusLabel}>FEEDBACK</Text>
-            <Text style={styles.statusValue}>
-              {enabledModes.length ? enabledModes.join(' · ') : 'All feedback off'}
-            </Text>
-          </View>
-          <View style={styles.statusItem}>
-            <Text style={styles.statusLabel}>PHONE</Text>
-            <Text style={styles.statusValue}>
-              {preferences.mountingMode === 'handheld' ? 'In hand' : 'Chest mounted'}
-            </Text>
-          </View>
-          {preferences.showFps ? (
+          <View accessibilityLabel="Current setup" style={styles.statusCardContent}>
+            <Text style={styles.sectionLabel}>CURRENT SETUP</Text>
             <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>LAST ASSIST SESSION</Text>
-              <Text style={styles.statusValue}>
-                {lastMetrics
-                  ? `Processed ${lastMetrics.cameraFps.toFixed(1)} fps · Objects ${lastMetrics.detectorFps.toFixed(1)} · Depth ${lastMetrics.depthFps.toFixed(1)}`
-                  : 'No frame rate recorded yet'}
-              </Text>
+              <Text style={styles.statusLabel}>Feedback</Text>
+              <Text style={styles.statusValue}>{enabledModes.length ? enabledModes.join(' · ') : 'All feedback off'}</Text>
             </View>
-          ) : null}
+            <View style={styles.statusItem}>
+              <Text style={styles.statusLabel}>Phone position</Text>
+              <Text style={styles.statusValue}>{preferences.mountingMode === 'handheld' ? 'In hand' : 'Chest mounted'}</Text>
+            </View>
+            {preferences.showFps ? (
+              <View style={styles.statusItem}>
+                <Text style={styles.statusLabel}>Last session</Text>
+                <Text style={styles.statusValue}>
+                  {lastMetrics
+                    ? `Processed ${lastMetrics.cameraFps.toFixed(1)} fps · Objects ${lastMetrics.detectorFps.toFixed(1)} · Depth ${lastMetrics.depthFps.toFixed(1)}`
+                    : 'No frame rate recorded yet'}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.actions}>
-          {!hasCameraPermission ? (
-            <Text accessibilityRole="alert" style={styles.cameraWarning}>
-              Camera access is not enabled. Use demo mode or enable Camera in iOS Settings.
-            </Text>
-          ) : null}
-          <PrimaryButton
-            label="Start assist mode"
-            hint="Starts the rear camera and environmental feedback"
-            onPress={onStart}
-            disabled={!hasCameraPermission}
-          />
-          <Pressable
+          <SpringPressable
             accessibilityRole="button"
             accessibilityLabel="Try a safe demo"
             accessibilityHint="Runs a seated simulation without the camera"
             onPress={onDemo}
-            style={({pressed}) => [styles.demoButton, pressed && {opacity: 0.72}]}>
+            pressedScale={0.95}
+            style={styles.demoButton}
+          >
             <Text style={styles.demoText}>Try a safe demo</Text>
-          </Pressable>
+          </SpringPressable>
         </View>
       </ScrollView>
+      <BottomNavigation active="home" onHome={onHome} onAssist={onStart} onSettings={onSettings} assistDisabled={!hasCameraPermission} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {flex: 1, backgroundColor: colors.night},
-  content: {flexGrow: 1, paddingHorizontal: 22, paddingBottom: 16},
-  header: {paddingTop: 18, flexDirection: 'row', alignItems: 'flex-start', gap: 16},
-  headerCopy: {flex: 1, minWidth: 0},
-  eyebrow: {color: colors.cyan, fontSize: 12, fontWeight: '900', letterSpacing: 2},
-  title: {color: colors.text, fontSize: 31, fontWeight: '800', marginTop: 5},
-  settingsButton: {
-    width: 44,
-    height: 44,
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 22,
+  },
+  header: {alignItems: 'center', marginBottom: 32},
+  logoStage: {
+    width: 104,
+    height: 104,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface,
+    marginBottom: 12,
   },
-  settingsIcon: {color: colors.cyan, fontSize: 23, lineHeight: 25},
-  field: {flexGrow: 1, minHeight: 250, alignItems: 'center', justifyContent: 'center', overflow: 'hidden'},
-  arcOuter: {position: 'absolute', width: 350, height: 350, borderRadius: 175, borderWidth: 1, borderColor: '#55D6FF22'},
-  arcMiddle: {position: 'absolute', width: 240, height: 240, borderRadius: 120, borderWidth: 1, borderColor: '#55D6FF44'},
-  arcInner: {position: 'absolute', width: 130, height: 130, borderRadius: 65, borderWidth: 2, borderColor: '#55D6FF88'},
-  centerMark: {width: 18, height: 18, borderRadius: 9, backgroundColor: colors.cyan},
-  idleLabel: {color: colors.text, marginTop: 34, fontSize: 12, fontWeight: '900', letterSpacing: 2},
-  statusCard: {backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1, borderRadius: 20, padding: 20, gap: 16},
-  statusItem: {gap: 4},
-  statusLabel: {color: colors.muted, fontSize: 13, fontWeight: '800', letterSpacing: 1.4},
-  statusValue: {color: colors.text, fontSize: 18, fontWeight: '700'},
-  actions: {paddingVertical: 20, gap: 12},
+  title: {
+    color: colors.text,
+    fontSize: 36,
+    lineHeight: 41,
+    fontWeight: '800',
+    letterSpacing: -1.2,
+    marginTop: 12,
+    maxWidth: 330,
+    textAlign: 'center',
+  },
+  introduction: {
+    color: colors.muted,
+    fontSize: 17,
+    lineHeight: 25,
+    marginTop: 12,
+    maxWidth: 350,
+    textAlign: 'center',
+  },
+  startPanel: {
+    backgroundColor: '#111111F2',
+    borderColor: colors.line,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    gap: 16,
+  },
+  readyRow: {flexDirection: 'row', alignItems: 'center', gap: 9},
+  readyMark: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.cyan,
+  },
+  readyText: {color: colors.text, fontSize: 15, fontWeight: '700'},
+  statusCard: {
+    marginTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: 20,
+  },
+  statusCardContent: {gap: 16},
+  sectionLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  statusItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+    paddingBottom: 15,
+  },
+  statusLabel: {color: colors.muted, fontSize: 15, fontWeight: '600'},
+  statusValue: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '600',
+    textAlign: 'right',
+    flex: 1,
+  },
+  actions: {paddingTop: 10},
   cameraWarning: {color: colors.amber, fontSize: 15, lineHeight: 21},
-  demoButton: {minHeight: 52, alignItems: 'center', justifyContent: 'center'},
-  demoText: {color: colors.cyan, fontSize: 17, fontWeight: '700'},
+  demoButton: {minHeight: 50, alignItems: 'center', justifyContent: 'center'},
+  demoText: {color: colors.muted, fontSize: 15, fontWeight: '700'},
 });
