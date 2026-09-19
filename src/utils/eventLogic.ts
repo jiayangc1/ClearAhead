@@ -34,9 +34,20 @@ export function describeProximity(event: SpatialEvent): string {
 }
 
 export function describeEvent(event: SpatialEvent): string {
+  if (event.collisionRisk !== 'none') {
+    const timing = event.timeToCollisionSeconds != null
+      ? ` in about ${Math.max(event.timeToCollisionSeconds, 0.1).toFixed(1)} seconds`
+      : '';
+    const warning = event.collisionRisk === 'imminent'
+      ? `Collision likely${timing}`
+      : `Possible collision${timing}`;
+    return `${warning}: ${event.kind.replace('-', ' ')}, ${describeDirection(event.direction)}`;
+  }
   return `${event.kind.replace('-', ' ')}, ${describeProximity(
     event,
-  )}, ${describeDirection(event.direction)}`;
+  )}, ${describeDirection(event.direction)}${
+    event.motionState === 'approaching' ? ', approaching' : ''
+  }`;
 }
 
 export function qualityMessage(quality: SessionQuality): string {

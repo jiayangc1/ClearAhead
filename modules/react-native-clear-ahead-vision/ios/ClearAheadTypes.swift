@@ -22,6 +22,31 @@ enum CAProximity: String {
     case unknown
 }
 
+enum CAMotionState: String {
+    case stationary
+    case approaching
+    case receding
+    case crossing
+}
+
+enum CACollisionRisk: String, Comparable {
+    case none
+    case caution
+    case imminent
+
+    private var rank: Int {
+        switch self {
+        case .none: 0
+        case .caution: 1
+        case .imminent: 2
+        }
+    }
+
+    static func < (lhs: CACollisionRisk, rhs: CACollisionRisk) -> Bool {
+        lhs.rank < rhs.rank
+    }
+}
+
 enum CAEventKind: String {
     case obstacle
     case person
@@ -49,10 +74,46 @@ struct CASpatialEvent {
     let proximity: CAProximity
     let approximateDistanceMeters: Double?
     let approachSpeed: Double
+    let motionState: CAMotionState
+    let collisionRisk: CACollisionRisk
+    let timeToCollisionSeconds: Double?
+    let trajectoryConfidence: Double
     let confidence: Double
     var urgency: Double
     let timestamp: TimeInterval
     let box: CGRect?
+
+    init(
+        id: String,
+        kind: CAEventKind,
+        direction: CADirection,
+        proximity: CAProximity,
+        approximateDistanceMeters: Double?,
+        approachSpeed: Double,
+        motionState: CAMotionState = .stationary,
+        collisionRisk: CACollisionRisk = .none,
+        timeToCollisionSeconds: Double? = nil,
+        trajectoryConfidence: Double = 0,
+        confidence: Double,
+        urgency: Double,
+        timestamp: TimeInterval,
+        box: CGRect?
+    ) {
+        self.id = id
+        self.kind = kind
+        self.direction = direction
+        self.proximity = proximity
+        self.approximateDistanceMeters = approximateDistanceMeters
+        self.approachSpeed = approachSpeed
+        self.motionState = motionState
+        self.collisionRisk = collisionRisk
+        self.timeToCollisionSeconds = timeToCollisionSeconds
+        self.trajectoryConfidence = trajectoryConfidence
+        self.confidence = confidence
+        self.urgency = urgency
+        self.timestamp = timestamp
+        self.box = box
+    }
 
     var dictionary: [String: Any] {
         var payload: [String: Any] = [
@@ -61,12 +122,18 @@ struct CASpatialEvent {
             "direction": direction.rawValue,
             "proximity": proximity.rawValue,
             "approachSpeed": approachSpeed,
+            "motionState": motionState.rawValue,
+            "collisionRisk": collisionRisk.rawValue,
+            "trajectoryConfidence": trajectoryConfidence,
             "confidence": confidence,
             "urgency": urgency,
             "timestamp": timestamp * 1_000,
         ]
         if let approximateDistanceMeters {
             payload["approximateDistanceMeters"] = approximateDistanceMeters
+        }
+        if let timeToCollisionSeconds {
+            payload["timeToCollisionSeconds"] = timeToCollisionSeconds
         }
         if let box {
             payload["box"] = [

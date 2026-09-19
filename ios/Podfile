@@ -39,6 +39,23 @@ target 'ClearAhead' do
           script_phase.always_out_of_date = '1'
         end
       end
+
+      # These dependencies include generated or architecture-gated sources
+      # that are valid but trigger diagnostics in current Xcode toolchains.
+      # Keep the suppression local to the affected third-party target so app
+      # warnings continue to be reported normally.
+      pod_target.build_configurations.each do |build_configuration|
+        case pod_target.name
+        when 'AsyncStorage'
+          build_configuration.build_settings['GCC_WARN_UNUSED_FUNCTION'] = 'NO'
+        when 'NitroImage', 'VisionCamera'
+          build_configuration.build_settings['SWIFT_SUPPRESS_WARNINGS'] = 'YES'
+        when 'react-native-safe-area-context'
+          build_configuration.build_settings['WARNING_CFLAGS'] = '$(inherited) -Wno-reorder-init-list'
+        when 'NitroModules', 'ReactCodegen', 'RNWorklets', 'VisionCameraWorklets'
+          build_configuration.build_settings['OTHER_LIBTOOLFLAGS'] = '$(inherited) -no_warning_for_no_symbols'
+        end
+      end
     end
   end
 end

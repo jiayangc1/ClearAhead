@@ -118,6 +118,9 @@ export function SettingsScreen({
         </Section>
 
         <Section {...sectionProps('Detection')}>
+          <Text style={styles.sectionHelp}>
+            Collision warnings combine several frames of relative movement, depth, and the projected walking path. Higher sensitivity accepts less evidence and may warn more often.
+          </Text>
           <AdjustableRow
             label="Sensitivity"
             valueLabel={`${Math.round(preferences.sensitivity * 100)} percent`}

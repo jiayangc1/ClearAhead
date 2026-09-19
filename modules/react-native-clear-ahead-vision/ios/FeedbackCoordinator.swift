@@ -24,15 +24,22 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
 
     func deliver(_ event: CASpatialEvent, configuration: CAFeedbackConfiguration) {
         if configuration.hapticsEnabled {
-            playHaptic(direction: event.direction, urgency: event.urgency, intensity: configuration.hapticIntensity)
+            playHaptic(
+                direction: event.direction,
+                urgency: event.urgency,
+                collisionRisk: event.collisionRisk,
+                intensity: configuration.hapticIntensity
+            )
         }
         if configuration.audioEnabled {
             playTone(for: event, configuration: configuration)
         }
-        if configuration.speechEnabled,
-           configuration.spokenCategories.contains(event.kind.rawValue),
-           event.urgency >= 0.68 {
-            speak(event)
+        if configuration.speechEnabled, event.urgency >= 0.68 {
+            if event.collisionRisk != .none {
+                speakCollision(event)
+            } else if configuration.spokenCategories.contains(event.kind.rawValue) {
+                speak(event)
+            }
         }
     }
 
@@ -58,14 +65,24 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    private func playHaptic(direction: CADirection, urgency: Double, intensity: Double) {
+    private func playHaptic(
+        direction: CADirection,
+        urgency: Double,
+        collisionRisk: CACollisionRisk,
+        intensity: Double
+    ) {
         guard let hapticEngine else { return }
         let strength = Float(min(max(intensity * (0.45 + urgency * 0.55), 0.1), 1))
         let timings: [TimeInterval]
-        switch direction {
-        case .left: timings = [0, 0.09, 0.24]
-        case .center: timings = [0, 0.12]
-        case .right: timings = [0, 0.15, 0.24]
+        switch collisionRisk {
+        case .imminent: timings = [0, 0.065, 0.13, 0.195]
+        case .caution: timings = [0, 0.08, 0.19]
+        case .none:
+            switch direction {
+            case .left: timings = [0, 0.09, 0.24]
+            case .center: timings = [0, 0.12]
+            case .right: timings = [0, 0.15, 0.24]
+            }
         }
         let events = timings.map { time in
             CHHapticEvent(
@@ -155,6 +172,16 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         }
         let clock = event.direction == .left ? "10 o'clock" : event.direction == .right ? "2 o'clock" : "12 o'clock"
         let utterance = AVSpeechUtterance(string: "\(event.kind.rawValue), \(distance), \(clock)")
+        utterance.rate = 0.58
+        utterance.preUtteranceDelay = 0
+        speechSynthesizer.speak(utterance)
+    }
+
+    private func speakCollision(_ event: CASpatialEvent) {
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        let direction = event.direction == .center ? "ahead" : "to the \(event.direction.rawValue)"
+        let instruction = event.collisionRisk == .imminent ? "Stop." : "Caution."
+        let utterance = AVSpeechUtterance(string: "\(instruction) \(event.kind.rawValue) \(direction).")
         utterance.rate = 0.58
         utterance.preUtteranceDelay = 0
         speechSynthesizer.speak(utterance)

@@ -12,6 +12,8 @@ final class ClearAheadEngine {
     private let frameLock = NSLock()
     private let prioritizer = EventPrioritizer()
     private let feedback = FeedbackCoordinator()
+    private let collisionTracker = CollisionTracker()
+    private let opticalFlowAnalyzer = OpticalFlowAnalyzer()
     private let motionManager = CMMotionManager()
     private var configuration = CAFeedbackConfiguration()
     private var sessionActive = false
@@ -21,9 +23,14 @@ final class ClearAheadEngine {
     private lazy var depthModel = loadModel(named: ["DepthAnythingV2SmallF16P6", "DepthAnythingV2SmallF16"])
     private var objectEvents: [CASpatialEvent] = []
     private var depthEvents: [CASpatialEvent] = []
-    private var trackHistory: [String: (distance: Double, time: TimeInterval)] = [:]
+    private var loomingEvent: CASpatialEvent?
+    private var depthPersistence: [CADirection: Int] = [:]
+    private var latestDepthSupport = 0.0
+    private var latestDepthSupportTime: TimeInterval = 0
+    private var latestRotationRate = 0.0
     private var lastObjectInference: TimeInterval = 0
     private var lastDepthInference: TimeInterval = 0
+    private var lastFlowInference: TimeInterval = 0
     private var lastQualityCheck: TimeInterval = 0
     private var inferenceCount = 0
     private var lastMetricsEmission: TimeInterval = 0
@@ -36,6 +43,7 @@ final class ClearAheadEngine {
     private var lastQuality = "good"
     private var transientQualityUntil: TimeInterval = 0
     private var interruptedSessionWasActive = false
+    private var hasVisibleEvent = false
 
     private init() {
         NotificationCenter.default.addObserver(
@@ -60,6 +68,15 @@ final class ClearAheadEngine {
         sessionActive = true
         stateLock.unlock()
         prioritizer.reset()
+        collisionTracker.reset()
+        opticalFlowAnalyzer.reset()
+        objectEvents = []
+        depthEvents = []
+        loomingEvent = nil
+        depthPersistence = [:]
+        latestDepthSupport = 0
+        latestDepthSupportTime = 0
+        hasVisibleEvent = false
         inferenceCount = 0
         stateLock.lock()
         droppedFrameCount = 0
@@ -81,6 +98,8 @@ final class ClearAheadEngine {
         feedback.stop()
         motionManager.stopDeviceMotionUpdates()
         prioritizer.reset()
+        collisionTracker.reset()
+        opticalFlowAnalyzer.reset()
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "idle",
             "message": "Assist mode stopped",
@@ -115,6 +134,19 @@ final class ClearAheadEngine {
         let responsive = currentConfiguration.processingMode == "responsive"
         let objectInterval = thermallyLimited ? 0.22 : 0.11
         let depthInterval = thermallyLimited ? 0.5 : (responsive ? 0.5 : 0.18)
+        let flowInterval = thermallyLimited ? 0.28 : 0.14
+
+        if startedAt - lastFlowInference >= flowInterval {
+            let depthSupport = startedAt - latestDepthSupportTime < 0.8 ? latestDepthSupport : 0
+            let observation = opticalFlowAnalyzer.analyze(
+                pixelBuffer: pixelBuffer,
+                now: startedAt,
+                rotationRate: currentRotationRate(),
+                depthSupport: depthSupport
+            )
+            loomingEvent = observation.map { loomingEvent(from: $0, now: startedAt) }
+            lastFlowInference = startedAt
+        }
 
         if startedAt - lastQualityCheck >= 0.65 {
             evaluateImageQuality(pixelBuffer: pixelBuffer)
@@ -130,13 +162,18 @@ final class ClearAheadEngine {
             depthInferenceCount += 1
             inferenceCount += 1
         } else if objectDue {
-            objectEvents = detectObjects(pixelBuffer: pixelBuffer, now: startedAt)
+            objectEvents = detectObjects(
+                pixelBuffer: pixelBuffer,
+                now: startedAt,
+                configuration: currentConfiguration
+            )
             lastObjectInference = startedAt
             objectInferenceCount += 1
             inferenceCount += 1
         }
 
-        let freshEvents = (objectEvents + depthEvents).filter { startedAt - $0.timestamp < 0.7 }
+        let freshEvents = (objectEvents + depthEvents + [loomingEvent].compactMap { $0 })
+            .filter { startedAt - $0.timestamp < 0.7 }
         if let selected = prioritizer.select(
             from: freshEvents,
             configuration: currentConfiguration,
@@ -144,6 +181,10 @@ final class ClearAheadEngine {
         ) {
             feedback.deliver(selected, configuration: currentConfiguration)
             ClearAheadModule.emit(name: "topEvent", body: selected.dictionary)
+            hasVisibleEvent = true
+        } else if !prioritizer.hasActiveEvent, hasVisibleEvent {
+            ClearAheadModule.emit(name: "eventCleared", body: [:])
+            hasVisibleEvent = false
         }
 
         latestLatencyMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
@@ -203,7 +244,11 @@ final class ClearAheadEngine {
         demoTimer = nil
     }
 
-    private func detectObjects(pixelBuffer: CVPixelBuffer, now: TimeInterval) -> [CASpatialEvent] {
+    private func detectObjects(
+        pixelBuffer: CVPixelBuffer,
+        now: TimeInterval,
+        configuration: CAFeedbackConfiguration
+    ) -> [CASpatialEvent] {
         guard let objectModel else { return [] }
         let request = VNCoreMLRequest(model: objectModel)
         request.imageCropAndScaleOption = .scaleFill
@@ -214,27 +259,24 @@ final class ClearAheadEngine {
             return []
         }
 
-        return (request.results as? [VNRecognizedObjectObservation] ?? []).compactMap { observation in
+        let detections = (request.results as? [VNRecognizedObjectObservation] ?? []).compactMap { observation -> CAObjectDetection? in
             guard let label = observation.labels.first,
                   let kind = eventKind(for: label.identifier) else { return nil }
             let box = observation.boundingBox
-            let direction = CADirection.from(horizontalMidpoint: box.midX)
             let distance = approximateDistance(kind: kind, boundingBox: box)
-            let trackKey = "\(kind.rawValue):\(direction.rawValue)"
-            let approachSpeed = approachSpeed(for: trackKey, distance: distance, now: now)
-            return CASpatialEvent(
-                id: trackKey,
+            return CAObjectDetection(
                 kind: kind,
-                direction: direction,
-                proximity: CAProximity.from(distance: distance),
-                approximateDistanceMeters: distance,
-                approachSpeed: approachSpeed,
-                confidence: Double(label.confidence),
-                urgency: 0,
-                timestamp: now,
-                box: box
+                box: box,
+                distanceMeters: distance,
+                confidence: Double(label.confidence)
             )
         }
+        return collisionTracker.update(
+            detections: detections,
+            now: now,
+            configuration: configuration,
+            rotationRate: currentRotationRate()
+        )
     }
 
     private func estimateDepthEvents(pixelBuffer: CVPixelBuffer, now: TimeInterval) -> [CASpatialEvent] {
@@ -279,25 +321,49 @@ final class ClearAheadEngine {
               maximum - minimum > 0.0001 else { return [] }
         let median = percentile(global, fraction: 0.5)
         let directions: [CADirection] = [.left, .center, .right]
-        return sectors.enumerated().compactMap { index, values in
+        var observedDirections = Set<CADirection>()
+        let events = sectors.enumerated().compactMap { index, values -> CASpatialEvent? in
             guard values.count > 5 else { return nil }
             let nearValue = percentile(values, fraction: 0.86)
             let normalizedContrast = (nearValue - median) / (maximum - minimum)
             guard normalizedContrast > 0.2 else { return nil }
             let proximity: CAProximity = normalizedContrast > 0.58 ? .near : .medium
+            let direction = directions[index]
+            observedDirections.insert(direction)
+            let persistence = (depthPersistence[direction] ?? 0) + 1
+            depthPersistence[direction] = persistence
+            let confidence = min(0.5 + normalizedContrast * 0.45, 0.88)
+            let trajectoryConfidence = confidence * min(Double(persistence) / 3, 1)
+            let collisionRisk: CACollisionRisk = direction == .center
+                && proximity == .near
+                && persistence >= 3
+                && trajectoryConfidence >= 0.65 ? .caution : .none
             return CASpatialEvent(
-                id: "depth:\(directions[index].rawValue)",
+                id: "depth:\(direction.rawValue)",
                 kind: .obstacle,
-                direction: directions[index],
+                direction: direction,
                 proximity: proximity,
                 approximateDistanceMeters: nil,
                 approachSpeed: 0,
-                confidence: min(0.5 + normalizedContrast * 0.45, 0.88),
+                motionState: collisionRisk == .none ? .stationary : .approaching,
+                collisionRisk: collisionRisk,
+                trajectoryConfidence: trajectoryConfidence,
+                confidence: confidence,
                 urgency: 0,
                 timestamp: now,
                 box: CGRect(x: CGFloat(index) / 3, y: 0.35, width: 1.0 / 3, height: 0.65)
             )
         }
+        for direction in directions where !observedDirections.contains(direction) {
+            depthPersistence[direction] = 0
+        }
+        let centerValues = sectors[1]
+        if centerValues.count > 5 {
+            let centerNear = percentile(centerValues, fraction: 0.86)
+            latestDepthSupport = min(max((centerNear - median) / (maximum - minimum), 0), 1)
+            latestDepthSupportTime = now
+        }
+        return events
     }
 
     private func evaluateImageQuality(pixelBuffer: CVPixelBuffer) {
@@ -353,6 +419,9 @@ final class ClearAheadEngine {
         motionManager.startDeviceMotionUpdates(to: OperationQueue()) { [weak self] motion, _ in
             guard let self, let rate = motion?.rotationRate else { return }
             let magnitude = sqrt(rate.x * rate.x + rate.y * rate.y + rate.z * rate.z)
+            stateLock.lock()
+            latestRotationRate = magnitude
+            stateLock.unlock()
             if magnitude > 3.2 {
                 markTransientQuality(
                     "moving-too-fast",
@@ -496,11 +565,29 @@ final class ClearAheadEngine {
         return min(max((distance * 10).rounded() / 10, 0.5), 12)
     }
 
-    private func approachSpeed(for key: String, distance: Double?, now: TimeInterval) -> Double {
-        guard let distance else { return 0 }
-        defer { trackHistory[key] = (distance, now) }
-        guard let previous = trackHistory[key], now > previous.time else { return 0 }
-        return max(0, (previous.distance - distance) / (now - previous.time))
+    private func currentRotationRate() -> Double {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return latestRotationRate
+    }
+
+    private func loomingEvent(from observation: CALoomingObservation, now: TimeInterval) -> CASpatialEvent {
+        CASpatialEvent(
+            id: "looming:center",
+            kind: .obstacle,
+            direction: .center,
+            proximity: observation.collisionRisk == .imminent ? .near : .medium,
+            approximateDistanceMeters: nil,
+            approachSpeed: 0,
+            motionState: .approaching,
+            collisionRisk: observation.collisionRisk,
+            timeToCollisionSeconds: observation.timeToCollisionSeconds,
+            trajectoryConfidence: observation.confidence,
+            confidence: observation.confidence,
+            urgency: 0,
+            timestamp: now,
+            box: CGRect(x: 0.3, y: 0.25, width: 0.4, height: 0.75)
+        )
     }
 
     private func percentile(_ values: [Double], fraction: Double) -> Double {
@@ -524,17 +611,17 @@ final class ClearAheadEngine {
         case "approaching-vehicle":
             return [
                 CASpatialEvent(id: "demo-vehicle-right", kind: .vehicle, direction: .right, proximity: .medium, approximateDistanceMeters: 4.8, approachSpeed: 1.2, confidence: 0.92, urgency: 0.72, timestamp: now, box: CGRect(x: 0.68, y: 0.32, width: 0.24, height: 0.35)),
-                CASpatialEvent(id: "demo-vehicle-center", kind: .vehicle, direction: .center, proximity: .near, approximateDistanceMeters: 1.8, approachSpeed: 1.8, confidence: 0.95, urgency: 0.96, timestamp: now, box: CGRect(x: 0.34, y: 0.22, width: 0.34, height: 0.5)),
+                CASpatialEvent(id: "demo-vehicle-center", kind: .vehicle, direction: .center, proximity: .near, approximateDistanceMeters: 1.8, approachSpeed: 1.8, motionState: .approaching, collisionRisk: .imminent, timeToCollisionSeconds: 1, trajectoryConfidence: 0.93, confidence: 0.95, urgency: 0.96, timestamp: now, box: CGRect(x: 0.34, y: 0.22, width: 0.34, height: 0.5)),
             ]
         case "hallway":
             return [
                 CASpatialEvent(id: "demo-obstacle-left", kind: .obstacle, direction: .left, proximity: .medium, approximateDistanceMeters: nil, approachSpeed: 0, confidence: 0.81, urgency: 0.58, timestamp: now, box: CGRect(x: 0.04, y: 0.35, width: 0.28, height: 0.55)),
-                CASpatialEvent(id: "demo-furniture-center", kind: .furniture, direction: .center, proximity: .near, approximateDistanceMeters: 1.4, approachSpeed: 0.3, confidence: 0.88, urgency: 0.84, timestamp: now, box: CGRect(x: 0.36, y: 0.42, width: 0.3, height: 0.42)),
+                CASpatialEvent(id: "demo-furniture-center", kind: .furniture, direction: .center, proximity: .near, approximateDistanceMeters: 1.4, approachSpeed: 0.3, motionState: .approaching, collisionRisk: .caution, timeToCollisionSeconds: 2.6, trajectoryConfidence: 0.8, confidence: 0.88, urgency: 0.84, timestamp: now, box: CGRect(x: 0.36, y: 0.42, width: 0.3, height: 0.42)),
             ]
         default:
             return [
                 CASpatialEvent(id: "demo-person-left", kind: .person, direction: .left, proximity: .medium, approximateDistanceMeters: 3.6, approachSpeed: 0.6, confidence: 0.94, urgency: 0.64, timestamp: now, box: CGRect(x: 0.08, y: 0.2, width: 0.25, height: 0.58)),
-                CASpatialEvent(id: "demo-person-center", kind: .person, direction: .center, proximity: .near, approximateDistanceMeters: 1.6, approachSpeed: 1.1, confidence: 0.96, urgency: 0.91, timestamp: now, box: CGRect(x: 0.38, y: 0.12, width: 0.28, height: 0.72)),
+                CASpatialEvent(id: "demo-person-center", kind: .person, direction: .center, proximity: .near, approximateDistanceMeters: 1.6, approachSpeed: 1.1, motionState: .approaching, collisionRisk: .caution, timeToCollisionSeconds: 2.1, trajectoryConfidence: 0.91, confidence: 0.96, urgency: 0.91, timestamp: now, box: CGRect(x: 0.38, y: 0.12, width: 0.28, height: 0.72)),
                 CASpatialEvent(id: "demo-person-right", kind: .person, direction: .right, proximity: .medium, approximateDistanceMeters: 3.1, approachSpeed: 0.2, confidence: 0.9, urgency: 0.57, timestamp: now, box: CGRect(x: 0.7, y: 0.24, width: 0.22, height: 0.52)),
             ]
         }

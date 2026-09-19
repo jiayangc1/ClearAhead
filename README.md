@@ -16,7 +16,9 @@ haptics, stereo audio cues, and optional short speech.
 - Persistent, independent haptic, directional-audio, and speech preferences
 - VisionCamera 5 frame output connected to a typed Nitro Swift module
 - On-device Core ML object detection and relative-depth integration
-- Temporal tracking, urgency ranking, hysteresis, and cue cooldowns
+- Stable multi-object tracking with smoothed relative motion and projected collision paths
+- Time-to-collision warnings for tracked objects plus depth-supported optical looming for walls and unlabeled obstacles
+- Collision-aware urgency ranking, hysteresis, and cue cooldowns
 - Core Haptics direction patterns, spatially panned AVAudioEngine cues whose
   pitch and pulse rhythm encode distance and urgency, and interruptible
   AVSpeechSynthesizer output
@@ -81,11 +83,13 @@ VisionCamera preview + 30 FPS frame output
                    |
             Nitro JSI boundary
                    |
-    Swift Core ML scheduler (frames never enter React state)
-        |               |               |
-  object detector   relative depth   quality checks
-        \               |               /
-          tracking + event prioritizer
+    Swift bounded scheduler (frames never enter React state)
+        |               |              |               |
+  object detector   relative depth  optical flow   quality checks
+        \               |              /               /
+         stable tracks + relative trajectory prediction
+                          |
+                  event prioritizer
                        |
               native feedback engine
               /         |          \
@@ -113,8 +117,11 @@ needed to establish the actual rate and detection tradeoffs on an iPhone 12.
 Depth Anything produces relative depth. Clear Ahead therefore reports
 near/medium/far for generic depth regions. Approximate meters are emitted only
 for object classes with simple physical-size priors and are explicitly spoken
-as “about” values. This is a baseline for calibration and real-world testing,
-not validated collision-avoidance accuracy.
+as “about” values. Collision timing is based on relative closing motion, box
+expansion, and low-resolution optical looming rather than claimed absolute
+object velocity. Camera rotation suppresses motion-derived warnings until the
+view stabilizes. This is a baseline for calibration and real-world testing, not
+validated collision-avoidance accuracy.
 
 The initial physical-device performance target is median urgent-event
 camera-to-cue latency below 150 ms with no growing frame backlog. Validate it

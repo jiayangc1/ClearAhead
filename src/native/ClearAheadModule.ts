@@ -59,6 +59,9 @@ export const ClearAheadModule = {
   onEvent(listener: (payload: SpatialEvent) => void): EmitterSubscription | undefined {
     return subscribe('topEvent', listener);
   },
+  onEventCleared(listener: () => void): EmitterSubscription | undefined {
+    return subscribe('eventCleared', listener);
+  },
   onQuality(listener: (payload: QualityPayload) => void): EmitterSubscription | undefined {
     return subscribe('qualityChanged', listener);
   },
