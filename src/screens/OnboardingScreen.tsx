@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {AccessibilityInfo, findNodeHandle, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {BrandLogo} from '../components/BrandLogo';
 import {colors} from '../config';
 import {PrimaryButton} from '../components/Controls';
 import type {MountingMode} from '../types';
@@ -52,7 +53,10 @@ export function OnboardingScreen({
         contentContainerStyle={styles.content}
         accessibilityViewIsModal
         keyboardShouldPersistTaps="handled">
-        <Text style={styles.eyebrow}>CLEAR AHEAD · SETUP {step + 1} OF 3</Text>
+        <View style={styles.brandRow}>
+          <BrandLogo width={52} />
+          <Text style={styles.eyebrow}>SETUP {step + 1} OF 3</Text>
+        </View>
         {step === 0 ? (
           <>
             <Text ref={titleRef} accessibilityRole="header" style={styles.title}>
@@ -195,6 +199,7 @@ function Choice({
 const styles = StyleSheet.create({
   safeArea: {flex: 1, backgroundColor: colors.night},
   content: {flexGrow: 1, padding: 24, paddingTop: 38, gap: 22},
+  brandRow: {flexDirection: 'row', alignItems: 'center', gap: 14},
   eyebrow: {color: colors.cyan, fontSize: 12, fontWeight: '800', letterSpacing: 1.6},
   title: {color: colors.text, fontSize: 39, fontWeight: '800'},
   body: {color: colors.muted, fontSize: 19, lineHeight: 28},

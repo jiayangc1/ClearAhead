@@ -1,7 +1,12 @@
 import React from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {
+  House,
+  ScanEye,
+  Settings,
+  type LucideIcon,
+} from 'lucide-react-native';
 import {colors} from '../config';
-import {BrandLogo} from './BrandLogo';
 
 type Tab = 'home' | 'assist' | 'settings';
 
@@ -21,6 +26,7 @@ export function BottomNavigation({
   return (
     <View accessibilityRole="tablist" style={styles.navigation}>
       <NavigationItem
+        icon={House}
         label="Home"
         selected={active === 'home'}
         onPress={onHome}
@@ -37,10 +43,15 @@ export function BottomNavigation({
           assistDisabled && styles.disabled,
           pressed && styles.pressed,
         ]}>
-        <BrandLogo width={24} accessible={false} />
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants">
+          <ScanEye color={colors.cyan} size={23} strokeWidth={2.4} />
+        </View>
         <Text style={styles.assistLabel}>Assist</Text>
       </Pressable>
       <NavigationItem
+        icon={Settings}
         label="Settings"
         selected={active === 'settings'}
         onPress={onSettings}
@@ -50,10 +61,12 @@ export function BottomNavigation({
 }
 
 function NavigationItem({
+  icon: Icon,
   label,
   selected,
   onPress,
 }: {
+  icon: LucideIcon;
   label: string;
   selected: boolean;
   onPress: () => void;
@@ -67,8 +80,13 @@ function NavigationItem({
       style={({pressed}) => [styles.item, pressed && styles.pressed]}>
       <View
         accessibilityElementsHidden
-        style={[styles.indicator, selected && styles.indicatorSelected]}
-      />
+        importantForAccessibility="no-hide-descendants">
+        <Icon
+          color={selected ? colors.cyan : colors.muted}
+          size={22}
+          strokeWidth={selected ? 2.4 : 2}
+        />
+      </View>
       <Text style={[styles.label, selected && styles.labelSelected]}>{label}</Text>
     </Pressable>
   );
@@ -83,31 +101,25 @@ const styles = StyleSheet.create({
     borderTopColor: colors.line,
     backgroundColor: '#080808FA',
     paddingHorizontal: 8,
-    paddingTop: 7,
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   item: {
     flex: 1,
     minHeight: 58,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 9,
+    gap: 5,
   },
-  indicator: {
-    width: 18,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: colors.line,
-  },
-  indicatorSelected: {backgroundColor: colors.cyan},
   label: {color: colors.muted, fontSize: 13, fontWeight: '600'},
   labelSelected: {color: colors.text},
   assistItem: {
-    flex: 1.15,
+    flex: 1,
     minHeight: 58,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 5,
+    marginHorizontal: 4,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.cyan,
