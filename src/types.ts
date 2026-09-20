@@ -54,6 +54,10 @@ export interface PipelineMetrics {
   droppedFrames: number;
   endToEndLatencyMs: number;
   thermalState: string;
+  objectModelLoaded?: boolean;
+  depthModelLoaded?: boolean;
+  objectInferenceError?: string;
+  depthInferenceError?: string;
 }
 
 export interface FeedbackConfiguration {
@@ -79,6 +83,18 @@ export interface AppPreferences extends FeedbackConfiguration {
 export interface SessionStatusPayload {
   state: SessionState;
   message: string;
+  severity?: 'info' | 'warning' | 'error';
+  code?: 'models-ready' | 'model-load-failed';
+  diagnostics?: {
+    objectModel: ModelDiagnostic;
+    depthModel: ModelDiagnostic;
+  };
+}
+
+export interface ModelDiagnostic {
+  loaded: boolean;
+  resource?: string;
+  error?: string;
 }
 
 export interface QualityPayload {
