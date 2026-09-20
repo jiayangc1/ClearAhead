@@ -18,15 +18,21 @@ Pod::Spec.new do |s|
   s.platforms    = { :ios => min_ios_version_supported, :visionos => 1.0 }
   s.source       = { :git => "https://github.com/jiayangc1/cac.git", :tag => "#{s.version}" }
 
+  # Keep this list explicit so source moves change the podspec checksum and are
+  # reflected when CocoaPods regenerates the Pods project.
   s.source_files = [
-    # Implementation (Swift)
-    "ios/**/*.{swift}",
-    # Autolinking/Registration (Objective-C++)
-    "ios/**/*.{m,mm}",
-    # Implementation (C++ objects)
+    "ios/Bridge.h",
+    "ios/ClearAheadEngine.swift",
+    "ios/ClearAheadModule.swift",
+    "ios/ClearAheadModuleBridge.m",
+    "ios/ClearAheadModuleEntry.swift",
+    "ios/EventPrioritizer.swift",
+    "ios/Feedback/Feedback.swift",
+    "ios/ModelOutputDecoder.swift",
+    "ios/Risk/CollisionTracker.swift",
+    "ios/Types.swift",
     "cpp/**/*.{hpp,cpp}",
   ]
-  s.exclude_files = ["ios/Tests/**/*"]
 
   s.frameworks = ["AVFoundation", "Accelerate", "CoreHaptics", "CoreML", "CoreMotion", "Vision"]
   s.resources = ["models/*.mlmodel", "models/*.mlpackage"]
