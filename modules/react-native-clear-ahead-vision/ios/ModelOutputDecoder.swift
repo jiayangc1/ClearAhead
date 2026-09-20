@@ -2,13 +2,13 @@ import CoreGraphics
 import CoreML
 import Foundation
 
-struct CAYOLODetection {
+struct YOLODetection {
     let classIdentifier: Int
     let confidence: Double
     let box: CGRect
 }
 
-struct CADepthMap {
+struct DepthMap {
     let width: Int
     let height: Int
     let values: [Double]
@@ -20,20 +20,20 @@ struct CADepthMap {
         let width = shape[shape.count - 1]
         guard width > 1, height > 1 else { return nil }
 
-        let yStride = array.strides[shape.count - 2].intValue
-        let xStride = array.strides[shape.count - 1].intValue
-        var decoded = [Double](repeating: .nan, count: width * height)
-        for y in 0..<height {
-            for x in 0..<width {
-                let value = array[y * yStride + x * xStride].doubleValue
+        let rowStride = array.strides[shape.count - 2].intValue
+        let columnStride = array.strides[shape.count - 1].intValue
+        var depthValues = [Double](repeating: .nan, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width {
+                let value = array[row * rowStride + column * columnStride].doubleValue
                 if value.isFinite, value > 0 {
-                    decoded[y * width + x] = value
+                    depthValues[row * width + column] = value
                 }
             }
         }
         self.width = width
         self.height = height
-        values = decoded
+        values = depthValues
     }
 
     func samples(in normalizedBox: CGRect, step: Int = 2) -> [Double] {
@@ -43,14 +43,14 @@ struct CADepthMap {
         let endX = max(startX + 1, min(width, Int(ceil(clamped.maxX * CGFloat(width)))))
         let startY = max(0, min(height - 1, Int(clamped.minY * CGFloat(height))))
         let endY = max(startY + 1, min(height, Int(ceil(clamped.maxY * CGFloat(height)))))
-        var result: [Double] = []
-        for y in stride(from: startY, to: endY, by: max(step, 1)) {
-            for x in stride(from: startX, to: endX, by: max(step, 1)) {
-                let value = values[y * width + x]
-                if value.isFinite { result.append(value) }
+        var sampledValues: [Double] = []
+        for row in stride(from: startY, to: endY, by: max(step, 1)) {
+            for column in stride(from: startX, to: endX, by: max(step, 1)) {
+                let value = values[row * width + column]
+                if value.isFinite { sampledValues.append(value) }
             }
         }
-        return result
+        return sampledValues
     }
 
     func distance(inVisionBox box: CGRect) -> Double? {
@@ -73,8 +73,8 @@ struct CADepthMap {
     }
 }
 
-enum CAModelOutputDecoder {
-    static func detections(from array: MLMultiArray, inputSize: Double = 640) -> [CAYOLODetection] {
+enum ModelOutputDecoder {
+    static func detections(from array: MLMultiArray, inputSize: Double = 640) -> [YOLODetection] {
         let shape = array.shape.map(\.intValue)
         guard shape.count >= 2 else { return [] }
         let rowCount = shape[shape.count - 2]
@@ -90,26 +90,26 @@ enum CAModelOutputDecoder {
             let confidence = value(4)
             let classIdentifier = Int(value(5).rounded())
             guard confidence.isFinite, confidence > 0.05, classIdentifier >= 0 else { return nil }
-            var x1 = value(0)
-            var y1 = value(1)
-            var x2 = value(2)
-            var y2 = value(3)
-            guard [x1, y1, x2, y2].allSatisfy({ $0.isFinite }) else { return nil }
-            if max(x2, y2) > 2 {
-                x1 /= inputSize
-                y1 /= inputSize
-                x2 /= inputSize
-                y2 /= inputSize
+            var left = value(0)
+            var top = value(1)
+            var right = value(2)
+            var bottom = value(3)
+            guard [left, top, right, bottom].allSatisfy({ $0.isFinite }) else { return nil }
+            if max(right, bottom) > 2 {
+                left /= inputSize
+                top /= inputSize
+                right /= inputSize
+                bottom /= inputSize
             }
-            x1 = min(max(x1, 0), 1)
-            y1 = min(max(y1, 0), 1)
-            x2 = min(max(x2, 0), 1)
-            y2 = min(max(y2, 0), 1)
-            guard x2 > x1, y2 > y1 else { return nil }
-            return CAYOLODetection(
+            left = min(max(left, 0), 1)
+            top = min(max(top, 0), 1)
+            right = min(max(right, 0), 1)
+            bottom = min(max(bottom, 0), 1)
+            guard right > left, bottom > top else { return nil }
+            return YOLODetection(
                 classIdentifier: classIdentifier,
                 confidence: confidence,
-                box: CGRect(x: x1, y: 1 - y2, width: x2 - x1, height: y2 - y1)
+                box: CGRect(x: left, y: 1 - bottom, width: right - left, height: bottom - top)
             )
         }
     }

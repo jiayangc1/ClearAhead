@@ -4,7 +4,7 @@ final class EventPrioritizer {
     private(set) var hasActiveEvent = false
     private var lastEventKey: String?
     private var lastEmissionTime: TimeInterval = 0
-    private var retainedEvent: CASpatialEvent?
+    private var retainedEvent: SpatialEvent?
 
     func reset() {
         lastEventKey = nil
@@ -14,11 +14,11 @@ final class EventPrioritizer {
     }
 
     func select(
-        from events: [CASpatialEvent],
-        configuration: CAFeedbackConfiguration,
+        from events: [SpatialEvent],
+        configuration: FeedbackConfiguration,
         now: TimeInterval
-    ) -> CASpatialEvent? {
-        let ranked = events.compactMap { candidate -> CASpatialEvent? in
+    ) -> SpatialEvent? {
+        let rankedEvents = events.compactMap { candidate -> SpatialEvent? in
             guard candidate.confidence >= 0.42 + (1 - configuration.sensitivity) * 0.24 else {
                 return nil
             }
@@ -27,37 +27,37 @@ final class EventPrioritizer {
                 return nil
             }
 
-            let proximity: Double
+            let proximityScore: Double
             if let distance = candidate.approximateDistanceMeters {
-                proximity = 1 - min(distance / configuration.warningDistanceMeters, 1)
+                proximityScore = 1 - min(distance / configuration.warningDistanceMeters, 1)
             } else {
                 switch candidate.proximity {
-                case .near: proximity = 0.9
-                case .medium: proximity = 0.55
-                case .far: proximity = 0.25
-                case .unknown: proximity = 0.18
+                case .near: proximityScore = 0.9
+                case .medium: proximityScore = 0.55
+                case .far: proximityScore = 0.25
+                case .unknown: proximityScore = 0.18
                 }
             }
-            let approach = min(candidate.approachSpeed / 2.5, 1)
-            let collision: Double
+            let approachScore = min(candidate.approachSpeed / 2.5, 1)
+            let collisionScore: Double
             switch candidate.collisionRisk {
-            case .none: collision = 0
-            case .caution: collision = 0.32
-            case .imminent: collision = 0.55
+            case .none: collisionScore = 0
+            case .caution: collisionScore = 0.32
+            case .imminent: collisionScore = 0.55
             }
             let centerBias = candidate.direction == .center ? 0.13 : 0
-            var ranked = candidate
-            ranked.urgency = min(
-                proximity * 0.47
-                    + approach * 0.18
-                    + collision
+            var scoredEvent = candidate
+            scoredEvent.urgency = min(
+                proximityScore * 0.47
+                    + approachScore * 0.18
+                    + collisionScore
                     + candidate.kind.risk * 0.15
                     + candidate.confidence * 0.07
                     + centerBias
                     + configuration.sensitivity * 0.1,
                 1
             )
-            return ranked
+            return scoredEvent
         }
         .sorted { lhs, rhs in
             if lhs.collisionRisk != rhs.collisionRisk {
@@ -69,7 +69,7 @@ final class EventPrioritizer {
             return lhs.urgency > rhs.urgency
         }
 
-        guard var best = ranked.first else {
+        guard var highestPriorityEvent = rankedEvents.first else {
             retainedEvent = nil
             hasActiveEvent = false
             return nil
@@ -77,26 +77,26 @@ final class EventPrioritizer {
         hasActiveEvent = true
 
         if let retainedEvent,
-           retainedEvent.id == best.id,
-           retainedEvent.collisionRisk == best.collisionRisk,
-           retainedEvent.urgency > best.urgency - 0.08 {
-            best = retainedEvent
+           retainedEvent.id == highestPriorityEvent.id,
+           retainedEvent.collisionRisk == highestPriorityEvent.collisionRisk,
+           retainedEvent.urgency > highestPriorityEvent.urgency - 0.08 {
+            highestPriorityEvent = retainedEvent
         }
-        retainedEvent = best
+        retainedEvent = highestPriorityEvent
 
-        let key = "\(best.kind.rawValue):\(best.direction.rawValue)"
+        let key = "\(highestPriorityEvent.kind.rawValue):\(highestPriorityEvent.direction.rawValue)"
         let minimumCooldown = max(0.32, 1.35 - configuration.feedbackFrequency)
         let urgentCooldown: TimeInterval
-        switch best.collisionRisk {
+        switch highestPriorityEvent.collisionRisk {
         case .imminent: urgentCooldown = 0.22
         case .caution: urgentCooldown = 0.34
-        case .none: urgentCooldown = best.urgency >= 0.78 ? 0.34 : minimumCooldown
+        case .none: urgentCooldown = highestPriorityEvent.urgency >= 0.78 ? 0.34 : minimumCooldown
         }
         guard key != lastEventKey || now - lastEmissionTime >= urgentCooldown else {
             return nil
         }
         lastEventKey = key
         lastEmissionTime = now
-        return best
+        return highestPriorityEvent
     }
 }

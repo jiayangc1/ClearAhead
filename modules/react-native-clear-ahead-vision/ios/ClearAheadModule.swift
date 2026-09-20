@@ -34,7 +34,7 @@ final class ClearAheadModule: RCTEventEmitter {
         rejecter reject: RCTPromiseRejectBlock
     ) {
         ClearAheadEngine.shared.start(
-            configuration: CAFeedbackConfiguration(dictionary: configuration as? [String: Any] ?? [:])
+            configuration: FeedbackConfiguration(dictionary: configuration as? [String: Any] ?? [:])
         )
         resolve(nil)
     }
@@ -55,7 +55,7 @@ final class ClearAheadModule: RCTEventEmitter {
         rejecter reject: RCTPromiseRejectBlock
     ) {
         ClearAheadEngine.shared.update(
-            configuration: CAFeedbackConfiguration(dictionary: configuration as? [String: Any] ?? [:])
+            configuration: FeedbackConfiguration(dictionary: configuration as? [String: Any] ?? [:])
         )
         resolve(nil)
     }
