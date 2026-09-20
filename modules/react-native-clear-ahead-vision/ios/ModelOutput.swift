@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreML
 import Foundation
+import UIKit
 
 struct YOLODetection {
     let classIdentifier: Int
@@ -70,6 +71,51 @@ struct DepthMap {
         let sorted = values.sorted()
         let index = min(sorted.count - 1, max(0, Int(Double(sorted.count - 1) * fraction)))
         return sorted[index]
+    }
+
+    func heatmapDataURL(maxDimension: Int = 128) -> String? {
+        let valid = values.filter { $0.isFinite && $0 > 0 }
+        guard valid.count > 8 else { return nil }
+        let near = Self.percentile(valid, fraction: 0.05)
+        let far = Self.percentile(valid, fraction: 0.95)
+        let scale = max(far - near, 0.001)
+        let sampleStep = max(1, max(width, height) / maxDimension)
+        let outputWidth = max(1, width / sampleStep)
+        let outputHeight = max(1, height / sampleStep)
+        var pixels = [UInt8](repeating: 0, count: outputWidth * outputHeight * 4)
+
+        for row in 0..<outputHeight {
+            for column in 0..<outputWidth {
+                let value = values[min(row * sampleStep, height - 1) * width + min(column * sampleStep, width - 1)]
+                let offset = (row * outputWidth + column) * 4
+                guard value.isFinite, value > 0 else {
+                    pixels[offset + 3] = 255
+                    continue
+                }
+                let distance = min(max((value - near) / scale, 0), 1)
+                pixels[offset] = UInt8((1 - distance) * 255)
+                pixels[offset + 1] = UInt8((1 - abs(distance - 0.5) * 2) * 72)
+                pixels[offset + 2] = UInt8(distance * 255)
+                pixels[offset + 3] = 255
+            }
+        }
+
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData),
+              let image = CGImage(
+                width: outputWidth,
+                height: outputHeight,
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: outputWidth * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: true,
+                intent: .defaultIntent
+              ),
+              let png = UIImage(cgImage: image).pngData() else { return nil }
+        return "data:image/png;base64,\(png.base64EncodedString())"
     }
 }
 
