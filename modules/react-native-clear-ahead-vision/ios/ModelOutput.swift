@@ -73,7 +73,7 @@ struct DepthMap {
     }
 }
 
-enum ModelOutputDecoder {
+enum ModelOutput {
     static func detections(from array: MLMultiArray, inputSize: Double = 640) -> [YOLODetection] {
         let shape = array.shape.map(\.intValue)
         guard shape.count >= 2 else { return [] }
