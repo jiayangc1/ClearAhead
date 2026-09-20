@@ -2,7 +2,7 @@ import AVFoundation
 import CoreHaptics
 import Foundation
 
-final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
+final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
     private struct PendingSpeech {
         let text: String
         let key: String
@@ -48,7 +48,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         hapticEngine?.stop(completionHandler: nil)
     }
 
-    func deliver(_ event: CASpatialEvent, configuration: CAFeedbackConfiguration) {
+    func deliver(_ event: SpatialEvent, configuration: FeedbackConfiguration) {
         if configuration.hapticsEnabled {
             playHaptic(
                 direction: event.direction,
@@ -69,7 +69,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    func speakWarning(_ message: String, configuration: CAFeedbackConfiguration) {
+    func speakWarning(_ message: String, configuration: FeedbackConfiguration) {
         guard configuration.speechEnabled else { return }
         requestSpeech(text: message, key: "warning:\(message)", priority: 2, mayInterrupt: true)
     }
@@ -88,9 +88,9 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func playHaptic(
-        direction: CADirection,
+        direction: Direction,
         urgency: Double,
-        collisionRisk: CACollisionRisk,
+        collisionRisk: CollisionRisk,
         intensity: Double
     ) {
         guard let hapticEngine else { return }
@@ -144,7 +144,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    private func enqueueTone(for event: CASpatialEvent, configuration: CAFeedbackConfiguration) {
+    private func enqueueTone(for event: SpatialEvent, configuration: FeedbackConfiguration) {
         let pending = PendingTone(
             profile: AudioCueProfile(event: event, configuration: configuration),
             priority: event.urgency + (event.collisionRisk == .imminent ? 1 : 0)
@@ -221,7 +221,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         return buffer
     }
 
-    private func speak(_ event: CASpatialEvent) {
+    private func speak(_ event: SpatialEvent) {
         let label = event.label ?? event.kind.rawValue
         let distance = event.approximateDistanceMeters.map { String(format: "about %.1f meters", $0) }
             ?? event.proximity.rawValue
@@ -234,7 +234,7 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
         )
     }
 
-    private func speakCollision(_ event: CASpatialEvent) {
+    private func speakCollision(_ event: SpatialEvent) {
         let label = event.label ?? event.kind.rawValue
         let direction = event.direction == .center ? "ahead" : "to the \(event.direction.rawValue)"
         let instruction = event.collisionRisk == .imminent ? "Stop." : "Caution."
@@ -291,5 +291,62 @@ final class FeedbackCoordinator: NSObject, AVSpeechSynthesizerDelegate {
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         drainPendingSpeech()
+    }
+}
+
+struct AudioCueProfile {
+    let startFrequency: Double
+    let endFrequency: Double
+    let pulseCount: Int
+    let pulseDuration: TimeInterval
+    let pulseGap: TimeInterval
+    let pan: Float
+    let gain: Float
+
+    init(event: SpatialEvent, configuration: FeedbackConfiguration) {
+        let closeness: Double
+        if let distance = event.approximateDistanceMeters {
+            closeness = 1 - min(max(distance / configuration.warningDistanceMeters, 0), 1)
+        } else {
+            switch event.proximity {
+            case .near: closeness = 0.88
+            case .medium: closeness = 0.56
+            case .far: closeness = 0.24
+            case .unknown: closeness = 0.16
+            }
+        }
+
+        let baseFrequency = 360 + closeness * 720
+        if event.collisionRisk != .none {
+            startFrequency = 520
+            endFrequency = event.collisionRisk == .imminent ? 1_420 : 1_120
+        } else {
+            switch event.direction {
+            case .left:
+                startFrequency = baseFrequency * 1.12
+                endFrequency = baseFrequency * 0.88
+            case .center:
+                startFrequency = baseFrequency
+                endFrequency = baseFrequency
+            case .right:
+                startFrequency = baseFrequency * 0.88
+                endFrequency = baseFrequency * 1.12
+            }
+        }
+
+        let urgency = min(max(event.urgency, 0), 1)
+        if event.collisionRisk == .imminent {
+            pulseCount = 4
+        } else if event.collisionRisk == .caution || urgency >= 0.75 {
+            pulseCount = 3
+        } else if urgency >= 0.4 {
+            pulseCount = 2
+        } else {
+            pulseCount = 1
+        }
+        pulseDuration = event.collisionRisk == .none ? 0.075 - urgency * 0.02 : 0.045
+        pulseGap = event.collisionRisk == .none ? 0.18 - urgency * 0.11 : 0.05
+        pan = event.direction.pan
+        gain = Float(min(max(configuration.audioVolume * (0.72 + urgency * 0.28), 0), 1))
     }
 }
