@@ -33,10 +33,12 @@ final class ClearAheadEngine {
     private var configuration = FeedbackConfiguration()
     private var sessionActive = false
     private var demoTimer: DispatchSourceTimer?
+    private var demoGeneration = 0
 
     private let logger = Logger(subsystem: "com.clearahead.vision", category: "inference")
     private var objectModelResult = ModelLoadResult(model: nil, resource: nil, error: "Model not prepared")
     private var depthModelResult = ModelLoadResult(model: nil, resource: nil, error: "Model not prepared")
+    private var preparedModelKey: String?
     private var objectModel: VNCoreMLModel? { objectModelResult.model }
     private var depthModel: VNCoreMLModel? { depthModelResult.model }
     private var objectInferenceError: String?
@@ -44,6 +46,7 @@ final class ClearAheadEngine {
     private var objectEvents: [SpatialEvent] = []
     private var depthEvents: [SpatialEvent] = []
     private var latestDepthMap: DepthMap?
+    private var latestDepthMapTime: TimeInterval = 0
     private var loomingEvent: SpatialEvent?
     private var depthPersistence: [Direction: Int] = [:]
     private var latestDepthSupport = 0.0
@@ -92,6 +95,16 @@ final class ClearAheadEngine {
         configuration: FeedbackConfiguration,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+        let requestedKey = "\(configuration.modelVariant):\(configuration.modelQuantization)"
+        stateLock.lock()
+        let modelsAlreadyPrepared = preparedModelKey == requestedKey
+            && objectModelResult.model != nil
+            && depthModelResult.model != nil
+        stateLock.unlock()
+        if modelsAlreadyPrepared {
+            completion(.success(()))
+            return
+        }
         ModelManager.shared.prepare(
             variant: configuration.modelVariant,
             quantization: configuration.modelQuantization,
@@ -111,6 +124,9 @@ final class ClearAheadEngine {
                     self.stateLock.lock()
                     self.objectModelResult = detector
                     self.depthModelResult = depth
+                    self.preparedModelKey = detector.error == nil && depth.error == nil
+                        ? requestedKey
+                        : nil
                     self.stateLock.unlock()
                     if let error = detector.error ?? depth.error {
                         completion(.failure(NSError(
@@ -129,6 +145,9 @@ final class ClearAheadEngine {
     }
 
     func start(configuration: FeedbackConfiguration) {
+        frameLock.lock()
+        defer { frameLock.unlock() }
+        cancelDemoTimer()
         stateLock.lock()
         self.configuration = configuration
         sessionActive = true
@@ -139,6 +158,7 @@ final class ClearAheadEngine {
         objectEvents = []
         depthEvents = []
         latestDepthMap = nil
+        latestDepthMapTime = 0
         loomingEvent = nil
         depthPersistence = [:]
         latestDepthSupport = 0
@@ -147,7 +167,9 @@ final class ClearAheadEngine {
         cameraTooClose = false
         closeDepthFrames = 0
         clearDepthFrames = 0
+        stateLock.lock()
         lastQuality = ""
+        stateLock.unlock()
         inferenceCount = 0
         stateLock.lock()
         droppedFrameCount = 0
@@ -165,15 +187,17 @@ final class ClearAheadEngine {
     }
 
     func stop() {
+        frameLock.lock()
         stateLock.lock()
         sessionActive = false
         stateLock.unlock()
-        stopDemo()
+        cancelDemoTimer()
         feedback.stop()
         motionManager.stopDeviceMotionUpdates()
         prioritizer.reset()
         collisionTracker.reset()
         opticalFlowAnalyzer.reset()
+        frameLock.unlock()
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "idle",
             "message": "Assist mode stopped",
@@ -187,11 +211,7 @@ final class ClearAheadEngine {
     }
 
     func process(sampleBuffer: CMSampleBuffer) {
-        stateLock.lock()
-        let isSessionActive = sessionActive
-        let currentConfiguration = configuration
-        stateLock.unlock()
-        guard isSessionActive, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         guard frameLock.try() else {
             stateLock.lock()
@@ -200,6 +220,11 @@ final class ClearAheadEngine {
             return
         }
         defer { frameLock.unlock() }
+        stateLock.lock()
+        let isSessionActive = sessionActive
+        let currentConfiguration = configuration
+        stateLock.unlock()
+        guard isSessionActive else { return }
 
         let frameStartTime = ProcessInfo.processInfo.systemUptime
         frameCount += 1
@@ -284,10 +309,14 @@ final class ClearAheadEngine {
     }
 
     func startDemo(scenario: String) {
-        stopDemo()
+        frameLock.lock()
+        defer { frameLock.unlock() }
+        cancelDemoTimer()
         stateLock.lock()
         sessionActive = true
         let currentConfiguration = configuration
+        demoGeneration += 1
+        let currentDemoGeneration = demoGeneration
         stateLock.unlock()
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "running",
@@ -300,6 +329,12 @@ final class ClearAheadEngine {
         timer.schedule(deadline: .now() + 0.4, repeating: 1.05)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            frameLock.lock()
+            defer { frameLock.unlock() }
+            stateLock.lock()
+            let shouldDeliver = sessionActive && demoGeneration == currentDemoGeneration
+            stateLock.unlock()
+            guard shouldDeliver else { return }
             let event = sequence[index % sequence.count]
             index += 1
             feedback.deliver(event, configuration: currentConfiguration)
@@ -313,13 +348,33 @@ final class ClearAheadEngine {
                 "thermalState": "nominal",
             ])
         }
+        stateLock.lock()
         demoTimer = timer
+        stateLock.unlock()
         timer.resume()
     }
 
     func stopDemo() {
-        demoTimer?.cancel()
+        frameLock.lock()
+        stateLock.lock()
+        sessionActive = false
+        stateLock.unlock()
+        cancelDemoTimer()
+        feedback.stop()
+        frameLock.unlock()
+        ClearAheadModule.emit(name: "sessionStatus", body: [
+            "state": "idle",
+            "message": "Demo stopped",
+        ])
+    }
+
+    private func cancelDemoTimer() {
+        stateLock.lock()
+        demoGeneration += 1
+        let timer = demoTimer
         demoTimer = nil
+        stateLock.unlock()
+        timer?.cancel()
     }
 
     private func detectObjects(
@@ -335,7 +390,7 @@ final class ClearAheadEngine {
             try handler.perform([request])
         } catch {
             objectInferenceError = String(describing: error)
-            logger.error("YOLO26n inference failed: \(String(describing: error), privacy: .public)")
+            logger.error("YOLO26 detector inference failed: \(String(describing: error), privacy: .public)")
             return []
         }
 
@@ -350,7 +405,7 @@ final class ClearAheadEngine {
                     kind: kind,
                     label: normalizedObjectLabel(label.identifier),
                     box: box,
-                    distanceMeters: latestDepthMap?.distance(inVisionBox: box)
+                    distanceMeters: recentDepthDistance(inVisionBox: box, now: now)
                         ?? approximateDistance(kind: kind, boundingBox: box),
                     confidence: Double(label.confidence)
                 )
@@ -367,7 +422,7 @@ final class ClearAheadEngine {
                         kind: kind,
                         label: label,
                         box: detection.box,
-                        distanceMeters: latestDepthMap?.distance(inVisionBox: detection.box)
+                        distanceMeters: recentDepthDistance(inVisionBox: detection.box, now: now)
                             ?? approximateDistance(kind: kind, boundingBox: detection.box),
                         confidence: detection.confidence
                     )
@@ -410,7 +465,7 @@ final class ClearAheadEngine {
             try handler.perform([request])
         } catch {
             depthInferenceError = String(describing: error)
-            logger.error("YOLO26nDepth inference failed: \(String(describing: error), privacy: .public)")
+            logger.error("YOLO26 depth inference failed: \(String(describing: error), privacy: .public)")
             return []
         }
         guard let depthOutput = (request.results as? [VNCoreMLFeatureValueObservation])?.first(where: {
@@ -420,6 +475,7 @@ final class ClearAheadEngine {
         }
         guard let depthMap = DepthMap(array: depthValues) else { return [] }
         latestDepthMap = depthMap
+        latestDepthMapTime = now
         if configuration.depthMapEnabled, let dataURL = depthMap.heatmapDataURL() {
             ClearAheadModule.emit(name: "depthMapUpdated", body: ["dataUrl": dataURL])
         }
@@ -510,7 +566,10 @@ final class ClearAheadEngine {
 
     private func evaluateImageQuality(pixelBuffer: CVPixelBuffer) {
         let now = ProcessInfo.processInfo.systemUptime
-        if now < transientQualityUntil { return }
+        stateLock.lock()
+        let isTransientQualityActive = now < transientQualityUntil
+        stateLock.unlock()
+        if isTransientQualityActive { return }
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return }
@@ -577,10 +636,12 @@ final class ClearAheadEngine {
     }
 
     private func markTransientQuality(_ quality: String, message: String, duration: TimeInterval) {
+        stateLock.lock()
         transientQualityUntil = max(
             transientQualityUntil,
             ProcessInfo.processInfo.systemUptime + duration
         )
+        stateLock.unlock()
         emitQuality(quality, message: message)
     }
 
@@ -612,13 +673,16 @@ final class ClearAheadEngine {
     }
 
     private func emitQuality(_ quality: String, message: String) {
-        guard quality != lastQuality else { return }
+        stateLock.lock()
+        guard quality != lastQuality else {
+            stateLock.unlock()
+            return
+        }
         lastQuality = quality
+        let currentConfiguration = configuration
+        stateLock.unlock()
         ClearAheadModule.emit(name: "qualityChanged", body: ["quality": quality, "message": message])
         if quality != "good" {
-            stateLock.lock()
-            let currentConfiguration = configuration
-            stateLock.unlock()
             feedback.speakWarning(message, configuration: currentConfiguration)
         }
     }
@@ -760,6 +824,11 @@ final class ClearAheadEngine {
         }
         let distance = referenceHeight * 0.88 / max(Double(boundingBox.height), 0.05)
         return min(max((distance * 10).rounded() / 10, 0.5), 12)
+    }
+
+    private func recentDepthDistance(inVisionBox box: CGRect, now: TimeInterval) -> Double? {
+        guard now - latestDepthMapTime <= 0.8 else { return nil }
+        return latestDepthMap?.distance(inVisionBox: box)
     }
 
     private func currentRotationRate() -> Double {

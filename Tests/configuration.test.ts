@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_PREFERENCES, toFeedbackConfiguration } from '../src/config.ts';
+import {
+  DEFAULT_PREFERENCES,
+  normalizePreferences,
+  toFeedbackConfiguration,
+} from '../src/config.ts';
 
 test('default configuration has at least one nonvisual feedback channel', () => {
   assert.equal(DEFAULT_PREFERENCES.hapticsEnabled, true);
@@ -27,4 +31,24 @@ test('speech defaults to high-value categories only', () => {
     DEFAULT_PREFERENCES.spokenCategories.includes('furniture'),
     false,
   );
+});
+
+test('stored preferences are validated and clamped before use', () => {
+  const preferences = normalizePreferences({
+    onboardingComplete: 'yes',
+    audioVolume: 4,
+    sensitivity: Number.NaN,
+    warningDistanceMeters: -20,
+    mountingMode: 'tripod',
+    modelVariant: 'unknown',
+    spokenCategories: ['person', 'person', 'invalid', 3],
+  });
+
+  assert.equal(preferences.onboardingComplete, false);
+  assert.equal(preferences.audioVolume, 1);
+  assert.equal(preferences.sensitivity, DEFAULT_PREFERENCES.sensitivity);
+  assert.equal(preferences.warningDistanceMeters, 1);
+  assert.equal(preferences.mountingMode, 'handheld');
+  assert.equal(preferences.modelVariant, 'n');
+  assert.deepEqual(preferences.spokenCategories, ['person']);
 });

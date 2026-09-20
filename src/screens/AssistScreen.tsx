@@ -121,6 +121,7 @@ export function AssistScreen({
   const cameraOutputs = useMemo(() => [frameOutput], [frameOutput]);
 
   useEffect(() => {
+    let active = true;
     const subscriptions = [
       ClearAheadModule.onStatus(payload => {
         latestStatus.current = payload;
@@ -146,34 +147,55 @@ export function AssistScreen({
     ];
 
     const configuration = toFeedbackConfiguration(preferences);
-    const start = ClearAheadModule.updateConfiguration(configuration).then(() =>
-      isDemo
-        ? ClearAheadModule.startDemo(demoScenario)
-        : ClearAheadModule.startSession(configuration),
-    );
-    start.catch(error => {
+    const startNativeSession = () =>
+      ClearAheadModule.updateConfiguration(configuration).then(() =>
+        isDemo
+          ? ClearAheadModule.startDemo(demoScenario)
+          : ClearAheadModule.startSession(configuration),
+      );
+    const handleStartError = (error: unknown) => {
+      if (!active) {
+        return;
+      }
       setSessionState('error');
       setStatusMessage(
         error instanceof Error ? error.message : 'Session could not start',
       );
-    });
+    };
+
+    if (AppState.currentState === 'active') {
+      startNativeSession().catch(handleStartError);
+    }
 
     const appStateSubscription = AppState.addEventListener('change', next => {
       setIsForeground(next === 'active');
       if (next !== 'active') {
-        ClearAheadModule.stopSession().catch(() => undefined);
+        (isDemo
+          ? ClearAheadModule.stopDemo()
+          : ClearAheadModule.stopSession()
+        ).catch(() => undefined);
         setSessionState('paused');
         setStatusMessage('Paused while Clear Ahead is in the background');
         AccessibilityInfo.announceForAccessibility(
           'Assist mode paused because Clear Ahead left the foreground.',
         );
-      } else if (!isDemo) {
-        ClearAheadModule.startSession(configuration).catch(() => undefined);
-        AccessibilityInfo.announceForAccessibility('Assist mode resumed.');
+      } else {
+        setSessionState('starting');
+        setStatusMessage(isDemo ? 'Restarting safe demo' : 'Restarting camera');
+        startNativeSession()
+          .then(() => {
+            if (active) {
+              AccessibilityInfo.announceForAccessibility(
+                isDemo ? 'Safe demo resumed.' : 'Assist mode resumed.',
+              );
+            }
+          })
+          .catch(handleStartError);
       }
     });
 
     return () => {
+      active = false;
       subscriptions.forEach(subscription => subscription?.remove());
       appStateSubscription.remove();
       (isDemo
@@ -182,12 +204,6 @@ export function AssistScreen({
       ).catch(() => undefined);
     };
   }, [demoScenario, isDemo, onMetrics, preferences]);
-
-  useEffect(() => {
-    ClearAheadModule.updateConfiguration(
-      toFeedbackConfiguration(preferences),
-    ).catch(() => undefined);
-  }, [preferences]);
 
   const eventDescription = useMemo(
     () => (event ? describeEvent(event) : 'Field clear'),

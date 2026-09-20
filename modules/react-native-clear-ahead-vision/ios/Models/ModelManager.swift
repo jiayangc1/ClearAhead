@@ -103,10 +103,15 @@ final class ModelManager {
         progress: @escaping (Double, String) -> Void
     ) throws -> URL {
         let root = try modelsRoot()
-        let destination = root.appendingPathComponent(model.package, isDirectory: true)
+        guard !model.files.isEmpty else { throw ModelManagerError.missingCatalogEntry }
+        let destination = try packageURL(named: model.package, under: root)
         let marker = root.appendingPathComponent("\(model.package).complete")
-        let signature = model.files.map(\.sha256).joined(separator: "\n")
+        let signature = model.files.map { "\($0.path):\($0.sha256)" }.joined(separator: "\n")
+        let installedFilesComplete = try model.files.allSatisfy { file in
+            fileManager.fileExists(atPath: try safeRelativeURL(file.path, under: destination).path)
+        }
         if fileManager.fileExists(atPath: destination.path),
+           installedFilesComplete,
            (try? String(contentsOf: marker, encoding: .utf8)) == signature {
             return destination
         }
@@ -120,11 +125,11 @@ final class ModelManager {
                 let fraction = Double(index) / Double(max(model.files.count, 1))
                 let value = progressRange.lowerBound + fraction * (progressRange.upperBound - progressRange.lowerBound)
                 progress(value, "Downloading \(model.package)…")
-                let data = try Data(contentsOf: releaseRoot.appendingPathComponent(file.asset))
+                let data = try Data(contentsOf: try releaseAssetURL(named: file.asset))
                 guard SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == file.sha256 else {
                     throw ModelManagerError.checksumMismatch(file.asset)
                 }
-                let fileURL = staging.appendingPathComponent(file.path)
+                let fileURL = try safeRelativeURL(file.path, under: staging)
                 try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try data.write(to: fileURL, options: .atomic)
             }
@@ -151,12 +156,44 @@ final class ModelManager {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }
+
+    private func packageURL(named package: String, under root: URL) throws -> URL {
+        guard !package.isEmpty,
+              package != ".",
+              package != "..",
+              (package as NSString).lastPathComponent == package else {
+            throw ModelManagerError.unsafeCatalogPath(package)
+        }
+        return root.appendingPathComponent(package, isDirectory: true)
+    }
+
+    private func safeRelativeURL(_ path: String, under root: URL) throws -> URL {
+        let standardizedRoot = root.standardizedFileURL
+        let candidate = standardizedRoot.appendingPathComponent(path).standardizedFileURL
+        guard !path.isEmpty,
+              !path.hasPrefix("/"),
+              candidate.path.hasPrefix(standardizedRoot.path + "/") else {
+            throw ModelManagerError.unsafeCatalogPath(path)
+        }
+        return candidate
+    }
+
+    private func releaseAssetURL(named asset: String) throws -> URL {
+        guard !asset.isEmpty,
+              asset != ".",
+              asset != "..",
+              (asset as NSString).lastPathComponent == asset else {
+            throw ModelManagerError.unsafeCatalogPath(asset)
+        }
+        return releaseRoot.appendingPathComponent(asset)
+    }
 }
 
 private enum ModelManagerError: LocalizedError {
     case unsupportedSelection
     case missingCatalogEntry
     case checksumMismatch(String)
+    case unsafeCatalogPath(String)
 
     var errorDescription: String? {
         switch self {
@@ -166,6 +203,8 @@ private enum ModelManagerError: LocalizedError {
             return "The selected YOLO26 model pair is not available in the download catalog."
         case let .checksumMismatch(asset):
             return "The downloaded model failed verification: \(asset)"
+        case let .unsafeCatalogPath(path):
+            return "The model catalog contains an unsafe path: \(path)"
         }
     }
 }

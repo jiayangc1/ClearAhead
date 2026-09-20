@@ -1,8 +1,8 @@
-import {useEffect, useState} from 'react';
-import {AccessibilityInfo} from 'react-native';
+import { useEffect, useState } from 'react';
+import { AccessibilityInfo } from 'react-native';
 
 let cachedReducedMotion: boolean | undefined;
-let subscription: {remove: () => void} | undefined;
+let subscription: { remove: () => void } | undefined;
 const listeners = new Set<(value: boolean) => void>();
 let isFetchingInitialValue = false;
 
@@ -13,13 +13,17 @@ function broadcast(value: boolean) {
 
 function ensureSubscription() {
   if (!subscription) {
-    subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', broadcast);
+    subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      broadcast,
+    );
   }
 
   if (cachedReducedMotion === undefined && !isFetchingInitialValue) {
     isFetchingInitialValue = true;
     AccessibilityInfo.isReduceMotionEnabled()
       .then(enabled => broadcast(enabled))
+      .catch(() => undefined)
       .finally(() => {
         isFetchingInitialValue = false;
       });
@@ -34,7 +38,9 @@ function teardownSubscriptionIfUnused() {
 }
 
 export function useReducedMotion() {
-  const [reducedMotion, setReducedMotion] = useState<boolean>(cachedReducedMotion ?? false);
+  const [reducedMotion, setReducedMotion] = useState<boolean>(
+    cachedReducedMotion ?? false,
+  );
 
   useEffect(() => {
     ensureSubscription();

@@ -5,6 +5,8 @@ import React
 final class ClearAheadModule: RCTEventEmitter {
     private static weak var currentEmitter: ClearAheadModule?
     private var hasListeners = false
+    private let requestLock = NSLock()
+    private var sessionGeneration = 0
 
     override init() {
         super.init()
@@ -34,8 +36,13 @@ final class ClearAheadModule: RCTEventEmitter {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let parsed = FeedbackConfiguration(dictionary: configuration as? [String: Any] ?? [:])
+        let requestGeneration = beginSessionRequest()
         ClearAheadEngine.shared.prepareModels(configuration: parsed) { result in
             DispatchQueue.main.async {
+                guard self.isCurrentSessionRequest(requestGeneration) else {
+                    resolve(nil)
+                    return
+                }
                 switch result {
                 case .success:
                     ClearAheadEngine.shared.start(configuration: parsed)
@@ -45,6 +52,25 @@ final class ClearAheadModule: RCTEventEmitter {
                 }
             }
         }
+    }
+
+    private func beginSessionRequest() -> Int {
+        requestLock.lock()
+        defer { requestLock.unlock() }
+        sessionGeneration += 1
+        return sessionGeneration
+    }
+
+    private func invalidateSessionRequests() {
+        requestLock.lock()
+        sessionGeneration += 1
+        requestLock.unlock()
+    }
+
+    private func isCurrentSessionRequest(_ generation: Int) -> Bool {
+        requestLock.lock()
+        defer { requestLock.unlock() }
+        return generation == sessionGeneration
     }
 
     @objc(prepareModels:modelQuantization:resolver:rejecter:)
@@ -78,6 +104,7 @@ final class ClearAheadModule: RCTEventEmitter {
         _ resolve: RCTPromiseResolveBlock,
         rejecter reject: RCTPromiseRejectBlock
     ) {
+        invalidateSessionRequests()
         ClearAheadEngine.shared.stop()
         resolve(nil)
     }
@@ -100,6 +127,7 @@ final class ClearAheadModule: RCTEventEmitter {
         resolver resolve: RCTPromiseResolveBlock,
         rejecter reject: RCTPromiseRejectBlock
     ) {
+        invalidateSessionRequests()
         ClearAheadEngine.shared.startDemo(scenario: scenario)
         resolve(nil)
     }
@@ -109,6 +137,7 @@ final class ClearAheadModule: RCTEventEmitter {
         _ resolve: RCTPromiseResolveBlock,
         rejecter reject: RCTPromiseRejectBlock
     ) {
+        invalidateSessionRequests()
         ClearAheadEngine.shared.stopDemo()
         resolve(nil)
     }

@@ -53,6 +53,8 @@ export function SettingsScreen({
   const [modelStatus, setModelStatus] = useState(
     'Downloaded automatically when selected',
   );
+  const modelRequest = useRef(0);
+  const pendingModelVariant = useRef<ModelVariant | undefined>(undefined);
   const sectionProps = (title: string) => ({
     title,
     expanded: openSection === title,
@@ -69,25 +71,33 @@ export function SettingsScreen({
 
   useEffect(() => {
     const subscription = ClearAheadModule.onModelDownload(payload => {
-      setModelStatus(payload.message);
+      if (payload.modelVariant === pendingModelVariant.current) {
+        setModelStatus(payload.message);
+      }
     });
     return () => subscription?.remove();
   }, []);
 
   const selectModel = (modelVariant: ModelVariant) => {
+    const request = ++modelRequest.current;
+    pendingModelVariant.current = modelVariant;
     onChange({ modelVariant });
     setModelStatus(`Preparing YOLO26${modelVariant} models…`);
     ClearAheadModule.prepareModels(modelVariant, preferences.modelQuantization)
-      .then(() =>
-        setModelStatus(
-          `YOLO26${modelVariant} detector and depth models are ready`,
-        ),
-      )
-      .catch(error =>
-        setModelStatus(
-          error instanceof Error ? error.message : 'Model download failed',
-        ),
-      );
+      .then(() => {
+        if (request === modelRequest.current) {
+          setModelStatus(
+            `YOLO26${modelVariant} detector and depth models are ready`,
+          );
+        }
+      })
+      .catch(error => {
+        if (request === modelRequest.current) {
+          setModelStatus(
+            error instanceof Error ? error.message : 'Model download failed',
+          );
+        }
+      });
   };
 
   return (
