@@ -6,10 +6,10 @@
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
-    "lint": "eslint App.tsx src tests",
+    "lint": "eslint App.tsx src Tests",
     "models": "bash scripts/download-models.sh",
     "start": "react-native start",
-    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "test": "node --test --experimental-strip-types Tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

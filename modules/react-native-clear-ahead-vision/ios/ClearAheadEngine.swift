@@ -3,7 +3,22 @@ import AVFoundation
 import CoreML
 import CoreMotion
 import Foundation
+import OSLog
 import Vision
+
+private struct ModelLoadResult {
+    let model: VNCoreMLModel?
+    let resource: String?
+    let error: String?
+
+    var dictionary: [String: Any] {
+        [
+            "loaded": model != nil,
+            "resource": resource as Any? ?? NSNull(),
+            "error": error as Any? ?? NSNull(),
+        ]
+    }
+}
 
 final class ClearAheadEngine {
     static let shared = ClearAheadEngine()
@@ -19,8 +34,13 @@ final class ClearAheadEngine {
     private var sessionActive = false
     private var demoTimer: DispatchSourceTimer?
 
-    private lazy var objectModel = loadModel(named: ["YOLO26n"])
-    private lazy var depthModel = loadModel(named: ["YOLO26nDepth"])
+    private let logger = Logger(subsystem: "com.clearahead.vision", category: "inference")
+    private lazy var objectModelResult = loadModel(named: "YOLO26n")
+    private lazy var depthModelResult = loadModel(named: "YOLO26nDepth")
+    private var objectModel: VNCoreMLModel? { objectModelResult.model }
+    private var depthModel: VNCoreMLModel? { depthModelResult.model }
+    private var objectInferenceError: String?
+    private var depthInferenceError: String?
     private var objectEvents: [SpatialEvent] = []
     private var depthEvents: [SpatialEvent] = []
     private var latestDepthMap: DepthMap?
@@ -98,6 +118,9 @@ final class ClearAheadEngine {
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "running",
             "message": modelStatusMessage(),
+            "severity": modelsAvailable ? "info" : "error",
+            "code": modelsAvailable ? "models-ready" : "model-load-failed",
+            "diagnostics": modelDiagnostics(),
         ])
     }
 
@@ -271,6 +294,8 @@ final class ClearAheadEngine {
         do {
             try handler.perform([request])
         } catch {
+            objectInferenceError = String(describing: error)
+            logger.error("YOLO26n inference failed: \(String(describing: error), privacy: .public)")
             return []
         }
 
@@ -292,8 +317,8 @@ final class ClearAheadEngine {
             }
         } else {
             let modelOutputs = (request.results as? [VNCoreMLFeatureValueObservation] ?? [])
-                .compactMap { $0.featureValue.multiArrayValue
-            		detections = modelOutputs
+                .compactMap { $0.featureValue.multiArrayValue }
+            detections = modelOutputs
                 .flatMap(ModelOutputDecoder.detections)
                 .compactMap { detection in
                     guard let label = cocoLabel(for: detection.classIdentifier),
@@ -328,6 +353,8 @@ final class ClearAheadEngine {
         do {
             try handler.perform([request])
         } catch {
+            depthInferenceError = String(describing: error)
+            logger.error("YOLO26nDepth inference failed: \(String(describing: error), privacy: .public)")
             return []
         }
         guard let depthOutput = (request.results as? [VNCoreMLFeatureValueObservation])?.first(where: {
@@ -559,6 +586,10 @@ final class ClearAheadEngine {
             "droppedFrames": droppedFrames,
             "endToEndLatencyMs": latestLatencyMs,
             "thermalState": thermalStateName(ProcessInfo.processInfo.thermalState),
+            "objectModelLoaded": objectModel != nil,
+            "depthModelLoaded": depthModel != nil,
+            "objectInferenceError": objectInferenceError as Any? ?? NSNull(),
+            "depthInferenceError": depthInferenceError as Any? ?? NSNull(),
         ])
         resetMetrics()
         lastMetricsEmission = now
@@ -581,32 +612,47 @@ final class ClearAheadEngine {
         return "Camera and on-device models active"
     }
 
-    private func loadModel(named candidates: [String]) -> VNCoreMLModel? {
+    private var modelsAvailable: Bool {
+        objectModel != nil && depthModel != nil
+    }
+
+    private func modelDiagnostics() -> [String: Any] {
+        [
+            "objectModel": objectModelResult.dictionary,
+            "depthModel": depthModelResult.dictionary,
+        ]
+    }
+
+    private func loadModel(named name: String) -> ModelLoadResult {
         let bundles = [Bundle.main, Bundle(for: ClearAheadEngine.self)]
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = .all
+        configuration.computeUnits = .cpuAndNeuralEngine
+        var searchedBundles: [String] = []
+        var failures: [String] = []
         for bundle in bundles {
-            for name in candidates {
-                for fileExtension in ["mlmodelc", "mlmodel", "mlpackage"] {
-                    guard let assetURL = bundle.url(forResource: name, withExtension: fileExtension) else {
-                        continue
-                    }
-                    let modelURL: URL
-                    if fileExtension == "mlmodelc" {
-                        modelURL = assetURL
-                    } else if let compiledURL = try? MLModel.compileModel(at: assetURL) {
-                        modelURL = compiledURL
-                    } else {
-                        continue
-                    }
-                    if let model = try? MLModel(contentsOf: modelURL, configuration: configuration),
-                       let visionModel = try? VNCoreMLModel(for: model) {
-                        return visionModel
-                    }
+            searchedBundles.append(bundle.bundleIdentifier ?? bundle.bundlePath)
+            for fileExtension in ["mlmodelc", "mlmodel", "mlpackage"] {
+                guard let assetURL = bundle.url(forResource: name, withExtension: fileExtension) else {
+                    continue
+                }
+                do {
+                    let modelURL = fileExtension == "mlmodelc"
+                        ? assetURL
+                        : try MLModel.compileModel(at: assetURL)
+                    let model = try MLModel(contentsOf: modelURL, configuration: configuration)
+                    let visionModel = try VNCoreMLModel(for: model)
+                    logger.info("Loaded \(name, privacy: .public) from \(assetURL.path, privacy: .public)")
+                    return ModelLoadResult(model: visionModel, resource: assetURL.lastPathComponent, error: nil)
+                } catch {
+                    failures.append("\(assetURL.lastPathComponent): \(error)")
                 }
             }
         }
-        return nil
+        let detail = failures.isEmpty
+            ? "Resource not found; searched \(searchedBundles.joined(separator: ", "))"
+            : failures.joined(separator: "; ")
+        logger.error("Unable to load \(name, privacy: .public): \(detail, privacy: .public)")
+        return ModelLoadResult(model: nil, resource: nil, error: detail)
     }
 
     private func eventKind(for label: String) -> EventKind? {

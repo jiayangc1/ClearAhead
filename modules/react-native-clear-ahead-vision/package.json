@@ -36,6 +36,8 @@
     "ios/**/*.mm",
     "ios/**/*.cpp",
     "ios/**/*.swift",
+    "models/*.mlpackage/**",
+    "models/model-manifest.json",
     "app.plugin.js",
     "*.podspec",
     "README.md"

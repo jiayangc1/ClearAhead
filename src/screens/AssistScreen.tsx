@@ -15,6 +15,7 @@ import {colors, toFeedbackConfiguration} from '../config';
 import {ClearAheadModule} from '../native/ClearAheadModule';
 import type {AppPreferences, DemoScenario, PipelineMetrics, SessionQuality, SessionState, SpatialEvent} from '../types';
 import {describeEvent, qualityMessage} from '../utils/eventLogic';
+import {cameraStartedMessage} from '../utils/sessionStatus';
 
 export function AssistScreen({
   preferences,
@@ -35,6 +36,7 @@ export function AssistScreen({
   const [isForeground, setIsForeground] = useState(AppState.currentState === 'active');
   const isDemo = demoScenario != null;
   const previousQuality = useRef(quality);
+  const latestStatus = useRef<import('../types').SessionStatusPayload | undefined>(undefined);
   const cameraDevices = useCameraDevices();
   const cameraDevice = useMemo(() => {
     const backDevices = cameraDevices.filter(device => device.position === 'back');
@@ -86,6 +88,7 @@ export function AssistScreen({
   useEffect(() => {
     const subscriptions = [
       ClearAheadModule.onStatus(payload => {
+        latestStatus.current = payload;
         setSessionState(payload.state);
         setStatusMessage(payload.message);
       }),
@@ -147,7 +150,9 @@ export function AssistScreen({
           constraints={cameraConstraints}
           outputs={cameraOutputs}
           resizeMode="cover"
-          onStarted={() => setStatusMessage('Camera active')}
+          onStarted={() => {
+            setStatusMessage(current => cameraStartedMessage(current, latestStatus.current));
+          }}
           onError={error => {
             setSessionState('error');
             setStatusMessage(error.message);
@@ -159,7 +164,7 @@ export function AssistScreen({
           }}
           onInterruptionEnded={() => {
             setSessionState('running');
-            setStatusMessage('Camera active');
+            setStatusMessage(current => cameraStartedMessage(current, latestStatus.current));
           }}
         />
       ) : isDemo ? (
