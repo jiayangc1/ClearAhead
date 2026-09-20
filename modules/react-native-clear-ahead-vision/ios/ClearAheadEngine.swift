@@ -319,7 +319,7 @@ final class ClearAheadEngine {
             let modelOutputs = (request.results as? [VNCoreMLFeatureValueObservation] ?? [])
                 .compactMap { $0.featureValue.multiArrayValue }
             detections = modelOutputs
-                .flatMap(ModelOutputDecoder.detections)
+                .flatMap { ModelOutputDecoder.detections(from: $0) }
                 .compactMap { detection in
                     guard let label = cocoLabel(for: detection.classIdentifier),
                           let kind = eventKind(forCOCOClass: detection.classIdentifier) else { return nil }
@@ -626,7 +626,11 @@ final class ClearAheadEngine {
     private func loadModel(named name: String) -> ModelLoadResult {
         let bundles = [Bundle.main, Bundle(for: ClearAheadEngine.self)]
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = .cpuAndNeuralEngine
+        if #available(iOS 16.0, visionOS 1.0, *) {
+            configuration.computeUnits = .cpuAndNeuralEngine
+        } else {
+            configuration.computeUnits = .all
+        }
         var searchedBundles: [String] = []
         var failures: [String] = []
         for bundle in bundles {
