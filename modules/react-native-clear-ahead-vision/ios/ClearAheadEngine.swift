@@ -35,8 +35,8 @@ final class ClearAheadEngine {
     private var demoTimer: DispatchSourceTimer?
 
     private let logger = Logger(subsystem: "com.clearahead.vision", category: "inference")
-    private lazy var objectModelResult = loadModel(named: "YOLO26n")
-    private lazy var depthModelResult = loadModel(named: "YOLO26nDepth")
+    private var objectModelResult = ModelLoadResult(model: nil, resource: nil, error: "Model not prepared")
+    private var depthModelResult = ModelLoadResult(model: nil, resource: nil, error: "Model not prepared")
     private var objectModel: VNCoreMLModel? { objectModelResult.model }
     private var depthModel: VNCoreMLModel? { depthModelResult.model }
     private var objectInferenceError: String?
@@ -86,6 +86,46 @@ final class ClearAheadEngine {
         ) { [weak self] notification in
             self?.handleAudioInterruption(notification)
         }
+    }
+
+    func prepareModels(
+        configuration: FeedbackConfiguration,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        ModelManager.shared.prepare(
+            variant: configuration.modelVariant,
+            quantization: configuration.modelQuantization,
+            progress: { progress, message in
+                ClearAheadModule.emit(name: "modelDownloadProgress", body: [
+                    "modelVariant": configuration.modelVariant,
+                    "modelQuantization": configuration.modelQuantization,
+                    "progress": progress,
+                    "message": message,
+                ])
+            },
+            completion: { result in
+                switch result {
+                case let .success(pair):
+                    let detector = self.loadModel(at: pair.detector)
+                    let depth = self.loadModel(at: pair.depth)
+                    self.stateLock.lock()
+                    self.objectModelResult = detector
+                    self.depthModelResult = depth
+                    self.stateLock.unlock()
+                    if let error = detector.error ?? depth.error {
+                        completion(.failure(NSError(
+                            domain: "ClearAheadModels",
+                            code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: error]
+                        )))
+                    } else {
+                        completion(.success(()))
+                    }
+                case let .failure(error):
+                    completion(.failure(error))
+                }
+            }
+        )
     }
 
     func start(configuration: FeedbackConfiguration) {
@@ -333,6 +373,22 @@ final class ClearAheadEngine {
                     )
                 }
         }
+        let visibleDetections = detections
+            .filter { $0.confidence >= 0.25 }
+            .sorted { $0.confidence > $1.confidence }
+            .prefix(20)
+        ClearAheadModule.emit(name: "detectionsUpdated", body: visibleDetections.map { detection in
+            [
+                "label": detection.label,
+                "confidence": detection.confidence,
+                "box": [
+                    "x": detection.box.minX,
+                    "y": 1 - detection.box.maxY,
+                    "width": detection.box.width,
+                    "height": detection.box.height,
+                ],
+            ]
+        })
         return collisionTracker.update(
             detections: detections,
             now: now,
@@ -364,6 +420,9 @@ final class ClearAheadEngine {
         }
         guard let depthMap = DepthMap(array: depthValues) else { return [] }
         latestDepthMap = depthMap
+        if configuration.depthMapEnabled, let dataURL = depthMap.heatmapDataURL() {
+            ClearAheadModule.emit(name: "depthMapUpdated", body: ["dataUrl": dataURL])
+        }
         updateCloseCameraState(from: depthMap)
         return depthEvents(from: depthMap, now: now, configuration: configuration)
     }
@@ -623,36 +682,34 @@ final class ClearAheadEngine {
         ]
     }
 
-    private func loadModel(named name: String) -> ModelLoadResult {
-        let bundles = [Bundle.main, Bundle(for: ClearAheadEngine.self)]
+    private func loadModel(at assetURL: URL) -> ModelLoadResult {
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
-        var searchedBundles: [String] = []
-        var failures: [String] = []
-        for bundle in bundles {
-            searchedBundles.append(bundle.bundleIdentifier ?? bundle.bundlePath)
-            for fileExtension in ["mlmodelc", "mlmodel", "mlpackage"] {
-                guard let assetURL = bundle.url(forResource: name, withExtension: fileExtension) else {
-                    continue
-                }
-                do {
-                    let modelURL = fileExtension == "mlmodelc"
-                        ? assetURL
-                        : try MLModel.compileModel(at: assetURL)
-                    let model = try MLModel(contentsOf: modelURL, configuration: configuration)
-                    let visionModel = try VNCoreMLModel(for: model)
-                    logger.info("Loaded \(name, privacy: .public) from \(assetURL.path, privacy: .public)")
-                    return ModelLoadResult(model: visionModel, resource: assetURL.lastPathComponent, error: nil)
-                } catch {
-                    failures.append("\(assetURL.lastPathComponent): \(error)")
+        do {
+            let modelURL: URL
+            if assetURL.pathExtension == "mlmodelc" {
+                modelURL = assetURL
+            } else {
+                let cachedCompilation = assetURL.deletingPathExtension().appendingPathExtension("mlmodelc")
+                if FileManager.default.fileExists(atPath: cachedCompilation.path) {
+                    modelURL = cachedCompilation
+                } else {
+                    let temporaryCompilation = try MLModel.compileModel(at: assetURL)
+                    try? FileManager.default.removeItem(at: cachedCompilation)
+                    try FileManager.default.moveItem(at: temporaryCompilation, to: cachedCompilation)
+                    modelURL = cachedCompilation
                 }
             }
+            let model = try MLModel(contentsOf: modelURL, configuration: configuration)
+            return ModelLoadResult(
+                model: try VNCoreMLModel(for: model),
+                resource: assetURL.lastPathComponent,
+                error: nil
+            )
+        } catch {
+            logger.error("Unable to load model at \(assetURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
+            return ModelLoadResult(model: nil, resource: assetURL.lastPathComponent, error: String(describing: error))
         }
-        let detail = failures.isEmpty
-            ? "Resource not found; searched \(searchedBundles.joined(separator: ", "))"
-            : failures.joined(separator: "; ")
-        logger.error("Unable to load \(name, privacy: .public): \(detail, privacy: .public)")
-        return ModelLoadResult(model: nil, resource: nil, error: detail)
     }
 
     private func eventKind(for label: String) -> EventKind? {

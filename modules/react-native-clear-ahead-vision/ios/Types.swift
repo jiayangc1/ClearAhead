@@ -164,6 +164,9 @@ struct FeedbackConfiguration {
     var feedbackFrequency = 0.55
     var mountingMode = "handheld"
     var processingMode = "responsive"
+    var modelVariant = "n"
+    var modelQuantization = "int8"
+    var depthMapEnabled = false
     var spokenCategories: Set<String> = ["person", "vehicle", "device-warning"]
 
     init() {}
@@ -180,6 +183,10 @@ struct FeedbackConfiguration {
         mountingMode = dictionary["mountingMode"] as? String ?? "handheld"
         let requestedMode = dictionary["processingMode"] as? String
         processingMode = requestedMode == "detailed" ? "detailed" : "responsive"
+        let requestedVariant = dictionary["modelVariant"] as? String ?? "n"
+        modelVariant = ["n", "s", "m", "l", "x"].contains(requestedVariant) ? requestedVariant : "n"
+        modelQuantization = "int8"
+        depthMapEnabled = dictionary["depthMapEnabled"] as? Bool ?? false
         spokenCategories = Set(dictionary["spokenCategories"] as? [String] ?? [])
     }
 

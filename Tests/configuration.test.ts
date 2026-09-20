@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {DEFAULT_PREFERENCES, toFeedbackConfiguration} from '../src/config.ts';
+import { DEFAULT_PREFERENCES, toFeedbackConfiguration } from '../src/config.ts';
 
 test('default configuration has at least one nonvisual feedback channel', () => {
   assert.equal(DEFAULT_PREFERENCES.hapticsEnabled, true);
@@ -12,6 +12,9 @@ test('native configuration omits React Native onboarding state', () => {
   assert.equal('onboardingComplete' in configuration, false);
   assert.equal(configuration.version, 1);
   assert.equal(configuration.mountingMode, 'handheld');
+  assert.equal(configuration.modelVariant, 'n');
+  assert.equal(configuration.modelQuantization, 'int8');
+  assert.equal(configuration.depthMapEnabled, false);
 });
 
 test('speech defaults to high-value categories only', () => {
@@ -20,5 +23,8 @@ test('speech defaults to high-value categories only', () => {
     'vehicle',
     'device-warning',
   ]);
-  assert.equal(DEFAULT_PREFERENCES.spokenCategories.includes('furniture'), false);
+  assert.equal(
+    DEFAULT_PREFERENCES.spokenCategories.includes('furniture'),
+    false,
+  );
 });

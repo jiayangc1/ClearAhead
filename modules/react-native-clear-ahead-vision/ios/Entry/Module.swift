@@ -14,13 +14,13 @@ final class ClearAheadModule: RCTEventEmitter {
     override static func requiresMainQueueSetup() -> Bool { true }
 
     override func supportedEvents() -> [String]! {
-        ["sessionStatus", "topEvent", "eventCleared", "qualityChanged", "performanceMetrics"]
+        ["sessionStatus", "topEvent", "eventCleared", "qualityChanged", "performanceMetrics", "detectionsUpdated", "depthMapUpdated", "modelDownloadProgress"]
     }
 
     override func startObserving() { hasListeners = true }
     override func stopObserving() { hasListeners = false }
 
-    static func emit(name: String, body: [String: Any]) {
+    static func emit(name: String, body: Any) {
         DispatchQueue.main.async {
             guard let emitter = currentEmitter, emitter.hasListeners else { return }
             emitter.sendEvent(withName: name, body: body)
@@ -30,13 +30,47 @@ final class ClearAheadModule: RCTEventEmitter {
     @objc(startSession:resolver:rejecter:)
     func startSession(
         _ configuration: NSDictionary,
-        resolver resolve: RCTPromiseResolveBlock,
-        rejecter reject: RCTPromiseRejectBlock
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        ClearAheadEngine.shared.start(
-            configuration: FeedbackConfiguration(dictionary: configuration as? [String: Any] ?? [:])
-        )
-        resolve(nil)
+        let parsed = FeedbackConfiguration(dictionary: configuration as? [String: Any] ?? [:])
+        ClearAheadEngine.shared.prepareModels(configuration: parsed) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    ClearAheadEngine.shared.start(configuration: parsed)
+                    resolve(nil)
+                case let .failure(error):
+                    reject("model_prepare_failed", error.localizedDescription, error)
+                }
+            }
+        }
+    }
+
+    @objc(prepareModels:modelQuantization:resolver:rejecter:)
+    func prepareModels(
+        _ modelVariant: String,
+        modelQuantization: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        var configuration = FeedbackConfiguration()
+        configuration.modelVariant = modelVariant
+        configuration.modelQuantization = modelQuantization
+        ClearAheadEngine.shared.prepareModels(configuration: configuration) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    resolve([
+                        "state": "ready",
+                        "modelVariant": modelVariant,
+                        "modelQuantization": modelQuantization,
+                    ])
+                case let .failure(error):
+                    reject("model_prepare_failed", error.localizedDescription, error)
+                }
+            }
+        }
     }
 
     @objc(stopSession:rejecter:)

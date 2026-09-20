@@ -1,4 +1,4 @@
-import type {AppPreferences, FeedbackConfiguration} from './types';
+import type { AppPreferences, FeedbackConfiguration } from './types';
 
 export const colors = {
   night: '#000000',
@@ -26,7 +26,11 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   feedbackFrequency: 0.55,
   mountingMode: 'handheld',
   processingMode: 'responsive',
+  modelVariant: 'n',
+  modelQuantization: 'int8',
+  depthMapEnabled: false,
   showFps: true,
+  showBoundingBoxes: true,
   spokenCategories: ['person', 'vehicle', 'device-warning'],
 };
 
@@ -45,6 +49,9 @@ export function toFeedbackConfiguration(
     feedbackFrequency: preferences.feedbackFrequency,
     mountingMode: preferences.mountingMode,
     processingMode: preferences.processingMode,
+    modelVariant: preferences.modelVariant,
+    modelQuantization: preferences.modelQuantization,
+    depthMapEnabled: preferences.depthMapEnabled,
     spokenCategories: preferences.spokenCategories,
   };
 }
