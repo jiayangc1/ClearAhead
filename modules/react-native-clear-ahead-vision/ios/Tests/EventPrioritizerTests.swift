@@ -89,16 +89,36 @@ final class EventPrioritizerTests: XCTestCase {
         )
     }
 
+    func testHysteresisRetainsSelectionButUsesFreshEventData() throws {
+        let prioritizer = EventPrioritizer()
+        let initial = makeEvent(id: "person:center", distance: 1.5)
+        let updated = makeEvent(id: "person:center", distance: 1.8)
+
+        _ = prioritizer.select(from: [initial], configuration: configuration, now: 10)
+        let selected = try XCTUnwrap(
+            prioritizer.select(from: [updated], configuration: configuration, now: 12)
+        )
+
+        XCTAssertEqual(selected.approximateDistanceMeters, 1.8)
+        XCTAssertEqual(selected.id, initial.id)
+    }
+
     func testConfigurationClampsUnsafeInputRanges() {
         let parsed = FeedbackConfiguration(dictionary: [
             "hapticIntensity": 3.0,
             "audioVolume": -1.0,
             "warningDistanceMeters": 100.0,
+            "feedbackFrequency": Double.nan,
+            "mountingMode": "unsupported",
+            "spokenCategories": ["person", "unsupported"],
         ])
 
         XCTAssertEqual(parsed.hapticIntensity, 1)
         XCTAssertEqual(parsed.audioVolume, 0)
         XCTAssertEqual(parsed.warningDistanceMeters, 12)
+        XCTAssertEqual(parsed.feedbackFrequency, 0.55)
+        XCTAssertEqual(parsed.mountingMode, "handheld")
+        XCTAssertEqual(parsed.spokenCategories, Set(["person"]))
     }
 
     func testAudioCuePitchRisesAsObjectsGetCloser() {

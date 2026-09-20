@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {useCallback, useEffect, useState} from 'react';
-import {DEFAULT_PREFERENCES} from '../config';
-import type {AppPreferences} from '../types';
+import { useCallback, useEffect, useState } from 'react';
+import { DEFAULT_PREFERENCES, normalizePreferences } from '../config';
+import type { AppPreferences } from '../types';
 
 const STORAGE_KEY = '@clear-ahead/preferences-v1';
 
@@ -17,8 +17,7 @@ export function usePreferences() {
         if (!active || !value) {
           return;
         }
-        const parsed = JSON.parse(value) as Partial<AppPreferences>;
-        setPreferencesState({...DEFAULT_PREFERENCES, ...parsed, version: 1});
+        setPreferencesState(normalizePreferences(JSON.parse(value)));
       })
       .catch(() => undefined)
       .finally(() => active && setIsHydrated(true));
@@ -37,7 +36,7 @@ export function usePreferences() {
         const next =
           typeof update === 'function'
             ? update(current)
-            : {...current, ...update};
+            : { ...current, ...update };
         AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(
           () => undefined,
         );
@@ -47,5 +46,5 @@ export function usePreferences() {
     [],
   );
 
-  return {preferences, setPreferences, isHydrated};
+  return { preferences, setPreferences, isHydrated };
 }
