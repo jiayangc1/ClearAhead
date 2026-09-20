@@ -21,15 +21,14 @@ Pod::Spec.new do |s|
   # Keep this list explicit so source moves change the podspec checksum and are
   # reflected when CocoaPods regenerates the Pods project.
   s.source_files = [
-    "ios/Bridge.h",
     "ios/ClearAheadEngine.swift",
-    "ios/ClearAheadModule.swift",
-    "ios/ClearAheadModuleBridge.m",
-    "ios/ClearAheadModuleEntry.swift",
-    "ios/EventPrioritizer.swift",
+    "ios/Entry/Module.swift",
+    "ios/Entry/ModuleBridge.m",
+    "ios/Entry/ModuleEntry.swift",
     "ios/Feedback/Feedback.swift",
-    "ios/ModelOutputDecoder.swift",
+    "ios/ModelOutput.swift",
     "ios/Risk/CollisionTracker.swift",
+    "ios/Risk/EventPrioritizer.swift",
     "ios/Types.swift",
     "cpp/**/*.{hpp,cpp}",
   ]
