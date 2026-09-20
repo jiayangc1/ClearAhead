@@ -1,7 +1,7 @@
 import Foundation
 import Vision
 
-enum CADirection: String, CaseIterable {
+enum Direction: String, CaseIterable {
     case left
     case center
     case right
@@ -15,21 +15,21 @@ enum CADirection: String, CaseIterable {
     }
 }
 
-enum CAProximity: String {
+enum Proximity: String {
     case near
     case medium
     case far
     case unknown
 }
 
-enum CAMotionState: String {
+enum MotionState: String {
     case stationary
     case approaching
     case receding
     case crossing
 }
 
-enum CACollisionRisk: String, Comparable {
+enum CollisionRisk: String, Comparable {
     case none
     case caution
     case imminent
@@ -42,12 +42,12 @@ enum CACollisionRisk: String, Comparable {
         }
     }
 
-    static func < (lhs: CACollisionRisk, rhs: CACollisionRisk) -> Bool {
+    static func < (lhs: CollisionRisk, rhs: CollisionRisk) -> Bool {
         lhs.rank < rhs.rank
     }
 }
 
-enum CAEventKind: String {
+enum EventKind: String {
     case obstacle
     case person
     case vehicle
@@ -67,16 +67,16 @@ enum CAEventKind: String {
     }
 }
 
-struct CASpatialEvent {
+struct SpatialEvent {
     let id: String
-    let kind: CAEventKind
+    let kind: EventKind
     let label: String?
-    let direction: CADirection
-    let proximity: CAProximity
+    let direction: Direction
+    let proximity: Proximity
     let approximateDistanceMeters: Double?
     let approachSpeed: Double
-    let motionState: CAMotionState
-    let collisionRisk: CACollisionRisk
+    let motionState: MotionState
+    let collisionRisk: CollisionRisk
     let timeToCollisionSeconds: Double?
     let trajectoryConfidence: Double
     let confidence: Double
@@ -86,14 +86,14 @@ struct CASpatialEvent {
 
     init(
         id: String,
-        kind: CAEventKind,
+        kind: EventKind,
         label: String? = nil,
-        direction: CADirection,
-        proximity: CAProximity,
+        direction: Direction,
+        proximity: Proximity,
         approximateDistanceMeters: Double?,
         approachSpeed: Double,
-        motionState: CAMotionState = .stationary,
-        collisionRisk: CACollisionRisk = .none,
+        motionState: MotionState = .stationary,
+        collisionRisk: CollisionRisk = .none,
         timeToCollisionSeconds: Double? = nil,
         trajectoryConfidence: Double = 0,
         confidence: Double,
@@ -153,7 +153,7 @@ struct CASpatialEvent {
     }
 }
 
-struct CAFeedbackConfiguration {
+struct FeedbackConfiguration {
     var hapticsEnabled = true
     var audioEnabled = true
     var speechEnabled = false
@@ -188,16 +188,16 @@ struct CAFeedbackConfiguration {
     }
 }
 
-extension CADirection {
-    static func from(horizontalMidpoint midpoint: CGFloat) -> CADirection {
+extension Direction {
+    static func from(horizontalMidpoint midpoint: CGFloat) -> Direction {
         if midpoint < 0.36 { return .left }
         if midpoint > 0.64 { return .right }
         return .center
     }
 }
 
-extension CAProximity {
-    static func from(distance: Double?) -> CAProximity {
+extension Proximity {
+    static func from(distance: Double?) -> Proximity {
         guard let distance else { return .unknown }
         if distance < 2 { return .near }
         if distance < 5 { return .medium }

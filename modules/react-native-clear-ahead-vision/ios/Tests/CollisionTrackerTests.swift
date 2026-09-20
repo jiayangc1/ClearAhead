@@ -2,7 +2,7 @@ import XCTest
 @testable import ClearAheadVision
 
 final class CollisionTrackerTests: XCTestCase {
-    private var configuration = CAFeedbackConfiguration()
+    private var configuration = FeedbackConfiguration()
 
     override func setUp() {
         super.setUp()
@@ -30,7 +30,7 @@ final class CollisionTrackerTests: XCTestCase {
 
     func testClosingTrackProducesSmoothedTimeToCollisionAndImminentRisk() {
         let tracker = CollisionTracker()
-        var latest: CASpatialEvent?
+        var latest: SpatialEvent?
         for (index, distance) in [4.0, 3.0, 2.0, 1.0].enumerated() {
             latest = tracker.update(
                 detections: [detection(x: 0.41, distance: distance)],
@@ -48,7 +48,7 @@ final class CollisionTrackerTests: XCTestCase {
 
     func testRapidCameraRotationSuppressesCollisionRisk() {
         let tracker = CollisionTracker()
-        var latest: CASpatialEvent?
+        var latest: SpatialEvent?
         for (index, distance) in [3.0, 2.0, 1.0].enumerated() {
             latest = tracker.update(
                 detections: [detection(x: 0.41, distance: distance)],
@@ -64,7 +64,7 @@ final class CollisionTrackerTests: XCTestCase {
 
     func testLateralTrajectoryIsClassifiedAsCrossing() {
         let tracker = CollisionTracker()
-        var latest: CASpatialEvent?
+        var latest: SpatialEvent?
         for (index, x) in [0.05, 0.14, 0.23].enumerated() {
             latest = tracker.update(
                 detections: [detection(x: x, distance: 3)],
@@ -120,8 +120,8 @@ final class CollisionTrackerTests: XCTestCase {
         x: CGFloat,
         distance: Double = 3,
         confidence: Double = 0.95
-    ) -> CAObjectDetection {
-        CAObjectDetection(
+    ) -> ObjectDetection {
+        ObjectDetection(
             kind: .person,
             box: CGRect(x: x, y: 0.2, width: 0.16, height: 0.46),
             distanceMeters: distance,

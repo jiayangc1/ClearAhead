@@ -15,7 +15,7 @@ final class ModelOutputDecoderTests: XCTestCase {
             }
         }
 
-        let detections = CAModelOutputDecoder.detections(from: array)
+        let detections = ModelOutputDecoder.detections(from: array)
 
         XCTAssertEqual(detections.count, 1)
         XCTAssertEqual(detections[0].classIdentifier, 0)
@@ -37,7 +37,7 @@ final class ModelOutputDecoderTests: XCTestCase {
             }
         }
 
-        let map = try XCTUnwrap(CADepthMap(array: array))
+        let map = try XCTUnwrap(DepthMap(array: array))
         let bottomLeftVisionBox = CGRect(x: 0, y: 0, width: 0.5, height: 0.5)
 
         XCTAssertEqual(map.width, 8)
@@ -47,6 +47,6 @@ final class ModelOutputDecoderTests: XCTestCase {
 
     func testRejectsLegacyRawDetectionLayout() throws {
         let array = try MLMultiArray(shape: [1, 84, 8400], dataType: .float32)
-        XCTAssertTrue(CAModelOutputDecoder.detections(from: array).isEmpty)
+        XCTAssertTrue(ModelOutputDecoder.detections(from: array).isEmpty)
     }
 }

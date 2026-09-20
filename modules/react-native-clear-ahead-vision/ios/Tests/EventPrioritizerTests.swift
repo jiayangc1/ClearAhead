@@ -2,7 +2,7 @@ import XCTest
 @testable import ClearAheadVision
 
 final class EventPrioritizerTests: XCTestCase {
-    private var configuration = CAFeedbackConfiguration()
+    private var configuration = FeedbackConfiguration()
 
     func testFiltersLowConfidenceAndDistantEvents() {
         let prioritizer = EventPrioritizer()
@@ -90,7 +90,7 @@ final class EventPrioritizerTests: XCTestCase {
     }
 
     func testConfigurationClampsUnsafeInputRanges() {
-        let parsed = CAFeedbackConfiguration(dictionary: [
+        let parsed = FeedbackConfiguration(dictionary: [
             "hapticIntensity": 3.0,
             "audioVolume": -1.0,
             "warningDistanceMeters": 100.0,
@@ -142,17 +142,17 @@ final class EventPrioritizerTests: XCTestCase {
 
     private func makeEvent(
         id: String = "person:center",
-        kind: CAEventKind = .person,
-        direction: CADirection = .center,
+        kind: EventKind = .person,
+        direction: Direction = .center,
         distance: Double = 2,
         confidence: Double = 0.9,
-        collisionRisk: CACollisionRisk = .none
-    ) -> CASpatialEvent {
-        CASpatialEvent(
+        collisionRisk: CollisionRisk = .none
+    ) -> SpatialEvent {
+        SpatialEvent(
             id: id,
             kind: kind,
             direction: direction,
-            proximity: CAProximity.from(distance: distance),
+            proximity: Proximity.from(distance: distance),
             approximateDistanceMeters: distance,
             approachSpeed: 0,
             collisionRisk: collisionRisk,
