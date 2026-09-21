@@ -47,7 +47,7 @@ enum CollisionRisk: String, Comparable {
     }
 }
 
-enum EventKind: String {
+enum EventKind: String, CaseIterable {
     case obstacle
     case person
     case vehicle
@@ -164,6 +164,9 @@ struct FeedbackConfiguration {
     var feedbackFrequency = 0.55
     var mountingMode = "handheld"
     var processingMode = "responsive"
+    var modelVariant = "n"
+    var modelQuantization = "int8"
+    var depthMapEnabled = false
     var spokenCategories: Set<String> = ["person", "vehicle", "device-warning"]
 
     init() {}
@@ -172,19 +175,30 @@ struct FeedbackConfiguration {
         hapticsEnabled = dictionary["hapticsEnabled"] as? Bool ?? true
         audioEnabled = dictionary["audioEnabled"] as? Bool ?? true
         speechEnabled = dictionary["speechEnabled"] as? Bool ?? false
-        hapticIntensity = Self.clamp(dictionary["hapticIntensity"] as? Double ?? 0.72)
-        audioVolume = Self.clamp(dictionary["audioVolume"] as? Double ?? 0.65)
-        sensitivity = Self.clamp(dictionary["sensitivity"] as? Double ?? 0.65)
-        warningDistanceMeters = min(max(dictionary["warningDistanceMeters"] as? Double ?? 6, 1), 12)
-        feedbackFrequency = Self.clamp(dictionary["feedbackFrequency"] as? Double ?? 0.55)
-        mountingMode = dictionary["mountingMode"] as? String ?? "handheld"
+        hapticIntensity = Self.clamp(dictionary["hapticIntensity"] as? Double, fallback: 0.72)
+        audioVolume = Self.clamp(dictionary["audioVolume"] as? Double, fallback: 0.65)
+        sensitivity = Self.clamp(dictionary["sensitivity"] as? Double, fallback: 0.65)
+        let requestedWarningDistance = dictionary["warningDistanceMeters"] as? Double
+        warningDistanceMeters = requestedWarningDistance?.isFinite == true
+            ? min(max(requestedWarningDistance ?? 6, 1), 12)
+            : 6
+        feedbackFrequency = Self.clamp(dictionary["feedbackFrequency"] as? Double, fallback: 0.55)
+        mountingMode = dictionary["mountingMode"] as? String == "chest" ? "chest" : "handheld"
         let requestedMode = dictionary["processingMode"] as? String
         processingMode = requestedMode == "detailed" ? "detailed" : "responsive"
-        spokenCategories = Set(dictionary["spokenCategories"] as? [String] ?? [])
+        let requestedVariant = dictionary["modelVariant"] as? String ?? "n"
+        modelVariant = ["n", "s", "m", "l", "x"].contains(requestedVariant) ? requestedVariant : "n"
+        modelQuantization = "int8"
+        depthMapEnabled = dictionary["depthMapEnabled"] as? Bool ?? false
+        if let requestedCategories = dictionary["spokenCategories"] as? [String] {
+            let supportedCategories = Set(EventKind.allCases.map(\.rawValue))
+            spokenCategories = Set(requestedCategories.filter(supportedCategories.contains))
+        }
     }
 
-    private static func clamp(_ value: Double) -> Double {
-        min(max(value, 0), 1)
+    private static func clamp(_ value: Double?, fallback: Double) -> Double {
+        guard let value, value.isFinite else { return fallback }
+        return min(max(value, 0), 1)
     }
 }
 

@@ -1,10 +1,3 @@
-//
-//  ClearAheadModuleEntry.swift
-//  Pods
-//
-//  Created by Jiayang Chen on 8/26/2026.
-//
-
 import Foundation
 import VisionCamera
 

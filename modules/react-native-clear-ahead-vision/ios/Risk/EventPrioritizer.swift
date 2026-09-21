@@ -19,6 +19,13 @@ final class EventPrioritizer {
         now: TimeInterval
     ) -> SpatialEvent? {
         let rankedEvents = events.compactMap { candidate -> SpatialEvent? in
+            // Dense depth sectors are supporting evidence, not announceable
+            // objects. Only surface one after persistence promotes it to a
+            // collision warning; otherwise every ordinary wall or floor can
+            // become a repeated generic "obstacle detected" event.
+            if candidate.id.hasPrefix("depth:"), candidate.collisionRisk == .none {
+                return nil
+            }
             guard candidate.confidence >= 0.42 + (1 - configuration.sensitivity) * 0.24 else {
                 return nil
             }
@@ -77,10 +84,12 @@ final class EventPrioritizer {
         hasActiveEvent = true
 
         if let retainedEvent,
-           retainedEvent.id == highestPriorityEvent.id,
-           retainedEvent.collisionRisk == highestPriorityEvent.collisionRisk,
-           retainedEvent.urgency > highestPriorityEvent.urgency - 0.08 {
-            highestPriorityEvent = retainedEvent
+           let retainedCandidate = rankedEvents.first(where: {
+               $0.id == retainedEvent.id && $0.collisionRisk == retainedEvent.collisionRisk
+           }),
+           retainedCandidate.urgency > highestPriorityEvent.urgency - 0.08 {
+            // Retain the selection, not last frame's stale distance, box, or timestamp.
+            highestPriorityEvent = retainedCandidate
         }
         retainedEvent = highestPriorityEvent
 

@@ -2,7 +2,7 @@ import CoreML
 import XCTest
 @testable import ClearAheadVision
 
-final class ModelOutputDecoderTests: XCTestCase {
+final class ModelOutputTests: XCTestCase {
     func testDecodesYOLO26EndToEndRows() throws {
         let array = try MLMultiArray(shape: [1, 2, 6], dataType: .float32)
         let rows: [[Double]] = [
@@ -15,7 +15,7 @@ final class ModelOutputDecoderTests: XCTestCase {
             }
         }
 
-        let detections = ModelOutputDecoder.detections(from: array)
+        let detections = ModelOutput.detections(from: array)
 
         XCTAssertEqual(detections.count, 1)
         XCTAssertEqual(detections[0].classIdentifier, 0)
@@ -47,6 +47,6 @@ final class ModelOutputDecoderTests: XCTestCase {
 
     func testRejectsLegacyRawDetectionLayout() throws {
         let array = try MLMultiArray(shape: [1, 84, 8400], dataType: .float32)
-        XCTAssertTrue(ModelOutputDecoder.detections(from: array).isEmpty)
+        XCTAssertTrue(ModelOutput.detections(from: array).isEmpty)
     }
 }

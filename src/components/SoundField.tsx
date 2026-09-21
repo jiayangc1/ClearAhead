@@ -1,11 +1,24 @@
 import React from 'react';
-import {StyleSheet, Text, View} from 'react-native';
-import {colors} from '../config';
-import type {SpatialEvent} from '../types';
+import { StyleSheet, Text, View } from 'react-native';
+import { colors } from '../config';
+import type { ObjectDetectionOverlay, SpatialEvent } from '../types';
 
-export function SoundField({event}: {event?: SpatialEvent}) {
+export function SoundField({
+  event,
+  detections,
+  showBoundingBoxes,
+}: {
+  event?: SpatialEvent;
+  detections: ObjectDetectionOverlay[];
+  showBoundingBoxes: boolean;
+}) {
   return (
-    <View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants" style={StyleSheet.absoluteFill}>
+    <View
+      pointerEvents="none"
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      style={StyleSheet.absoluteFill}
+    >
       {event ? (
         <View
           style={[
@@ -14,32 +27,51 @@ export function SoundField({event}: {event?: SpatialEvent}) {
             event.direction === 'center' && styles.directionCenter,
             event.direction === 'right' && styles.directionRight,
             {
-              backgroundColor: event.collisionRisk === 'imminent' ? colors.critical : colors.amber,
+              backgroundColor:
+                event.collisionRisk === 'imminent'
+                  ? colors.critical
+                  : colors.amber,
             },
           ]}
         />
       ) : null}
-      {event?.box ? (
-        <View
-          style={[
-            styles.detectionBox,
-            {
-              left: `${event.box.x * 100}%`,
-              top: `${event.box.y * 100}%`,
-              width: `${event.box.width * 100}%`,
-              height: `${event.box.height * 100}%`,
-            },
-          ]}
-        >
-          <View style={[styles.corner, styles.topLeft, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
-          <View style={[styles.corner, styles.topRight, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
-          <View style={[styles.corner, styles.bottomLeft, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
-          <View style={[styles.corner, styles.bottomRight, event.urgency > 0.76 ? styles.criticalCorner : styles.cautionCorner]} />
-          <Text style={[styles.boxLabel, event.urgency > 0.76 && styles.criticalLabel]} numberOfLines={1}>
-            {(event.label ?? event.kind).toUpperCase()}
-          </Text>
-        </View>
-      ) : null}
+      {showBoundingBoxes
+        ? detections.map((detection, index) => (
+            <View
+              key={`${detection.label}-${index}`}
+              style={[
+                styles.detectionBox,
+                {
+                  left: `${detection.box.x * 100}%`,
+                  top: `${detection.box.y * 100}%`,
+                  width: `${detection.box.width * 100}%`,
+                  height: `${detection.box.height * 100}%`,
+                },
+              ]}
+            >
+              <View
+                style={[styles.corner, styles.topLeft, styles.cautionCorner]}
+              />
+              <View
+                style={[styles.corner, styles.topRight, styles.cautionCorner]}
+              />
+              <View
+                style={[styles.corner, styles.bottomLeft, styles.cautionCorner]}
+              />
+              <View
+                style={[
+                  styles.corner,
+                  styles.bottomRight,
+                  styles.cautionCorner,
+                ]}
+              />
+              <Text style={styles.boxLabel} numberOfLines={1}>
+                {detection.label.toUpperCase()}{' '}
+                {Math.round(detection.confidence * 100)}%
+              </Text>
+            </View>
+          ))
+        : null}
     </View>
   );
 }
@@ -53,16 +85,15 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     opacity: 0.08,
   },
-  directionLeft: {left: '-22%'},
-  directionCenter: {left: '19%'},
-  directionRight: {right: '-22%'},
-  detectionBox: {position: 'absolute', overflow: 'hidden'},
-  corner: {position: 'absolute', width: 20, height: 20},
-  cautionCorner: {borderColor: colors.amber},
-  criticalCorner: {borderColor: colors.critical},
-  topLeft: {left: 0, top: 0, borderLeftWidth: 2, borderTopWidth: 2},
-  topRight: {right: 0, top: 0, borderRightWidth: 2, borderTopWidth: 2},
-  bottomLeft: {left: 0, bottom: 0, borderLeftWidth: 2, borderBottomWidth: 2},
+  directionLeft: { left: '-22%' },
+  directionCenter: { left: '19%' },
+  directionRight: { right: '-22%' },
+  detectionBox: { position: 'absolute', overflow: 'hidden' },
+  corner: { position: 'absolute', width: 20, height: 20 },
+  cautionCorner: { borderColor: colors.amber },
+  topLeft: { left: 0, top: 0, borderLeftWidth: 2, borderTopWidth: 2 },
+  topRight: { right: 0, top: 0, borderRightWidth: 2, borderTopWidth: 2 },
+  bottomLeft: { left: 0, bottom: 0, borderLeftWidth: 2, borderBottomWidth: 2 },
   bottomRight: {
     right: 0,
     bottom: 0,
@@ -79,5 +110,4 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     textTransform: 'capitalize',
   },
-  criticalLabel: {backgroundColor: colors.critical, color: colors.text},
 });

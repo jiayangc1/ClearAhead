@@ -98,7 +98,7 @@ export function SpringPressable({
   };
 
   return (
-    <Animated.View style={[containerStyle, {transform: [{scale}]}]} renderToHardwareTextureAndroid={!reduceMotion}>
+    <Animated.View style={[containerStyle, {transform: [{scale}]}]}>
       <Pressable
         {...props}
         disabled={disabled}

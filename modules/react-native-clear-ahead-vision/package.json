@@ -3,45 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "Native on-device frame processing for Clear Ahead",
-  "main": "./lib/commonjs/index.js",
-  "module": "./lib/module/index.js",
-  "types": "./lib/typescript/src/index.d.ts",
+  "types": "src/index.ts",
   "react-native": "src/index",
-  "source": "src/index",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "clean": "git clean -dfX",
-    "build": "npm run typecheck && bob build",
-    "codegen": "nitrogen --logLevel=\"debug\" && npm run build",
-    "postcodegen": "npm run build"
+    "codegen": "nitrogen --logLevel=\"debug\""
   },
-  "keywords": [
-    "react-native",
-    "react-native-clear-ahead-vision"
-  ],
-  "files": [
-    "src",
-    "react-native.config.js",
-    "lib",
-    "nitrogen",
-    "cpp",
-    "nitro.json",
-    "android/build.gradle",
-    "android/fix-prefab.gradle",
-    "android/gradle.properties",
-    "android/CMakeLists.txt",
-    "android/src",
-    "ios/**/*.h",
-    "ios/**/*.m",
-    "ios/**/*.mm",
-    "ios/**/*.cpp",
-    "ios/**/*.swift",
-    "models/*.mlpackage/**",
-    "models/model-manifest.json",
-    "app.plugin.js",
-    "*.podspec",
-    "README.md"
-  ],
   "repository": "https://github.com/jiayangc1/cac.git",
   "homepage": "https://github.com/jiayangc1/cac/tree/main/modules/react-native-clear-ahead-vision",
   "author": "Jiayang Chen",
@@ -51,7 +18,6 @@
     "nitrogen": "0.37.0",
     "react": "19.2.3",
     "react-native": "0.87.1",
-    "react-native-builder-bob": "^0.40.18",
     "react-native-nitro-modules": "0.37.0",
     "react-native-vision-camera": "5.2.3",
     "typescript": "^6.0.3"
@@ -61,53 +27,5 @@
     "react-native": "*",
     "react-native-nitro-modules": "*",
     "react-native-vision-camera": "*"
-  },
-  "eslintConfig": {
-    "root": true,
-    "extends": [
-      "@react-native",
-      "prettier"
-    ],
-    "plugins": [
-      "prettier"
-    ],
-    "rules": {
-      "prettier/prettier": [
-        "warn",
-        {
-          "quoteProps": "consistent",
-          "singleQuote": true,
-          "tabWidth": 2,
-          "trailingComma": "es5",
-          "useTabs": false
-        }
-      ]
-    }
-  },
-  "eslintIgnore": [
-    "node_modules/",
-    "lib/"
-  ],
-  "prettier": {
-    "quoteProps": "consistent",
-    "singleQuote": true,
-    "tabWidth": 2,
-    "trailingComma": "es5",
-    "useTabs": false,
-    "semi": false
-  },
-  "react-native-builder-bob": {
-    "source": "src",
-    "output": "lib",
-    "targets": [
-      "commonjs",
-      "module",
-      [
-        "typescript",
-        {
-          "project": "tsconfig.json"
-        }
-      ]
-    ]
   }
 }

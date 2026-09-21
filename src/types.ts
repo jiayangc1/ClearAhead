@@ -1,8 +1,14 @@
 export type MountingMode = 'handheld' | 'chest';
 export type ProcessingMode = 'responsive' | 'detailed';
+export type ModelVariant = 'n' | 's' | 'm' | 'l' | 'x';
+export type ModelQuantization = 'int8';
 export type Direction = 'left' | 'center' | 'right';
 export type Proximity = 'near' | 'medium' | 'far' | 'unknown';
-export type MotionState = 'stationary' | 'approaching' | 'receding' | 'crossing';
+export type MotionState =
+  | 'stationary'
+  | 'approaching'
+  | 'receding'
+  | 'crossing';
 export type CollisionRisk = 'none' | 'caution' | 'imminent';
 export type EventKind =
   | 'obstacle'
@@ -72,12 +78,40 @@ export interface FeedbackConfiguration {
   feedbackFrequency: number;
   mountingMode: MountingMode;
   processingMode: ProcessingMode;
+  modelVariant: ModelVariant;
+  modelQuantization: ModelQuantization;
+  depthMapEnabled: boolean;
   spokenCategories: EventKind[];
 }
 
 export interface AppPreferences extends FeedbackConfiguration {
   onboardingComplete: boolean;
   showFps: boolean;
+  showBoundingBoxes: boolean;
+  cameraDeviceId: string;
+}
+
+export interface ObjectDetectionOverlay {
+  label: string;
+  confidence: number;
+  box: NormalizedBox;
+}
+
+export interface DepthMapPayload {
+  dataUrl: string;
+}
+
+export interface ModelPreparationPayload {
+  state: 'ready' | 'downloading';
+  modelVariant: ModelVariant;
+  modelQuantization: ModelQuantization;
+}
+
+export interface ModelDownloadProgressPayload {
+  modelVariant: ModelVariant;
+  modelQuantization: ModelQuantization;
+  progress: number;
+  message: string;
 }
 
 export interface SessionStatusPayload {
@@ -102,4 +136,7 @@ export interface QualityPayload {
   message: string;
 }
 
-export type DemoScenario = 'hallway' | 'crossing-person' | 'approaching-vehicle';
+export type DemoScenario =
+  | 'hallway'
+  | 'crossing-person'
+  | 'approaching-vehicle';
