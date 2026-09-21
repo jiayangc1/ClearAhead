@@ -38,6 +38,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   depthMapEnabled: false,
   showFps: true,
   showBoundingBoxes: true,
+  cameraDeviceId: 'widest',
   spokenCategories: ['person', 'vehicle', 'device-warning'],
 };
 
@@ -153,6 +154,11 @@ export function normalizePreferences(value: unknown): AppPreferences {
       stored.showBoundingBoxes,
       DEFAULT_PREFERENCES.showBoundingBoxes,
     ),
+    cameraDeviceId:
+      typeof stored.cameraDeviceId === 'string' &&
+      stored.cameraDeviceId.length > 0
+        ? stored.cameraDeviceId
+        : DEFAULT_PREFERENCES.cameraDeviceId,
     spokenCategories,
   };
 }

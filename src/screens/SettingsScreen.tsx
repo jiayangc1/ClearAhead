@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Linking,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronDown } from 'lucide-react-native';
+import { useCameraDevices } from 'react-native-vision-camera';
 import { BrandLogo } from '../components/BrandLogo';
 import { BottomNavigation } from '../components/BottomNavigation';
 import { AdjustableRow, ToggleRow } from '../components/Controls';
@@ -55,6 +56,21 @@ export function SettingsScreen({
   );
   const modelRequest = useRef(0);
   const pendingModelVariant = useRef<ModelVariant | undefined>(undefined);
+  const cameraDevices = useCameraDevices();
+  const backCameras = useMemo(
+    () =>
+      cameraDevices
+        .filter(device => device.position === 'back')
+        .sort(
+          (left, right) =>
+            (left.focalLength ?? Number.MAX_VALUE) -
+            (right.focalLength ?? Number.MAX_VALUE),
+        ),
+    [cameraDevices],
+  );
+  const hasSelectedCamera = backCameras.some(
+    device => device.id === preferences.cameraDeviceId,
+  );
   const sectionProps = (title: string) => ({
     title,
     expanded: openSection === title,
@@ -373,6 +389,32 @@ export function SettingsScreen({
             value={preferences.depthMapEnabled}
             onValueChange={value => onChange({ depthMapEnabled: value })}
           />
+          <Text style={styles.advancedSubheading}>Camera field of view</Text>
+          <Text style={styles.cameraHelp}>
+            Available fields of view depend on this device. Automatic uses the
+            widest rear camera and remains the default.
+          </Text>
+          <CameraChoice
+            label="Automatic · widest available"
+            description="Uses the widest rear camera present on this device."
+            selected={
+              preferences.cameraDeviceId === 'widest' || !hasSelectedCamera
+            }
+            onPress={() => onChange({ cameraDeviceId: 'widest' })}
+          />
+          {backCameras.map(device => (
+            <CameraChoice
+              key={device.id}
+              label={`${cameraMagnification(
+                device.type,
+                device.focalLength,
+                backCameras,
+              )} · ${device.name}`}
+              description="Use this camera whenever Assist Mode starts."
+              selected={preferences.cameraDeviceId === device.id}
+              onPress={() => onChange({ cameraDeviceId: device.id })}
+            />
+          ))}
         </Section>
 
         <Section {...sectionProps('About')}>
@@ -568,6 +610,58 @@ function ModelChoice({
   );
 }
 
+function CameraChoice({
+  label,
+  description,
+  selected,
+  onPress,
+}: {
+  label: string;
+  description: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <SpringPressable
+      accessibilityRole="radio"
+      accessibilityLabel={`${label}. ${description}`}
+      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      pressedScale={0.975}
+      style={[styles.cameraChoice, selected && styles.processingChoiceSelected]}
+    >
+      <View style={styles.readOnlyCopy}>
+        <Text style={styles.mountingLabel}>{label}</Text>
+        <Text style={styles.processingDescription}>{description}</Text>
+      </View>
+      <Text style={styles.mountingValue}>
+        {selected ? 'Selected' : 'Select'}
+      </Text>
+    </SpringPressable>
+  );
+}
+
+function cameraMagnification(
+  type: string,
+  focalLength: number | undefined,
+  cameras: Array<{ type: string; focalLength?: number }>,
+): string {
+  if (type === 'ultra-wide-angle') {
+    return '0.5×';
+  }
+  if (type === 'wide-angle') {
+    return '1×';
+  }
+  const standardFocalLength = cameras.find(
+    camera => camera.type === 'wide-angle',
+  )?.focalLength;
+  if (focalLength && standardFocalLength) {
+    const ratio = Math.round((focalLength / standardFocalLength) * 10) / 10;
+    return `${ratio}×`;
+  }
+  return 'Rear';
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.night },
   header: { paddingHorizontal: 20, paddingTop: 28, paddingBottom: 24 },
@@ -667,6 +761,27 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
   },
   readOnlyCopy: { flex: 1 },
+  advancedSubheading: {
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: '800',
+    paddingTop: 20,
+  },
+  cameraHelp: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 21,
+    paddingVertical: 8,
+  },
+  cameraChoice: {
+    minHeight: 82,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+  },
   licenseLink: { minHeight: 54, justifyContent: 'center' },
   licenseLinkText: { color: colors.cyan, fontSize: 16, fontWeight: '800' },
   mountingLabel: { color: colors.text, fontSize: 18, fontWeight: '700' },

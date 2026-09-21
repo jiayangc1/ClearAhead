@@ -89,6 +89,36 @@ final class EventPrioritizerTests: XCTestCase {
         )
     }
 
+    func testDepthSectorsStaySilentUntilTheyBecomeCollisionWarnings() {
+        let prioritizer = EventPrioritizer()
+        let ordinaryDepth = makeEvent(
+            id: "depth:center",
+            kind: .obstacle,
+            distance: 1.5
+        )
+        let riskyDepth = makeEvent(
+            id: "depth:center",
+            kind: .obstacle,
+            distance: 1.5,
+            collisionRisk: .caution
+        )
+
+        XCTAssertNil(
+            prioritizer.select(
+                from: [ordinaryDepth],
+                configuration: configuration,
+                now: 10
+            )
+        )
+        XCTAssertNotNil(
+            prioritizer.select(
+                from: [riskyDepth],
+                configuration: configuration,
+                now: 11
+            )
+        )
+    }
+
     func testHysteresisRetainsSelectionButUsesFreshEventData() throws {
         let prioritizer = EventPrioritizer()
         let initial = makeEvent(id: "person:center", distance: 1.5)

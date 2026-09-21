@@ -6,12 +6,6 @@
   "ios": {
     "iosModuleName": "ClearAheadVision"
   },
-  "android": {
-    "androidNamespace": [
-      "clearaheadvision"
-    ],
-    "androidCxxLibName": "ClearAheadVision"
-  },
   "autolinking": {
     "ClearAheadVision": {
       "ios": {

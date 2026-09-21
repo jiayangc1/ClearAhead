@@ -66,18 +66,26 @@ export function AssistScreen({
   >(undefined);
   const cameraDevices = useCameraDevices();
   const cameraDevice = useMemo(() => {
-    const backDevices = cameraDevices.filter(
-      device => device.position === 'back',
-    );
-    return (
-      backDevices.find(device => device.type === 'ultra-wide-angle') ??
-      [...backDevices].sort(
+    const backDevices = cameraDevices
+      .filter(device => device.position === 'back')
+      .sort(
         (left, right) =>
           (left.focalLength ?? Number.MAX_VALUE) -
           (right.focalLength ?? Number.MAX_VALUE),
-      )[0]
+      );
+    if (preferences.cameraDeviceId !== 'widest') {
+      const selected = backDevices.find(
+        device => device.id === preferences.cameraDeviceId,
+      );
+      if (selected) {
+        return selected;
+      }
+    }
+    return (
+      backDevices.find(device => device.type === 'ultra-wide-angle') ??
+      backDevices[0]
     );
-  }, [cameraDevices]);
+  }, [cameraDevices, preferences.cameraDeviceId]);
 
   useEffect(() => {
     if (quality !== previousQuality.current && quality !== 'good') {

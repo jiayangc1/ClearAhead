@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "composite": true,
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
     "esModuleInterop": true,
@@ -9,7 +8,7 @@
     "lib": ["esnext"],
     "module": "esnext",
     "moduleResolution": "bundler",
-    "noEmit": false,
+    "noEmit": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "noImplicitUseStrict": false,
