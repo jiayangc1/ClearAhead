@@ -22,24 +22,13 @@ DerivedData
 *.xcuserstate
 **/.xcode.env.local
 
-# Android/IntelliJ
-#
-build/
-.idea
-.gradle
-local.properties
-*.iml
-*.hprof
-.cxx/
-*.keystore
-!debug.keystore
-.kotlin/
-
 # node.js
 #
 node_modules/
 npm-debug.log
 yarn-error.log
+**/lib/
+**/tsconfig.tsbuildinfo
 
 # fastlane
 #

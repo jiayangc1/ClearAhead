@@ -1,6 +1,6 @@
 # Clear Ahead
 
-Clear Ahead is an iPhone-first assistive vision prototype. It continuously
+Clear Ahead is an iPhone-only assistive vision prototype. It continuously
 turns a small set of nearby, high-priority camera events into directional
 haptics, stereo audio cues, and optional short speech.
 

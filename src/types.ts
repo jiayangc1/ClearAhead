@@ -88,6 +88,7 @@ export interface AppPreferences extends FeedbackConfiguration {
   onboardingComplete: boolean;
   showFps: boolean;
   showBoundingBoxes: boolean;
+  cameraDeviceId: string;
 }
 
 export interface ObjectDetectionOverlay {

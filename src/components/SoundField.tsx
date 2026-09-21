@@ -91,7 +91,6 @@ const styles = StyleSheet.create({
   detectionBox: { position: 'absolute', overflow: 'hidden' },
   corner: { position: 'absolute', width: 20, height: 20 },
   cautionCorner: { borderColor: colors.amber },
-  criticalCorner: { borderColor: colors.critical },
   topLeft: { left: 0, top: 0, borderLeftWidth: 2, borderTopWidth: 2 },
   topRight: { right: 0, top: 0, borderRightWidth: 2, borderTopWidth: 2 },
   bottomLeft: { left: 0, bottom: 0, borderLeftWidth: 2, borderBottomWidth: 2 },
@@ -111,5 +110,4 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     textTransform: 'capitalize',
   },
-  criticalLabel: { backgroundColor: colors.critical, color: colors.text },
 });

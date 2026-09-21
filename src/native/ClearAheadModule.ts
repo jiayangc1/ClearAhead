@@ -54,7 +54,6 @@ function unavailable(): Promise<never> {
 }
 
 export const ClearAheadModule = {
-  isAvailable: nativeModule != null,
   startSession: (configuration: FeedbackConfiguration) =>
     nativeModule?.startSession(configuration) ?? unavailable(),
   stopSession: () => nativeModule?.stopSession() ?? unavailable(),
