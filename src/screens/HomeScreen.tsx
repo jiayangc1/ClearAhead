@@ -5,7 +5,7 @@ import {BrandLogo} from '../components/BrandLogo';
 import {BottomNavigation} from '../components/BottomNavigation';
 import {PrimaryButton} from '../components/Controls';
 import {SpringPressable} from '../components/Motion';
-import {colors} from '../config';
+import {colors, hasFeedbackChannel} from '../config';
 import type {AppPreferences, PipelineMetrics} from '../types';
 
 export function HomeScreen({
@@ -26,6 +26,8 @@ export function HomeScreen({
   onHome: () => void;
 }) {
   const enabledModes = [preferences.hapticsEnabled && 'Haptics', preferences.audioEnabled && 'Audio', preferences.speechEnabled && 'Speech'].filter(Boolean);
+  const feedbackReady = hasFeedbackChannel(preferences);
+  const assistReady = hasCameraPermission && feedbackReady;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -41,16 +43,21 @@ export function HomeScreen({
         </View>
 
         <View style={styles.startPanel}>
-          <View style={styles.readyRow} accessible accessibilityLabel="Ready to assist">
+          <View style={styles.readyRow} accessible accessibilityLabel={assistReady ? 'Ready to assist' : 'Assist mode unavailable'}>
             <View style={styles.readyMark} />
-            <Text style={styles.readyText}>Ready to assist</Text>
+            <Text style={styles.readyText}>{assistReady ? 'Ready to assist' : 'Setup needed'}</Text>
           </View>
           {!hasCameraPermission ? (
             <Text accessibilityRole="alert" style={styles.cameraWarning}>
               Camera access is off. Enable Camera in iOS Settings or try the safe demo.
             </Text>
           ) : null}
-          <PrimaryButton label="Start Assist Mode" hint="Starts the rear camera and environmental feedback" onPress={onStart} disabled={!hasCameraPermission} />
+          {!feedbackReady ? (
+            <Text accessibilityRole="alert" style={styles.cameraWarning}>
+              Turn on haptics, audio, or speech in Settings before starting Assist Mode.
+            </Text>
+          ) : null}
+          <PrimaryButton label="Start Assist Mode" hint="Starts the rear camera and environmental feedback" onPress={onStart} disabled={!assistReady} />
         </View>
 
         <View style={styles.statusCard}>
@@ -83,6 +90,7 @@ export function HomeScreen({
             accessibilityLabel="Try a safe demo"
             accessibilityHint="Runs a seated simulation without the camera"
             onPress={onDemo}
+            disabled={!feedbackReady}
             pressedScale={0.95}
             style={styles.demoButton}
           >
@@ -90,7 +98,7 @@ export function HomeScreen({
           </SpringPressable>
         </View>
       </ScrollView>
-      <BottomNavigation active="home" onHome={onHome} onAssist={onStart} onSettings={onSettings} assistDisabled={!hasCameraPermission} />
+      <BottomNavigation active="home" onHome={onHome} onAssist={onStart} onSettings={onSettings} assistDisabled={!assistReady} />
     </SafeAreaView>
   );
 }

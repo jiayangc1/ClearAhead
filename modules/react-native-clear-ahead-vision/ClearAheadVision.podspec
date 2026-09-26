@@ -29,7 +29,7 @@ Pod::Spec.new do |s|
   ]
 
   s.frameworks = ["AVFoundation", "Accelerate", "CoreHaptics", "CoreML", "CoreMotion", "CryptoKit", "UIKit", "Vision"]
-  s.resources = ["models/*.mlmodel", "models/*.mlpackage"]
+  s.resources = ["models/YOLO26*.mlpackage"]
 
   load 'nitrogen/generated/ios/ClearAheadVision+autolinking.rb'
   add_nitrogen_files(s)

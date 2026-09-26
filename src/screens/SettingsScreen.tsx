@@ -15,7 +15,7 @@ import { BrandLogo } from '../components/BrandLogo';
 import { BottomNavigation } from '../components/BottomNavigation';
 import { AdjustableRow, ToggleRow } from '../components/Controls';
 import { motion, SpringPressable } from '../components/Motion';
-import { colors } from '../config';
+import { colors, hasFeedbackChannel } from '../config';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ClearAheadModule } from '../native/ClearAheadModule';
 import type {
@@ -32,11 +32,11 @@ const speechCategories: Array<{ kind: EventKind; label: string }> = [
   { kind: 'vehicle', label: 'Vehicles' },
   { kind: 'obstacle', label: 'Obstacles' },
   { kind: 'furniture', label: 'Furniture' },
-  { kind: 'device-warning', label: 'Device warnings' },
 ];
 
 export function SettingsScreen({
   preferences,
+  storageError,
   onChange,
   onHome,
   onAssist,
@@ -44,6 +44,7 @@ export function SettingsScreen({
   hasCameraPermission,
 }: {
   preferences: AppPreferences;
+  storageError?: string;
   onChange: (update: Partial<AppPreferences>) => void;
   onHome: () => void;
   onAssist: () => void;
@@ -97,11 +98,12 @@ export function SettingsScreen({
   const selectModel = (modelVariant: ModelVariant) => {
     const request = ++modelRequest.current;
     pendingModelVariant.current = modelVariant;
-    onChange({ modelVariant });
     setModelStatus(`Preparing YOLO26${modelVariant} models…`);
-    ClearAheadModule.prepareModels(modelVariant, preferences.modelQuantization)
+    ClearAheadModule.prepareModels(modelVariant)
       .then(() => {
         if (request === modelRequest.current) {
+          onChange({ modelVariant });
+          pendingModelVariant.current = undefined;
           setModelStatus(
             `YOLO26${modelVariant} detector and depth models are ready`,
           );
@@ -109,6 +111,7 @@ export function SettingsScreen({
       })
       .catch(error => {
         if (request === modelRequest.current) {
+          pendingModelVariant.current = undefined;
           setModelStatus(
             error instanceof Error ? error.message : 'Model download failed',
           );
@@ -128,6 +131,9 @@ export function SettingsScreen({
         </Text>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
+        {storageError ? (
+          <Text accessibilityRole="alert" style={styles.safetyNote}>{storageError}</Text>
+        ) : null}
         <Section {...sectionProps('Performance')}>
           <Text style={styles.sectionHelp}>
             Choose how often the app checks for nearby objects and depth. The
@@ -172,7 +178,7 @@ export function SettingsScreen({
           />
           <ToggleRow
             label="Speech"
-            description="Brief spoken labels for selected events."
+            description="Brief spoken labels plus urgent collision and camera warnings."
             value={preferences.speechEnabled}
             onValueChange={value => onChange({ speechEnabled: value })}
           />
@@ -222,34 +228,6 @@ export function SettingsScreen({
               onChange({
                 audioVolume: stepValue(
                   preferences.audioVolume,
-                  'decrement',
-                  0.1,
-                  0.1,
-                  1,
-                ),
-              })
-            }
-          />
-          <AdjustableRow
-            label="Cue frequency"
-            valueLabel={`${Math.round(
-              preferences.feedbackFrequency * 100,
-            )} percent`}
-            onIncrement={() =>
-              onChange({
-                feedbackFrequency: stepValue(
-                  preferences.feedbackFrequency,
-                  'increment',
-                  0.1,
-                  0.1,
-                  1,
-                ),
-              })
-            }
-            onDecrement={() =>
-              onChange({
-                feedbackFrequency: stepValue(
-                  preferences.feedbackFrequency,
                   'decrement',
                   0.1,
                   0.1,
@@ -344,6 +322,10 @@ export function SettingsScreen({
         </Section>
 
         <Section {...sectionProps('Spoken events')}>
+          <Text style={styles.sectionHelp}>
+            Choose ordinary spoken labels. Urgent collision and camera warnings
+            still speak when Speech is on.
+          </Text>
           {speechCategories.map(category => (
             <ToggleRow
               key={category.kind}
@@ -373,16 +355,6 @@ export function SettingsScreen({
           <Text accessibilityLiveRegion="polite" style={styles.modelStatus}>
             {modelStatus}
           </Text>
-          <View style={styles.readOnlySetting}>
-            <View style={styles.readOnlyCopy}>
-              <Text style={styles.mountingLabel}>Quantization</Text>
-              <Text style={styles.processingDescription}>
-                INT8 balances accuracy, size, and compatibility with the app's
-                iOS 17 target.
-              </Text>
-            </View>
-            <Text style={styles.mountingValue}>INT8</Text>
-          </View>
           <ToggleRow
             label="Depth map view"
             description="Replace the camera image with a red-near to blue-far view while keeping detector boxes visible."
@@ -445,7 +417,7 @@ export function SettingsScreen({
         onHome={onHome}
         onAssist={onAssist}
         onSettings={onSettings}
-        assistDisabled={!hasCameraPermission}
+        assistDisabled={!hasCameraPermission || !hasFeedbackChannel(preferences)}
       />
     </SafeAreaView>
   );
@@ -751,14 +723,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     paddingVertical: 12,
-  },
-  readOnlySetting: {
-    minHeight: 82,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
   },
   readOnlyCopy: { flex: 1 },
   advancedSubheading: {

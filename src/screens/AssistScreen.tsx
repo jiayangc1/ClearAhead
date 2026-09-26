@@ -145,10 +145,12 @@ export function AssistScreen({
           onMetrics(payload);
         }
       }),
-      ClearAheadModule.onDetections(setDetections),
-      ClearAheadModule.onDepthMap(payload =>
-        setDepthMapDataUrl(payload.dataUrl),
-      ),
+      ...(preferences.showBoundingBoxes
+        ? [ClearAheadModule.onDetections(setDetections)]
+        : []),
+      ...(preferences.depthMapEnabled
+        ? [ClearAheadModule.onDepthMap(payload => setDepthMapDataUrl(payload.dataUrl))]
+        : []),
       ClearAheadModule.onModelDownload(payload =>
         setStatusMessage(payload.message),
       ),
@@ -302,9 +304,9 @@ export function AssistScreen({
           <Text style={styles.statusText}>
             {quality === 'good' ? statusMessage : qualityMessage(quality)}
           </Text>
-          {metrics ? (
+          {metrics && !isDemo ? (
             <Text style={styles.latency}>
-              {Math.round(metrics.endToEndLatencyMs)} ms
+              Processing {Math.round(metrics.processingLatencyMs)} ms
             </Text>
           ) : null}
         </View>

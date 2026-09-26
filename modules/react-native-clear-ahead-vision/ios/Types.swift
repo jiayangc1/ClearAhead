@@ -52,8 +52,6 @@ enum EventKind: String, CaseIterable {
     case person
     case vehicle
     case furniture
-    case opening
-    case deviceWarning = "device-warning"
 
     var risk: Double {
         switch self {
@@ -61,8 +59,6 @@ enum EventKind: String, CaseIterable {
         case .obstacle: 0.88
         case .person: 0.72
         case .furniture: 0.65
-        case .deviceWarning: 0.62
-        case .opening: 0.25
         }
     }
 }
@@ -161,13 +157,12 @@ struct FeedbackConfiguration {
     var audioVolume = 0.65
     var sensitivity = 0.65
     var warningDistanceMeters = 6.0
-    var feedbackFrequency = 0.55
     var mountingMode = "handheld"
     var processingMode = "responsive"
     var modelVariant = "n"
-    var modelQuantization = "int8"
     var depthMapEnabled = false
-    var spokenCategories: Set<String> = ["person", "vehicle", "device-warning"]
+    var showBoundingBoxes = true
+    var spokenCategories: Set<String> = ["person", "vehicle", "obstacle", "furniture"]
 
     init() {}
 
@@ -182,14 +177,13 @@ struct FeedbackConfiguration {
         warningDistanceMeters = requestedWarningDistance?.isFinite == true
             ? min(max(requestedWarningDistance ?? 6, 1), 12)
             : 6
-        feedbackFrequency = Self.clamp(dictionary["feedbackFrequency"] as? Double, fallback: 0.55)
         mountingMode = dictionary["mountingMode"] as? String == "chest" ? "chest" : "handheld"
         let requestedMode = dictionary["processingMode"] as? String
         processingMode = requestedMode == "detailed" ? "detailed" : "responsive"
         let requestedVariant = dictionary["modelVariant"] as? String ?? "n"
         modelVariant = ["n", "s", "m", "l", "x"].contains(requestedVariant) ? requestedVariant : "n"
-        modelQuantization = "int8"
         depthMapEnabled = dictionary["depthMapEnabled"] as? Bool ?? false
+        showBoundingBoxes = dictionary["showBoundingBoxes"] as? Bool ?? true
         if let requestedCategories = dictionary["spokenCategories"] as? [String] {
             let supportedCategories = Set(EventKind.allCases.map(\.rawValue))
             spokenCategories = Set(requestedCategories.filter(supportedCategories.contains))

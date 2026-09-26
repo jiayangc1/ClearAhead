@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DEFAULT_PREFERENCES,
+  hasFeedbackChannel,
   normalizePreferences,
   toFeedbackConfiguration,
 } from '../src/config.ts';
@@ -12,6 +13,16 @@ test('default configuration has at least one nonvisual feedback channel', () => 
   assert.equal(DEFAULT_PREFERENCES.cameraDeviceId, 'widest');
 });
 
+test('silent configuration cannot start assist mode', () => {
+  assert.equal(hasFeedbackChannel(DEFAULT_PREFERENCES), true);
+  assert.equal(hasFeedbackChannel({
+    ...DEFAULT_PREFERENCES,
+    hapticsEnabled: false,
+    audioEnabled: false,
+    speechEnabled: false,
+  }), false);
+});
+
 test('native configuration omits React Native onboarding state', () => {
   const configuration = toFeedbackConfiguration(DEFAULT_PREFERENCES);
   assert.equal('onboardingComplete' in configuration, false);
@@ -19,20 +30,20 @@ test('native configuration omits React Native onboarding state', () => {
   assert.equal(configuration.version, 1);
   assert.equal(configuration.mountingMode, 'handheld');
   assert.equal(configuration.modelVariant, 'n');
-  assert.equal(configuration.modelQuantization, 'int8');
+  assert.equal('modelQuantization' in configuration, false);
+  assert.equal('modelQuantization' in DEFAULT_PREFERENCES, false);
+  assert.equal('feedbackFrequency' in configuration, false);
   assert.equal(configuration.depthMapEnabled, false);
+  assert.equal(configuration.showBoundingBoxes, true);
 });
 
 test('speech defaults to high-value categories only', () => {
   assert.deepEqual(DEFAULT_PREFERENCES.spokenCategories, [
     'person',
     'vehicle',
-    'device-warning',
+    'obstacle',
+    'furniture',
   ]);
-  assert.equal(
-    DEFAULT_PREFERENCES.spokenCategories.includes('furniture'),
-    false,
-  );
 });
 
 test('stored preferences are validated and clamped before use', () => {

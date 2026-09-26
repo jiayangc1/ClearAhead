@@ -4,7 +4,7 @@ import Foundation
 
 struct PreparedModelPair {
     let detector: URL
-    let depth: URL
+    let depth: URL?
 }
 
 private struct ModelCatalog: Decodable {
@@ -34,34 +34,61 @@ final class ModelManager {
 
     func prepare(
         variant: String,
-        quantization: String,
+        allowDetectorOnly: Bool,
         progress: @escaping (Double, String) -> Void,
-        completion: @escaping (Result<PreparedModelPair, Error>) -> Void
+        completion: @escaping (Result<PreparedModelPair, Error>) -> Void,
+        recoveredDepth: @escaping (URL) -> Void
     ) {
         queue.async {
             do {
-                guard ["n", "s", "m", "l", "x"].contains(variant), quantization == "int8" else {
+                guard ["n", "s", "m", "l", "x"].contains(variant) else {
                     throw ModelManagerError.unsupportedSelection
                 }
-                let detectorKey = "yolo26\(variant)-\(quantization)-detector"
-                let depthKey = "yolo26\(variant)-\(quantization)-depth"
+                let detectorKey = "yolo26\(variant)-int8-detector"
+                let depthKey = "yolo26\(variant)-int8-depth"
 
-                if let bundled = self.bundledPair(variant: variant) {
+                if let bundled = self.bundledPair(variant: variant, allowDetectorOnly: allowDetectorOnly) {
                     progress(1, "YOLO26\(variant) models are ready")
                     completion(.success(bundled))
+                    if allowDetectorOnly && bundled.depth == nil {
+                        self.repairDepth(key: depthKey, progress: progress, recoveredDepth: recoveredDepth)
+                    }
+                    return
+                }
+
+                if let cached = try self.installedPair(
+                    detectorKey: detectorKey,
+                    depthKey: depthKey,
+                    allowDetectorOnly: allowDetectorOnly
+                ) {
+                    progress(1, "YOLO26\(variant) cached models are ready")
+                    completion(.success(cached))
+                    if allowDetectorOnly && cached.depth == nil {
+                        self.repairDepth(key: depthKey, progress: progress, recoveredDepth: recoveredDepth)
+                    }
                     return
                 }
 
                 progress(0.02, "Checking YOLO26\(variant) model catalog…")
                 let catalog = try self.loadCatalog()
-                guard let detector = catalog.models.first(where: { $0.key == detectorKey }),
-                      let depth = catalog.models.first(where: { $0.key == depthKey }) else {
+                guard let detector = catalog.models.first(where: { $0.key == detectorKey }) else {
                     throw ModelManagerError.missingCatalogEntry
                 }
 
                 let detectorURL = try self.install(detector, progressRange: 0.05...0.52, progress: progress)
-                let depthURL = try self.install(depth, progressRange: 0.52...0.99, progress: progress)
-                progress(1, "YOLO26\(variant) detector and depth models are ready")
+                var depthURL: URL?
+                do {
+                    guard let depth = catalog.models.first(where: { $0.key == depthKey }) else {
+                        throw ModelManagerError.missingCatalogEntry
+                    }
+                    depthURL = try self.install(depth, progressRange: 0.52...0.99, progress: progress)
+                } catch {
+                    if !allowDetectorOnly { throw error }
+                    progress(1, "Depth unavailable. Named object cues remain active.")
+                }
+                if depthURL != nil {
+                    progress(1, "YOLO26\(variant) detector and depth models are ready")
+                }
                 completion(.success(PreparedModelPair(detector: detectorURL, depth: depthURL)))
             } catch {
                 completion(.failure(error))
@@ -69,14 +96,32 @@ final class ModelManager {
         }
     }
 
-    private func bundledPair(variant: String) -> PreparedModelPair? {
+    private func repairDepth(
+        key: String,
+        progress: @escaping (Double, String) -> Void,
+        recoveredDepth: @escaping (URL) -> Void
+    ) {
+        do {
+            let catalog = try loadCatalog()
+            guard let depth = catalog.models.first(where: { $0.key == key }) else {
+                throw ModelManagerError.missingCatalogEntry
+            }
+            let url = try install(depth, progressRange: 0.05...0.99, progress: progress)
+            recoveredDepth(url)
+            progress(1, "Depth model recovered")
+        } catch {
+            progress(1, "Depth unavailable. Named object cues remain active.")
+        }
+    }
+
+    private func bundledPair(variant: String, allowDetectorOnly: Bool) -> PreparedModelPair? {
         let bundles = [Bundle.main, Bundle(for: ModelManager.self)]
         for bundle in bundles {
             let detector = bundle.url(forResource: "YOLO26\(variant)", withExtension: "mlmodelc")
                 ?? bundle.url(forResource: "YOLO26\(variant)", withExtension: "mlpackage")
             let depth = bundle.url(forResource: "YOLO26\(variant)Depth", withExtension: "mlmodelc")
                 ?? bundle.url(forResource: "YOLO26\(variant)Depth", withExtension: "mlpackage")
-            if let detector, let depth {
+            if let detector, depth != nil || allowDetectorOnly {
                 return PreparedModelPair(detector: detector, depth: depth)
             }
         }
@@ -89,12 +134,55 @@ final class ModelManager {
         let remoteURL = releaseRoot.appendingPathComponent("model-catalog.json")
         do {
             let data = try Data(contentsOf: remoteURL)
+            let catalog = try JSONDecoder().decode(ModelCatalog.self, from: data)
             try data.write(to: cachedURL, options: .atomic)
-            return try JSONDecoder().decode(ModelCatalog.self, from: data)
+            return catalog
         } catch {
             guard let data = try? Data(contentsOf: cachedURL) else { throw error }
             return try JSONDecoder().decode(ModelCatalog.self, from: data)
         }
+    }
+
+    private func installedPair(
+        detectorKey: String,
+        depthKey: String,
+        allowDetectorOnly: Bool
+    ) throws -> PreparedModelPair? {
+        let cachedURL = try modelsRoot().appendingPathComponent("model-catalog.json")
+        guard let data = try? Data(contentsOf: cachedURL),
+              let catalog = try? JSONDecoder().decode(ModelCatalog.self, from: data),
+              let detector = catalog.models.first(where: { $0.key == detectorKey }),
+              let detectorURL = try verifiedInstalledURL(for: detector) else { return nil }
+        let depthURL = try catalog.models.first(where: { $0.key == depthKey })
+            .flatMap { try verifiedInstalledURL(for: $0) }
+        guard depthURL != nil || allowDetectorOnly else { return nil }
+        return PreparedModelPair(detector: detectorURL, depth: depthURL)
+    }
+
+    private func verifiedInstalledURL(for model: CatalogModel) throws -> URL? {
+        let root = try modelsRoot()
+        guard !model.files.isEmpty else { return nil }
+        let destination = try packageURL(named: model.package, under: root)
+        let marker = root.appendingPathComponent("\(model.package).complete")
+        let signature = model.files.map { "\($0.path):\($0.sha256)" }.joined(separator: "\n")
+        guard fileManager.fileExists(atPath: destination.path),
+              (try? String(contentsOf: marker, encoding: .utf8)) == signature else { return nil }
+        for file in model.files {
+            let fileURL = try safeRelativeURL(file.path, under: destination)
+            guard fileManager.fileExists(atPath: fileURL.path),
+                  (try? sha256(of: fileURL)) == file.sha256 else { return nil }
+        }
+        return destination
+    }
+
+    private func sha256(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private func install(
@@ -107,12 +195,7 @@ final class ModelManager {
         let destination = try packageURL(named: model.package, under: root)
         let marker = root.appendingPathComponent("\(model.package).complete")
         let signature = model.files.map { "\($0.path):\($0.sha256)" }.joined(separator: "\n")
-        let installedFilesComplete = try model.files.allSatisfy { file in
-            fileManager.fileExists(atPath: try safeRelativeURL(file.path, under: destination).path)
-        }
-        if fileManager.fileExists(atPath: destination.path),
-           installedFilesComplete,
-           (try? String(contentsOf: marker, encoding: .utf8)) == signature {
+        if try verifiedInstalledURL(for: model) != nil {
             return destination
         }
 
@@ -198,7 +281,7 @@ private enum ModelManagerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedSelection:
-            return "Only INT8 YOLO26 detector and depth model pairs are supported."
+            return "Unsupported YOLO26 model variant."
         case .missingCatalogEntry:
             return "The selected YOLO26 model pair is not available in the download catalog."
         case let .checksumMismatch(asset):
