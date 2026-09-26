@@ -226,9 +226,10 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         let distance = event.approximateDistanceMeters.map { String(format: "about %.1f meters", $0) }
             ?? event.proximity.rawValue
         let clock = event.direction == .left ? "10 o'clock" : event.direction == .right ? "2 o'clock" : "12 o'clock"
+        let motion = event.motionState == .approaching ? ", approaching" : ""
         requestSpeech(
-            text: "\(label), \(distance), \(clock)",
-            key: "event:\(event.id):\(event.proximity.rawValue)",
+            text: "\(label), \(distance), \(clock)\(motion)",
+            key: "event:\(event.id):\(event.proximity.rawValue):\(event.motionState.rawValue)",
             priority: event.urgency,
             mayInterrupt: false
         )

@@ -30,17 +30,19 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   audioVolume: 0.65,
   sensitivity: 0.65,
   warningDistanceMeters: 6,
-  feedbackFrequency: 0.55,
   mountingMode: 'handheld',
   processingMode: 'responsive',
   modelVariant: 'n',
-  modelQuantization: 'int8',
   depthMapEnabled: false,
   showFps: true,
   showBoundingBoxes: true,
   cameraDeviceId: 'widest',
-  spokenCategories: ['person', 'vehicle', 'device-warning'],
+  spokenCategories: ['person', 'vehicle', 'obstacle', 'furniture'],
 };
+
+export function hasFeedbackChannel(preferences: AppPreferences): boolean {
+  return preferences.hapticsEnabled || preferences.audioEnabled || preferences.speechEnabled;
+}
 
 const mountingModes = new Set<MountingMode>(['handheld', 'chest']);
 const processingModes = new Set<ProcessingMode>(['responsive', 'detailed']);
@@ -50,8 +52,6 @@ const eventKinds = new Set<EventKind>([
   'person',
   'vehicle',
   'furniture',
-  'opening',
-  'device-warning',
 ]);
 
 function finiteNumber(
@@ -135,16 +135,9 @@ export function normalizePreferences(value: unknown): AppPreferences {
       1,
       12,
     ),
-    feedbackFrequency: finiteNumber(
-      stored.feedbackFrequency,
-      DEFAULT_PREFERENCES.feedbackFrequency,
-      0,
-      1,
-    ),
     mountingMode,
     processingMode,
     modelVariant,
-    modelQuantization: 'int8',
     depthMapEnabled: boolean(
       stored.depthMapEnabled,
       DEFAULT_PREFERENCES.depthMapEnabled,
@@ -175,12 +168,11 @@ export function toFeedbackConfiguration(
     audioVolume: preferences.audioVolume,
     sensitivity: preferences.sensitivity,
     warningDistanceMeters: preferences.warningDistanceMeters,
-    feedbackFrequency: preferences.feedbackFrequency,
     mountingMode: preferences.mountingMode,
     processingMode: preferences.processingMode,
     modelVariant: preferences.modelVariant,
-    modelQuantization: preferences.modelQuantization,
     depthMapEnabled: preferences.depthMapEnabled,
+    showBoundingBoxes: preferences.showBoundingBoxes,
     spokenCategories: preferences.spokenCategories,
   };
 }

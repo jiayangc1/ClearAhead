@@ -9,7 +9,13 @@ struct YOLODetection {
     let box: CGRect
 }
 
-struct DepthMap {
+struct PathObstacleObservation {
+    let distanceMeters: Double
+    let box: CGRect
+    let coverage: Double
+}
+
+struct DepthMap: Sendable {
     let width: Int
     let height: Int
     let values: [Double]
@@ -65,6 +71,77 @@ struct DepthMap {
         let values = samples(in: depthBox)
         guard values.count >= 4 else { return nil }
         return Self.percentile(values, fraction: 0.35)
+    }
+
+    func pathObstacle(within warningDistance: Double) -> PathObstacleObservation? {
+        let columns = 32
+        let rows = 24
+        let path = CGRect(x: 0.26, y: 0.18, width: 0.48, height: 0.58)
+        var distances = [Double](repeating: .nan, count: columns * rows)
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let x = min(width - 1, Int((Double(path.minX) + (Double(column) + 0.5) * Double(path.width) / Double(columns)) * Double(width)))
+                let y = min(height - 1, Int((Double(path.minY) + (Double(row) + 0.5) * Double(path.height) / Double(rows)) * Double(height)))
+                let distance = values[y * width + x]
+                if distance.isFinite, distance > 0, distance <= warningDistance {
+                    distances[row * columns + column] = distance
+                }
+            }
+        }
+
+        var visited = [Bool](repeating: false, count: distances.count)
+        var best: PathObstacleObservation?
+        for start in distances.indices where distances[start].isFinite && !visited[start] {
+            var queue = [start]
+            var offset = 0
+            var component: [Double] = []
+            var minColumn = columns
+            var maxColumn = 0
+            var minRow = rows
+            var maxRow = 0
+            visited[start] = true
+            while offset < queue.count {
+                let index = queue[offset]
+                offset += 1
+                let row = index / columns
+                let column = index % columns
+                component.append(distances[index])
+                minColumn = min(minColumn, column)
+                maxColumn = max(maxColumn, column)
+                minRow = min(minRow, row)
+                maxRow = max(maxRow, row)
+                for neighbor in [
+                    row > 0 ? index - columns : -1,
+                    row + 1 < rows ? index + columns : -1,
+                    column > 0 ? index - 1 : -1,
+                    column + 1 < columns ? index + 1 : -1,
+                ] where neighbor >= 0 && !visited[neighbor] && distances[neighbor].isFinite {
+                    visited[neighbor] = true
+                    queue.append(neighbor)
+                }
+            }
+            guard component.count >= 38,
+                  maxColumn - minColumn >= 4,
+                  maxRow - minRow >= 4,
+                  Double(path.minY) + Double(minRow) * Double(path.height) / Double(rows) <= 0.55 else { continue }
+            let distance = Self.percentile(component, fraction: 0.35)
+            let coverage = Double(component.count) / Double(columns * rows)
+            let top = Double(path.minY) + Double(minRow) * Double(path.height) / Double(rows)
+            let bottom = Double(path.minY) + Double(maxRow + 1) * Double(path.height) / Double(rows)
+            let box = CGRect(
+                x: Double(path.minX) + Double(minColumn) * Double(path.width) / Double(columns),
+                y: 1 - bottom,
+                width: Double(maxColumn - minColumn + 1) * Double(path.width) / Double(columns),
+                height: bottom - top
+            )
+            let observation = PathObstacleObservation(distanceMeters: distance, box: box, coverage: coverage)
+            if let currentBest = best {
+                if distance < currentBest.distanceMeters { best = observation }
+            } else {
+                best = observation
+            }
+        }
+        return best
     }
 
     static func percentile(_ values: [Double], fraction: Double) -> Double {
@@ -134,8 +211,11 @@ enum ModelOutput {
                 array[row * rowStride + column * columnStride].doubleValue
             }
             let confidence = value(4)
-            let classIdentifier = Int(value(5).rounded())
-            guard confidence.isFinite, confidence > 0.05, classIdentifier >= 0 else { return nil }
+            let classValue = value(5)
+            guard confidence.isFinite, confidence > 0.05,
+                  classValue.isFinite, classValue >= 0, classValue < 80 else { return nil }
+            let classIdentifier = Int(classValue.rounded())
+            guard classIdentifier < 80 else { return nil }
             var left = value(0)
             var top = value(1)
             var right = value(2)

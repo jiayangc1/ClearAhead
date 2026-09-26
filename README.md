@@ -15,10 +15,10 @@ haptics, stereo audio cues, and optional short speech.
 - Annotated three-sector camera view for left, center, and right events
 - Persistent, independent haptic, directional-audio, and speech preferences
 - VisionCamera 5 frame output connected to a typed Nitro Swift module
-- On-device Core ML object detection and relative-depth integration
-- Stable multi-object tracking with smoothed relative motion and projected collision paths
-- Time-to-collision warnings for tracked objects plus depth-supported optical looming for walls and unlabeled obstacles
-- Collision-aware urgency ranking, hysteresis, and cue cooldowns
+- On-device Core ML object detection and metric-depth estimates
+- Stable tracking for named people, vehicles, and furniture
+- Depth-based path obstacle cues for walls and unlabeled hazards
+- Collision timing from successive timestamped depth readings; cues repeat when risk increases
 - Core Haptics direction patterns, spatially panned AVAudioEngine cues whose
   pitch and pulse rhythm encode distance and urgency, and interruptible
   AVSpeechSynthesizer output
@@ -80,15 +80,15 @@ full iOS toolchain.
 ## Architecture
 
 ```text
-VisionCamera preview + 30 FPS frame output
+VisionCamera preview + bounded frame output
                    |
             Nitro JSI boundary
                    |
     Swift bounded scheduler (frames never enter React state)
-        |               |              |               |
-  object detector    metric depth  optical flow   quality checks
-        \               |              /               /
-         stable tracks + relative trajectory prediction
+        |               |                     |
+  object detector    metric depth        quality checks
+        \               |                    /
+         named tracks + coherent path obstacles
                           |
                   event prioritizer
                        |
@@ -115,14 +115,13 @@ needed to establish the actual rate and detection tradeoffs on an iPhone 12.
 
 ## Distance and safety behavior
 
-YOLO26 depth produces a dense metric estimate. Clear Ahead uses robust regional
-samples for generic walls and obstacles and samples inside detected boxes before
-falling back to physical-size priors. Distances are still spoken as “about”
-values because monocular estimates depend on scene and camera calibration.
-Collision timing combines depth change, box expansion, and low-resolution
-optical looming. Camera rotation suppresses motion-derived warnings until the
-view stabilizes. This is a baseline for calibration and real-world testing, not
-validated collision-avoidance accuracy.
+YOLO26 depth produces a dense metric estimate. Clear Ahead checks for coherent
+near surfaces in the walking path and samples depth inside named detection
+boxes. Named cues continue if depth fails. Collision timing then stays off.
+Distances are spoken as “about” values because monocular estimates depend on
+scene and camera calibration. Closing speed uses new depth timestamps; camera
+rotation suppresses motion-derived warnings until the view stabilizes. Physical
+device calibration is still required before treating collision timing as reliable.
 
 Ultralytics software and YOLO26 weights are AGPL-3.0. This repository and any
 distributed app containing those models must satisfy the corresponding-source
@@ -130,6 +129,7 @@ requirements; use an Ultralytics Enterprise license for incompatible
 distribution terms.
 
 The initial physical-device performance target is median urgent-event
-camera-to-cue latency below 150 ms with no growing frame backlog. Validate it
-with the in-app metrics plus Instruments on the oldest supported device before
-any field trial.
+camera-to-cue latency below 150 ms with no growing frame backlog. The in-app
+processing metric starts when native frame processing begins and stops before
+feedback playback. Measure camera-to-cue latency separately on the oldest
+supported iPhone before any field trial.

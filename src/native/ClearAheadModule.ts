@@ -8,8 +8,6 @@ import type {
   FeedbackConfiguration,
   PipelineMetrics,
   ModelDownloadProgressPayload,
-  ModelPreparationPayload,
-  ModelQuantization,
   ModelVariant,
   ObjectDetectionOverlay,
   DepthMapPayload,
@@ -22,10 +20,7 @@ interface ClearAheadNativeModule {
   startSession(configuration: FeedbackConfiguration): Promise<void>;
   stopSession(): Promise<void>;
   updateConfiguration(configuration: FeedbackConfiguration): Promise<void>;
-  prepareModels(
-    modelVariant: ModelVariant,
-    modelQuantization: ModelQuantization,
-  ): Promise<ModelPreparationPayload>;
+  prepareModels(modelVariant: ModelVariant): Promise<void>;
   startDemo(scenario: DemoScenario): Promise<void>;
   stopDemo(): Promise<void>;
   addListener(eventName: string): void;
@@ -59,12 +54,8 @@ export const ClearAheadModule = {
   stopSession: () => nativeModule?.stopSession() ?? unavailable(),
   updateConfiguration: (configuration: FeedbackConfiguration) =>
     nativeModule?.updateConfiguration(configuration) ?? unavailable(),
-  prepareModels: (
-    modelVariant: ModelVariant,
-    modelQuantization: ModelQuantization,
-  ) =>
-    nativeModule?.prepareModels(modelVariant, modelQuantization) ??
-    unavailable(),
+  prepareModels: (modelVariant: ModelVariant) =>
+    nativeModule?.prepareModels(modelVariant) ?? unavailable(),
   startDemo: (scenario: DemoScenario) =>
     nativeModule?.startDemo(scenario) ?? unavailable(),
   stopDemo: () => nativeModule?.stopDemo() ?? unavailable(),

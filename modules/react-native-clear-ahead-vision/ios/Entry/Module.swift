@@ -36,8 +36,12 @@ final class ClearAheadModule: RCTEventEmitter {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let parsed = FeedbackConfiguration(dictionary: configuration as? [String: Any] ?? [:])
+        guard parsed.hapticsEnabled || parsed.audioEnabled || parsed.speechEnabled else {
+            reject("feedback_disabled", "Turn on haptics, audio, or speech before starting Assist Mode.", nil)
+            return
+        }
         let requestGeneration = beginSessionRequest()
-        ClearAheadEngine.shared.prepareModels(configuration: parsed) { result in
+        ClearAheadEngine.shared.prepareModels(configuration: parsed, allowDetectorOnly: true) { result in
             DispatchQueue.main.async {
                 guard self.isCurrentSessionRequest(requestGeneration) else {
                     resolve(nil)
@@ -73,25 +77,19 @@ final class ClearAheadModule: RCTEventEmitter {
         return generation == sessionGeneration
     }
 
-    @objc(prepareModels:modelQuantization:resolver:rejecter:)
+    @objc(prepareModels:resolver:rejecter:)
     func prepareModels(
         _ modelVariant: String,
-        modelQuantization: String,
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         var configuration = FeedbackConfiguration()
         configuration.modelVariant = modelVariant
-        configuration.modelQuantization = modelQuantization
         ClearAheadEngine.shared.prepareModels(configuration: configuration) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .success:
-                    resolve([
-                        "state": "ready",
-                        "modelVariant": modelVariant,
-                        "modelQuantization": modelQuantization,
-                    ])
+                    resolve(nil)
                 case let .failure(error):
                     reject("model_prepare_failed", error.localizedDescription, error)
                 }

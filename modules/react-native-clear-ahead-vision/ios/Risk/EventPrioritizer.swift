@@ -2,13 +2,23 @@ import Foundation
 
 final class EventPrioritizer {
     private(set) var hasActiveEvent = false
-    private var lastEventKey: String?
+    private var lastAnnouncedId: String?
+    private var lastAnnouncedRisk: CollisionRisk = .none
+    private var lastAnnouncedProximity: Proximity = .unknown
+    private var lastAnnouncedMotionState: MotionState = .stationary
+    private var lastAnnouncedUrgency = 0.0
     private var lastEmissionTime: TimeInterval = 0
+    private var absenceStartedAt: TimeInterval?
     private var retainedEvent: SpatialEvent?
 
     func reset() {
-        lastEventKey = nil
+        lastAnnouncedId = nil
+        lastAnnouncedRisk = .none
+        lastAnnouncedProximity = .unknown
+        lastAnnouncedMotionState = .stationary
+        lastAnnouncedUrgency = 0
         lastEmissionTime = 0
+        absenceStartedAt = nil
         retainedEvent = nil
         hasActiveEvent = false
     }
@@ -18,19 +28,34 @@ final class EventPrioritizer {
         configuration: FeedbackConfiguration,
         now: TimeInterval
     ) -> SpatialEvent? {
-        let rankedEvents = events.compactMap { candidate -> SpatialEvent? in
-            // Dense depth sectors are supporting evidence, not announceable
-            // objects. Only surface one after persistence promotes it to a
-            // collision warning; otherwise every ordinary wall or floor can
-            // become a repeated generic "obstacle detected" event.
-            if candidate.id.hasPrefix("depth:"), candidate.collisionRisk == .none {
-                return nil
+        let minimumConfidence = 0.42 + (1 - configuration.sensitivity) * 0.24
+        let namedEvents = events.filter { event in
+            guard !event.id.hasPrefix("depth:"), event.confidence >= minimumConfidence else { return false }
+            return event.collisionRisk != .none
+                || event.approximateDistanceMeters.map { $0 <= configuration.warningDistanceMeters } != false
+        }
+        let rankedEvents = events.filter { candidate in
+            guard candidate.id.hasPrefix("depth:"),
+                  candidate.collisionRisk == .none,
+                  let depthBox = candidate.box,
+                  let depthDistance = candidate.approximateDistanceMeters else { return true }
+            return !namedEvents.contains { named in
+                guard let namedBox = named.box,
+                      let namedDistance = named.approximateDistanceMeters,
+                      abs(namedDistance - depthDistance) <= 0.75 else { return false }
+                let intersection = depthBox.intersection(namedBox)
+                guard !intersection.isNull else { return false }
+                let intersectionArea = Double(intersection.width * intersection.height)
+                let depthArea = Double(depthBox.width * depthBox.height)
+                return intersectionArea / max(depthArea, 0.001) >= 0.4
             }
-            guard candidate.confidence >= 0.42 + (1 - configuration.sensitivity) * 0.24 else {
+        }.compactMap { candidate -> SpatialEvent? in
+            guard candidate.confidence >= minimumConfidence else {
                 return nil
             }
             if let distance = candidate.approximateDistanceMeters,
-               distance > configuration.warningDistanceMeters {
+               distance > configuration.warningDistanceMeters,
+               candidate.collisionRisk == .none {
                 return nil
             }
 
@@ -79,8 +104,11 @@ final class EventPrioritizer {
         guard var highestPriorityEvent = rankedEvents.first else {
             retainedEvent = nil
             hasActiveEvent = false
+            if absenceStartedAt == nil { absenceStartedAt = now }
+            if now - (absenceStartedAt ?? now) >= 2 { lastAnnouncedId = nil }
             return nil
         }
+        absenceStartedAt = nil
         hasActiveEvent = true
 
         if let retainedEvent,
@@ -93,19 +121,33 @@ final class EventPrioritizer {
         }
         retainedEvent = highestPriorityEvent
 
-        let key = "\(highestPriorityEvent.kind.rawValue):\(highestPriorityEvent.direction.rawValue)"
-        let minimumCooldown = max(0.32, 1.35 - configuration.feedbackFrequency)
-        let urgentCooldown: TimeInterval
-        switch highestPriorityEvent.collisionRisk {
-        case .imminent: urgentCooldown = 0.22
-        case .caution: urgentCooldown = 0.34
-        case .none: urgentCooldown = highestPriorityEvent.urgency >= 0.78 ? 0.34 : minimumCooldown
-        }
-        guard key != lastEventKey || now - lastEmissionTime >= urgentCooldown else {
-            return nil
-        }
-        lastEventKey = key
-        lastEmissionTime = now
         return highestPriorityEvent
+    }
+
+    func shouldAnnounce(_ event: SpatialEvent?, now: TimeInterval) -> Bool {
+        guard let event else { return false }
+        let newHazard = event.id != lastAnnouncedId
+        let higherRisk = event.collisionRisk > lastAnnouncedRisk
+        let closer = proximityRank(event.proximity) > proximityRank(lastAnnouncedProximity)
+        let becameApproaching = event.motionState == .approaching && lastAnnouncedMotionState != .approaching
+        let moreUrgent = event.urgency >= lastAnnouncedUrgency + 0.2
+        guard newHazard || higherRisk || closer || becameApproaching || moreUrgent else { return false }
+        guard event.collisionRisk == .imminent || now - lastEmissionTime >= 0.32 else { return false }
+        lastAnnouncedId = event.id
+        lastAnnouncedRisk = event.collisionRisk
+        lastAnnouncedProximity = event.proximity
+        lastAnnouncedMotionState = event.motionState
+        lastAnnouncedUrgency = event.urgency
+        lastEmissionTime = now
+        return true
+    }
+
+    private func proximityRank(_ proximity: Proximity) -> Int {
+        switch proximity {
+        case .unknown: return 0
+        case .far: return 1
+        case .medium: return 2
+        case .near: return 3
+        }
     }
 }

@@ -49,4 +49,29 @@ final class ModelOutputTests: XCTestCase {
         let array = try MLMultiArray(shape: [1, 84, 8400], dataType: .float32)
         XCTAssertTrue(ModelOutput.detections(from: array).isEmpty)
     }
+
+    func testRejectsNonfiniteDetectionClass() throws {
+        let array = try MLMultiArray(shape: [1, 1, 6], dataType: .float32)
+        for (index, value) in [0.1, 0.1, 0.6, 0.6, 0.9, Double.nan].enumerated() {
+            array[index] = NSNumber(value: value)
+        }
+        XCTAssertTrue(ModelOutput.detections(from: array).isEmpty)
+    }
+
+    func testDepthPathFindsCoherentWallButIgnoresFloorOnly() throws {
+        let array = try MLMultiArray(shape: [1, 1, 32, 32], dataType: .float32)
+        for index in 0..<1024 { array[index] = NSNumber(value: 8.0) }
+        for row in 8..<24 {
+            for column in 10..<22 { array[row * 32 + column] = NSNumber(value: 1.4) }
+        }
+        let wall = try XCTUnwrap(DepthMap(array: array))
+        XCTAssertNotNil(wall.pathObstacle(within: 3))
+
+        for index in 0..<1024 { array[index] = NSNumber(value: 8.0) }
+        for row in 20..<32 {
+            for column in 6..<26 { array[row * 32 + column] = NSNumber(value: 1.4) }
+        }
+        let floor = try XCTUnwrap(DepthMap(array: array))
+        XCTAssertNil(floor.pathObstacle(within: 3))
+    }
 }

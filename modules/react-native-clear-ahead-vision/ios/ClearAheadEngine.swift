@@ -1,7 +1,7 @@
-import Accelerate
 import AVFoundation
 import CoreML
 import CoreMotion
+import CryptoKit
 import Foundation
 import OSLog
 import Vision
@@ -25,10 +25,12 @@ final class ClearAheadEngine {
 
     private let stateLock = NSLock()
     private let frameLock = NSLock()
+    private let depthMapQueue = DispatchQueue(label: "com.clearahead.depth-preview", qos: .utility)
+    private var depthPreviewGeneration = 0
+    private var depthPreviewPending = false
     private let prioritizer = EventPrioritizer()
     private let feedback = Feedback()
     private let collisionTracker = CollisionTracker()
-    private let opticalFlowAnalyzer = OpticalFlowAnalyzer()
     private let motionManager = CMMotionManager()
     private var configuration = FeedbackConfiguration()
     private var sessionActive = false
@@ -39,22 +41,24 @@ final class ClearAheadEngine {
     private var objectModelResult = ModelLoadResult(model: nil, resource: nil, error: "Model not prepared")
     private var depthModelResult = ModelLoadResult(model: nil, resource: nil, error: "Model not prepared")
     private var preparedModelKey: String?
+    private var modelPreparationGeneration = 0
     private var objectModel: VNCoreMLModel? { objectModelResult.model }
     private var depthModel: VNCoreMLModel? { depthModelResult.model }
     private var objectInferenceError: String?
     private var depthInferenceError: String?
+    private var depthInferenceFailureCount = 0
+    private var depthInferenceWarningActive = false
     private var objectEvents: [SpatialEvent] = []
     private var depthEvents: [SpatialEvent] = []
     private var latestDepthMap: DepthMap?
     private var latestDepthMapTime: TimeInterval = 0
-    private var loomingEvent: SpatialEvent?
-    private var depthPersistence: [Direction: Int] = [:]
-    private var latestDepthSupport = 0.0
-    private var latestDepthSupportTime: TimeInterval = 0
+    private var previousPathObstacle: PathObstacleObservation?
+    private var previousPathTime: TimeInterval = 0
+    private var pathClosingSpeed = 0.0
+    private var pathObservationCount = 0
     private var latestRotationRate = 0.0
     private var lastObjectInference: TimeInterval = 0
     private var lastDepthInference: TimeInterval = 0
-    private var lastFlowInference: TimeInterval = 0
     private var lastQualityCheck: TimeInterval = 0
     private var inferenceCount = 0
     private var lastMetricsEmission: TimeInterval = 0
@@ -63,7 +67,7 @@ final class ClearAheadEngine {
     private var depthInferenceCount = 0
     private var droppedFrameCount = 0
     private var metricWindowStart = ProcessInfo.processInfo.systemUptime
-    private var latestLatencyMs = 0.0
+    private var latestProcessingLatencyMs = 0.0
     private var lastQuality = "good"
     private var baseImageQuality = "good"
     private var baseImageQualityMessage = "Camera view is clear"
@@ -73,6 +77,7 @@ final class ClearAheadEngine {
     private var transientQualityUntil: TimeInterval = 0
     private var interruptedSessionWasActive = false
     private var hasVisibleEvent = false
+    private var lastTopEventEmission: TimeInterval = 0
 
     private init() {
         NotificationCenter.default.addObserver(
@@ -93,10 +98,13 @@ final class ClearAheadEngine {
 
     func prepareModels(
         configuration: FeedbackConfiguration,
+        allowDetectorOnly: Bool = false,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        let requestedKey = "\(configuration.modelVariant):\(configuration.modelQuantization)"
+        let requestedKey = configuration.modelVariant
         stateLock.lock()
+        modelPreparationGeneration += 1
+        let preparationGeneration = modelPreparationGeneration
         let modelsAlreadyPrepared = preparedModelKey == requestedKey
             && objectModelResult.model != nil
             && depthModelResult.model != nil
@@ -107,11 +115,10 @@ final class ClearAheadEngine {
         }
         ModelManager.shared.prepare(
             variant: configuration.modelVariant,
-            quantization: configuration.modelQuantization,
+            allowDetectorOnly: allowDetectorOnly,
             progress: { progress, message in
                 ClearAheadModule.emit(name: "modelDownloadProgress", body: [
                     "modelVariant": configuration.modelVariant,
-                    "modelQuantization": configuration.modelQuantization,
                     "progress": progress,
                     "message": message,
                 ])
@@ -120,15 +127,20 @@ final class ClearAheadEngine {
                 switch result {
                 case let .success(pair):
                     let detector = self.loadModel(at: pair.detector)
-                    let depth = self.loadModel(at: pair.depth)
+                    let depth = pair.depth.map { self.loadModel(at: $0) }
+                        ?? ModelLoadResult(model: nil, resource: nil, error: "Depth model unavailable")
+                    self.frameLock.lock()
                     self.stateLock.lock()
-                    self.objectModelResult = detector
-                    self.depthModelResult = depth
-                    self.preparedModelKey = detector.error == nil && depth.error == nil
-                        ? requestedKey
-                        : nil
+                    if self.modelPreparationGeneration == preparationGeneration {
+                        self.objectModelResult = detector
+                        self.depthModelResult = depth
+                        self.preparedModelKey = detector.error == nil && depth.error == nil
+                            ? requestedKey
+                            : nil
+                    }
                     self.stateLock.unlock()
-                    if let error = detector.error ?? depth.error {
+                    self.frameLock.unlock()
+                    if let error = detector.error ?? (allowDetectorOnly ? nil : depth.error) {
                         completion(.failure(NSError(
                             domain: "ClearAheadModels",
                             code: 1,
@@ -139,6 +151,32 @@ final class ClearAheadEngine {
                     }
                 case let .failure(error):
                     completion(.failure(error))
+                }
+            },
+            recoveredDepth: { url in
+                let depth = self.loadModel(at: url)
+                self.frameLock.lock()
+                self.stateLock.lock()
+                let isCurrent = self.modelPreparationGeneration == preparationGeneration
+                    && self.objectModelResult.model != nil
+                if isCurrent && depth.model != nil {
+                    self.depthModelResult = depth
+                    self.preparedModelKey = requestedKey
+                    self.depthInferenceError = nil
+                    self.depthInferenceFailureCount = 0
+                    self.depthInferenceWarningActive = false
+                }
+                let isActive = self.sessionActive
+                self.stateLock.unlock()
+                self.frameLock.unlock()
+                if isCurrent && isActive && depth.model != nil {
+                    ClearAheadModule.emit(name: "sessionStatus", body: [
+                        "state": "running",
+                        "message": "Camera and on-device models active",
+                        "severity": "info",
+                        "code": "models-ready",
+                        "diagnostics": self.modelDiagnostics(),
+                    ])
                 }
             }
         )
@@ -151,19 +189,25 @@ final class ClearAheadEngine {
         stateLock.lock()
         self.configuration = configuration
         sessionActive = true
+        interruptedSessionWasActive = false
+        depthPreviewGeneration += 1
         stateLock.unlock()
         prioritizer.reset()
         collisionTracker.reset()
-        opticalFlowAnalyzer.reset()
         objectEvents = []
         depthEvents = []
         latestDepthMap = nil
         latestDepthMapTime = 0
-        loomingEvent = nil
-        depthPersistence = [:]
-        latestDepthSupport = 0
-        latestDepthSupportTime = 0
+        objectInferenceError = nil
+        depthInferenceError = nil
+        depthInferenceFailureCount = 0
+        depthInferenceWarningActive = false
+        previousPathObstacle = nil
+        previousPathTime = 0
+        pathClosingSpeed = 0
+        pathObservationCount = 0
         hasVisibleEvent = false
+        lastTopEventEmission = 0
         cameraTooClose = false
         closeDepthFrames = 0
         clearDepthFrames = 0
@@ -180,8 +224,8 @@ final class ClearAheadEngine {
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "running",
             "message": modelStatusMessage(),
-            "severity": modelsAvailable ? "info" : "error",
-            "code": modelsAvailable ? "models-ready" : "model-load-failed",
+            "severity": modelsAvailable ? "info" : objectModel != nil ? "warning" : "error",
+            "code": modelsAvailable ? "models-ready" : objectModel != nil ? "depth-unavailable" : "model-load-failed",
             "diagnostics": modelDiagnostics(),
         ])
     }
@@ -190,13 +234,14 @@ final class ClearAheadEngine {
         frameLock.lock()
         stateLock.lock()
         sessionActive = false
+        interruptedSessionWasActive = false
+        depthPreviewGeneration += 1
         stateLock.unlock()
         cancelDemoTimer()
         feedback.stop()
         motionManager.stopDeviceMotionUpdates()
         prioritizer.reset()
         collisionTracker.reset()
-        opticalFlowAnalyzer.reset()
         frameLock.unlock()
         ClearAheadModule.emit(name: "sessionStatus", body: [
             "state": "idle",
@@ -232,20 +277,7 @@ final class ClearAheadEngine {
         let thermallyLimited = thermalState == .serious || thermalState == .critical
         let usesResponsiveProcessing = currentConfiguration.processingMode == "responsive"
         let objectInterval = thermallyLimited ? 0.22 : 0.11
-        let depthInterval = thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.5 : 0.18)
-        let flowInterval = thermallyLimited ? 0.28 : 0.14
-
-        if frameStartTime - lastFlowInference >= flowInterval {
-            let depthSupport = frameStartTime - latestDepthSupportTime < 0.8 ? latestDepthSupport : 0
-            let observation = opticalFlowAnalyzer.analyze(
-                pixelBuffer: pixelBuffer,
-                now: frameStartTime,
-                rotationRate: currentRotationRate(),
-                depthSupport: depthSupport
-            )
-            loomingEvent = observation.map { loomingEvent(from: $0, now: frameStartTime) }
-            lastFlowInference = frameStartTime
-        }
+        let depthInterval = thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.35 : 0.18)
 
         if frameStartTime - lastQualityCheck >= 0.65 {
             evaluateImageQuality(pixelBuffer: pixelBuffer)
@@ -275,22 +307,27 @@ final class ClearAheadEngine {
             inferenceCount += 1
         }
 
-        let freshEvents = (objectEvents + depthEvents + [loomingEvent].compactMap { $0 })
+        let freshEvents = (objectEvents + depthEvents)
             .filter { frameStartTime - $0.timestamp < 0.7 }
         if let selected = prioritizer.select(
             from: freshEvents,
             configuration: currentConfiguration,
             now: frameStartTime
         ) {
-            feedback.deliver(selected, configuration: currentConfiguration)
-            ClearAheadModule.emit(name: "topEvent", body: selected.dictionary)
+            if prioritizer.shouldAnnounce(selected, now: frameStartTime) {
+                feedback.deliver(selected, configuration: currentConfiguration)
+            }
+            if !hasVisibleEvent || frameStartTime - lastTopEventEmission >= 0.25 {
+                ClearAheadModule.emit(name: "topEvent", body: selected.dictionary)
+                lastTopEventEmission = frameStartTime
+            }
             hasVisibleEvent = true
         } else if !prioritizer.hasActiveEvent, hasVisibleEvent {
             ClearAheadModule.emit(name: "eventCleared", body: [:])
             hasVisibleEvent = false
         }
 
-        latestLatencyMs = (ProcessInfo.processInfo.systemUptime - frameStartTime) * 1_000
+        latestProcessingLatencyMs = (ProcessInfo.processInfo.systemUptime - frameStartTime) * 1_000
         emitMetricsIfNeeded(now: frameStartTime)
     }
 
@@ -314,6 +351,8 @@ final class ClearAheadEngine {
         cancelDemoTimer()
         stateLock.lock()
         sessionActive = true
+        interruptedSessionWasActive = false
+        depthPreviewGeneration += 1
         let currentConfiguration = configuration
         demoGeneration += 1
         let currentDemoGeneration = demoGeneration
@@ -344,7 +383,7 @@ final class ClearAheadEngine {
                 "detectorFps": 0,
                 "depthFps": 0,
                 "droppedFrames": 0,
-                "endToEndLatencyMs": 12,
+                "processingLatencyMs": 0,
                 "thermalState": "nominal",
             ])
         }
@@ -358,6 +397,8 @@ final class ClearAheadEngine {
         frameLock.lock()
         stateLock.lock()
         sessionActive = false
+        interruptedSessionWasActive = false
+        depthPreviewGeneration += 1
         stateLock.unlock()
         cancelDemoTimer()
         feedback.stop()
@@ -391,59 +432,52 @@ final class ClearAheadEngine {
         } catch {
             objectInferenceError = String(describing: error)
             logger.error("YOLO26 detector inference failed: \(String(describing: error), privacy: .public)")
+            if configuration.showBoundingBoxes {
+                ClearAheadModule.emit(name: "detectionsUpdated", body: [Any]())
+            }
             return []
         }
-
-        let recognizedObjects = request.results as? [VNRecognizedObjectObservation] ?? []
-        let detections: [ObjectDetection]
-        if !recognizedObjects.isEmpty {
-            detections = recognizedObjects.compactMap { observation in
-                guard let label = observation.labels.first,
-                      let kind = eventKind(for: label.identifier) else { return nil }
-                let box = observation.boundingBox
-                return ObjectDetection(
-                    kind: kind,
-                    label: normalizedObjectLabel(label.identifier),
-                    box: box,
-                    distanceMeters: recentDepthDistance(inVisionBox: box, now: now)
-                        ?? approximateDistance(kind: kind, boundingBox: box),
-                    confidence: Double(label.confidence)
-                )
+        let modelOutputs = (request.results as? [VNCoreMLFeatureValueObservation] ?? [])
+            .compactMap { $0.featureValue.multiArrayValue }
+        guard !modelOutputs.isEmpty else {
+            objectInferenceError = "Detector returned no detection array"
+            if configuration.showBoundingBoxes {
+                ClearAheadModule.emit(name: "detectionsUpdated", body: [Any]())
             }
-        } else {
-            let modelOutputs = (request.results as? [VNCoreMLFeatureValueObservation] ?? [])
-                .compactMap { $0.featureValue.multiArrayValue }
-            detections = modelOutputs
-                .flatMap { ModelOutput.detections(from: $0) }
-                .compactMap { detection in
-                    guard let label = cocoLabel(for: detection.classIdentifier),
-                          let kind = eventKind(forCOCOClass: detection.classIdentifier) else { return nil }
-                    return ObjectDetection(
-                        kind: kind,
-                        label: label,
-                        box: detection.box,
-                        distanceMeters: recentDepthDistance(inVisionBox: detection.box, now: now)
-                            ?? approximateDistance(kind: kind, boundingBox: detection.box),
-                        confidence: detection.confidence
-                    )
-                }
+            return []
         }
-        let visibleDetections = detections
+        objectInferenceError = nil
+        let modelDetections = modelOutputs.flatMap { ModelOutput.detections(from: $0) }
+        if configuration.showBoundingBoxes {
+            let visibleDetections = modelDetections
             .filter { $0.confidence >= 0.25 }
             .sorted { $0.confidence > $1.confidence }
             .prefix(20)
-        ClearAheadModule.emit(name: "detectionsUpdated", body: visibleDetections.map { detection in
-            [
-                "label": detection.label,
-                "confidence": detection.confidence,
-                "box": [
-                    "x": detection.box.minX,
-                    "y": 1 - detection.box.maxY,
-                    "width": detection.box.width,
-                    "height": detection.box.height,
-                ],
-            ]
-        })
+            ClearAheadModule.emit(name: "detectionsUpdated", body: visibleDetections.compactMap { detection -> [String: Any]? in
+                guard let label = cocoLabel(for: detection.classIdentifier) else { return nil }
+                return [
+                    "label": label,
+                    "confidence": detection.confidence,
+                    "box": [
+                        "x": detection.box.minX,
+                        "y": 1 - detection.box.maxY,
+                        "width": detection.box.width,
+                        "height": detection.box.height,
+                    ],
+                ]
+            })
+        }
+        let detections = modelDetections.compactMap { detection -> ObjectDetection? in
+            guard let label = cocoLabel(for: detection.classIdentifier),
+                  let kind = eventKind(forCOCOClass: detection.classIdentifier) else { return nil }
+            return ObjectDetection(
+                kind: kind,
+                label: label,
+                box: detection.box,
+                depth: recentDepthMeasurement(inVisionBox: detection.box, now: now),
+                confidence: detection.confidence
+            )
+        }
         return collisionTracker.update(
             detections: detections,
             now: now,
@@ -464,84 +498,133 @@ final class ClearAheadEngine {
         do {
             try handler.perform([request])
         } catch {
-            depthInferenceError = String(describing: error)
+            recordDepthInferenceFailure(String(describing: error))
             logger.error("YOLO26 depth inference failed: \(String(describing: error), privacy: .public)")
             return []
         }
         guard let depthOutput = (request.results as? [VNCoreMLFeatureValueObservation])?.first(where: {
             $0.featureValue.multiArrayValue != nil
         }), let depthValues = depthOutput.featureValue.multiArrayValue else {
+            recordDepthInferenceFailure("Depth model returned no depth array")
             return []
         }
-        guard let depthMap = DepthMap(array: depthValues) else { return [] }
+        guard let depthMap = DepthMap(array: depthValues) else {
+            recordDepthInferenceFailure("Depth model returned an invalid depth array")
+            return []
+        }
+        depthInferenceError = nil
+        depthInferenceFailureCount = 0
+        if depthInferenceWarningActive {
+            depthInferenceWarningActive = false
+            ClearAheadModule.emit(name: "sessionStatus", body: [
+                "state": "running",
+                "message": "Camera and on-device models active",
+                "severity": "info",
+                "code": "models-ready",
+            ])
+        }
         latestDepthMap = depthMap
         latestDepthMapTime = now
-        if configuration.depthMapEnabled, let dataURL = depthMap.heatmapDataURL() {
-            ClearAheadModule.emit(name: "depthMapUpdated", body: ["dataUrl": dataURL])
-        }
         updateCloseCameraState(from: depthMap)
-        return depthEvents(from: depthMap, now: now, configuration: configuration)
+        let event = pathObstacleEvent(from: depthMap, now: now, configuration: configuration)
+        if configuration.depthMapEnabled {
+            stateLock.lock()
+            let shouldQueue = !depthPreviewPending
+            let generation = depthPreviewGeneration
+            if shouldQueue { depthPreviewPending = true }
+            stateLock.unlock()
+            if shouldQueue {
+                depthMapQueue.async { [weak self] in
+                    guard let self else { return }
+                    let dataURL = depthMap.heatmapDataURL()
+                    self.stateLock.lock()
+                    let shouldEmit = self.sessionActive && self.depthPreviewGeneration == generation
+                    self.depthPreviewPending = false
+                    self.stateLock.unlock()
+                    if shouldEmit, let dataURL {
+                        ClearAheadModule.emit(name: "depthMapUpdated", body: ["dataUrl": dataURL])
+                    }
+                }
+            }
+        }
+        return event.map { [$0] } ?? []
     }
 
-    private func depthEvents(
+    private func recordDepthInferenceFailure(_ message: String) {
+        depthInferenceError = message
+        depthInferenceFailureCount += 1
+        if depthInferenceFailureCount >= 3, !depthInferenceWarningActive {
+            depthInferenceWarningActive = true
+            ClearAheadModule.emit(name: "sessionStatus", body: [
+                "state": "running",
+                "message": "Depth unavailable. Named object cues remain active.",
+                "severity": "warning",
+                "code": "depth-unavailable",
+            ])
+        }
+    }
+
+    private func pathObstacleEvent(
         from depthMap: DepthMap,
         now: TimeInterval,
         configuration: FeedbackConfiguration
-    ) -> [SpatialEvent] {
-        let sectorSamples = (0..<3).map { sectorIndex in
-            depthMap.samples(
-                in: CGRect(x: Double(sectorIndex) / 3, y: 0.28, width: 1.0 / 3, height: 0.72),
-                step: max(2, min(depthMap.width, depthMap.height) / 40)
-            )
+    ) -> SpatialEvent? {
+        guard let observation = depthMap.pathObstacle(within: configuration.warningDistanceMeters) else {
+            previousPathObstacle = nil
+            pathClosingSpeed = 0
+            pathObservationCount = 0
+            return nil
         }
-        let directions: [Direction] = [.left, .center, .right]
-        var observedDirections = Set<Direction>()
-        let events = sectorSamples.enumerated().compactMap { sectorIndex, samples -> SpatialEvent? in
-            guard samples.count > 12 else { return nil }
-            let nearbyDistance = DepthMap.percentile(samples, fraction: 0.22)
-            let warningDistanceCoverage = Double(samples.filter { $0 <= configuration.warningDistanceMeters }.count)
-                / Double(samples.count)
-            guard nearbyDistance <= configuration.warningDistanceMeters, warningDistanceCoverage >= 0.08 else {
-                return nil
-            }
-            let proximity = Proximity.from(distance: nearbyDistance)
-            let direction = directions[sectorIndex]
-            observedDirections.insert(direction)
-            let consecutiveFrames = (depthPersistence[direction] ?? 0) + 1
-            depthPersistence[direction] = consecutiveFrames
-            let distanceConfidence = 1 - min(nearbyDistance / configuration.warningDistanceMeters, 1)
-            let confidence = min(0.52 + warningDistanceCoverage * 0.28 + distanceConfidence * 0.18, 0.96)
-            let trajectoryConfidence = confidence * min(Double(consecutiveFrames) / 3, 1)
-            let collisionRisk: CollisionRisk = direction == .center
-                && proximity == .near
-                && consecutiveFrames >= 3
-                && trajectoryConfidence >= 0.65 ? .caution : .none
-            return SpatialEvent(
-                id: "depth:\(direction.rawValue)",
-                kind: .obstacle,
-                direction: direction,
-                proximity: proximity,
-                approximateDistanceMeters: (nearbyDistance * 10).rounded() / 10,
-                approachSpeed: 0,
-                motionState: collisionRisk == .none ? .stationary : .approaching,
-                collisionRisk: collisionRisk,
-                trajectoryConfidence: trajectoryConfidence,
-                confidence: confidence,
-                urgency: 0,
-                timestamp: now,
-                box: CGRect(x: CGFloat(sectorIndex) / 3, y: 0.35, width: 1.0 / 3, height: 0.65)
-            )
+        let stable = currentRotationRate() < 0.9
+        if let previous = previousPathObstacle,
+           now - previousPathTime < 0.8,
+           overlapFraction(previous.box, observation.box) >= 0.3,
+           stable {
+            let elapsed = max(now - previousPathTime, 0.04)
+            let observedSpeed = (previous.distanceMeters - observation.distanceMeters) / elapsed
+            pathClosingSpeed += (observedSpeed - pathClosingSpeed) * 0.4
+            pathObservationCount += 1
+        } else {
+            pathClosingSpeed = 0
+            pathObservationCount = 1
         }
-        for direction in directions where !observedDirections.contains(direction) {
-            depthPersistence[direction] = 0
+        previousPathObstacle = observation
+        previousPathTime = now
+        let approachSpeed = stable && pathObservationCount >= 2 ? max(0, pathClosingSpeed) : 0
+        let timeToCollision = approachSpeed > 0.2 ? observation.distanceMeters / approachSpeed : nil
+        let risk: CollisionRisk
+        if let timeToCollision, pathObservationCount >= 3, timeToCollision <= 1.5 {
+            risk = .imminent
+        } else if let timeToCollision, pathObservationCount >= 3, timeToCollision <= 3 {
+            risk = .caution
+        } else {
+            risk = .none
         }
-        let centerSamples = sectorSamples[1]
-        if centerSamples.count > 12 {
-            let centerDistance = DepthMap.percentile(centerSamples, fraction: 0.22)
-            latestDepthSupport = 1 - min(centerDistance / configuration.warningDistanceMeters, 1)
-            latestDepthSupportTime = now
-        }
-        return events
+        let confidence = min(0.6 + observation.coverage * 0.5, 0.95)
+        return SpatialEvent(
+            id: "depth:path",
+            kind: .obstacle,
+            direction: .center,
+            proximity: Proximity.from(distance: observation.distanceMeters),
+            approximateDistanceMeters: (observation.distanceMeters * 10).rounded() / 10,
+            approachSpeed: approachSpeed,
+            motionState: approachSpeed > 0.15 ? .approaching : .stationary,
+            collisionRisk: risk,
+            timeToCollisionSeconds: timeToCollision,
+            trajectoryConfidence: confidence * min(Double(pathObservationCount) / 3, 1),
+            confidence: confidence,
+            urgency: 0,
+            timestamp: now,
+            box: observation.box
+        )
+    }
+
+    private func overlapFraction(_ left: CGRect, _ right: CGRect) -> Double {
+        let intersection = left.intersection(right)
+        guard !intersection.isNull else { return 0 }
+        let intersectionArea = Double(intersection.width * intersection.height)
+        let unionArea = Double(left.width * left.height + right.width * right.height) - intersectionArea
+        return intersectionArea / max(unionArea, 0.001)
     }
 
     private func updateCloseCameraState(from depthMap: DepthMap) {
@@ -650,9 +733,12 @@ final class ClearAheadEngine {
               let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
         if type == .began {
             stateLock.lock()
-            interruptedSessionWasActive = sessionActive
+            let wasActive = sessionActive
+            interruptedSessionWasActive = wasActive
             sessionActive = false
+            depthPreviewGeneration += 1
             stateLock.unlock()
+            guard wasActive else { return }
             ClearAheadModule.emit(name: "sessionStatus", body: [
                 "state": "paused",
                 "message": "Paused while audio is interrupted",
@@ -660,7 +746,7 @@ final class ClearAheadEngine {
         } else {
             stateLock.lock()
             let shouldResume = interruptedSessionWasActive
-            sessionActive = shouldResume
+            if shouldResume { sessionActive = true }
             interruptedSessionWasActive = false
             stateLock.unlock()
             if shouldResume {
@@ -707,7 +793,7 @@ final class ClearAheadEngine {
             "detectorFps": Double(objectInferenceCount) / duration,
             "depthFps": Double(depthInferenceCount) / duration,
             "droppedFrames": droppedFrames,
-            "endToEndLatencyMs": latestLatencyMs,
+            "processingLatencyMs": latestProcessingLatencyMs,
             "thermalState": thermalStateName(ProcessInfo.processInfo.thermalState),
             "objectModelLoaded": objectModel != nil,
             "depthModelLoaded": depthModel != nil,
@@ -726,11 +812,11 @@ final class ClearAheadEngine {
     }
 
     private func modelStatusMessage() -> String {
-        if objectModel == nil && depthModel == nil {
-            return "Camera active. YOLO26 models are not installed."
+        if objectModel == nil {
+            return "Object detector unavailable. Assist Mode cannot identify named hazards."
         }
-        if objectModel == nil || depthModel == nil {
-            return "Camera active. One YOLO26 model is unavailable."
+        if depthModel == nil {
+            return "Depth unavailable. Named object cues remain active."
         }
         return "Camera and on-device models active"
     }
@@ -758,17 +844,37 @@ final class ClearAheadEngine {
             if assetURL.pathExtension == "mlmodelc" {
                 modelURL = assetURL
             } else {
-                let cachedCompilation = assetURL.deletingPathExtension().appendingPathExtension("mlmodelc")
+                let applicationSupport = try FileManager.default.url(
+                    for: .applicationSupportDirectory,
+                    in: .userDomainMask,
+                    appropriateFor: nil,
+                    create: true
+                )
+                let cacheRoot = applicationSupport.appendingPathComponent("ClearAheadCompiledModels", isDirectory: true)
+                try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+                let modified = (try FileManager.default.attributesOfItem(atPath: assetURL.path))[.modificationDate] as? Date
+                let cacheIdentity = "\(assetURL.path):\(modified?.timeIntervalSince1970 ?? 0)"
+                let cacheKey = SHA256.hash(data: Data(cacheIdentity.utf8))
+                    .map { String(format: "%02x", $0) }.joined()
+                let cachedCompilation = cacheRoot.appendingPathComponent("\(cacheKey).mlmodelc")
                 if FileManager.default.fileExists(atPath: cachedCompilation.path) {
                     modelURL = cachedCompilation
                 } else {
                     let temporaryCompilation = try MLModel.compileModel(at: assetURL)
-                    try? FileManager.default.removeItem(at: cachedCompilation)
                     try FileManager.default.moveItem(at: temporaryCompilation, to: cachedCompilation)
                     modelURL = cachedCompilation
                 }
             }
-            let model = try MLModel(contentsOf: modelURL, configuration: configuration)
+            let model: MLModel
+            do {
+                model = try MLModel(contentsOf: modelURL, configuration: configuration)
+            } catch {
+                guard assetURL.pathExtension != "mlmodelc" else { throw error }
+                try? FileManager.default.removeItem(at: modelURL)
+                let temporaryCompilation = try MLModel.compileModel(at: assetURL)
+                try FileManager.default.moveItem(at: temporaryCompilation, to: modelURL)
+                model = try MLModel(contentsOf: modelURL, configuration: configuration)
+            }
             return ModelLoadResult(
                 model: try VNCoreMLModel(for: model),
                 resource: assetURL.lastPathComponent,
@@ -780,23 +886,12 @@ final class ClearAheadEngine {
         }
     }
 
-    private func eventKind(for label: String) -> EventKind? {
-        switch label.lowercased() {
-        case "person": return .person
-        case "car", "truck", "bus", "motorbike", "motorcycle", "bicycle": return .vehicle
-        case "chair", "couch", "sofa", "bed", "diningtable", "dining table", "bench": return .furniture
-        case "fire hydrant", "stop sign", "parking meter", "pottedplant", "potted plant": return .obstacle
-        default: return .obstacle
-        }
-    }
-
     private func eventKind(forCOCOClass identifier: Int) -> EventKind? {
-        guard cocoLabel(for: identifier) != nil else { return nil }
         switch identifier {
         case 0: return .person
-        case 1, 2, 3, 4, 5, 6, 7, 8: return .vehicle
-        case 13, 56, 57, 58, 59, 60: return .furniture
-        default: return .obstacle
+        case 1, 2, 3, 5, 6, 7: return .vehicle
+        case 13, 56, 57, 59, 60, 61: return .furniture
+        default: return nil
         }
     }
 
@@ -814,50 +909,16 @@ final class ClearAheadEngine {
         return labels.indices.contains(identifier) ? labels[identifier] : nil
     }
 
-    private func normalizedObjectLabel(_ label: String) -> String {
-        label.replacingOccurrences(of: "_", with: " ").lowercased()
-    }
-
-    private func approximateDistance(kind: EventKind, boundingBox: CGRect) -> Double? {
-        let referenceHeight: Double
-        switch kind {
-        case .person: referenceHeight = 1.7
-        case .vehicle: referenceHeight = 1.5
-        case .furniture: referenceHeight = 1.0
-        default: return nil
-        }
-        let distance = referenceHeight * 0.88 / max(Double(boundingBox.height), 0.05)
-        return min(max((distance * 10).rounded() / 10, 0.5), 12)
-    }
-
-    private func recentDepthDistance(inVisionBox box: CGRect, now: TimeInterval) -> Double? {
-        guard now - latestDepthMapTime <= 0.8 else { return nil }
-        return latestDepthMap?.distance(inVisionBox: box)
+    private func recentDepthMeasurement(inVisionBox box: CGRect, now: TimeInterval) -> DepthMeasurement? {
+        guard now - latestDepthMapTime <= 0.35,
+              let distance = latestDepthMap?.distance(inVisionBox: box) else { return nil }
+        return DepthMeasurement(distanceMeters: distance, timestamp: latestDepthMapTime)
     }
 
     private func currentRotationRate() -> Double {
         stateLock.lock()
         defer { stateLock.unlock() }
         return latestRotationRate
-    }
-
-    private func loomingEvent(from observation: LoomingObservation, now: TimeInterval) -> SpatialEvent {
-        SpatialEvent(
-            id: "looming:center",
-            kind: .obstacle,
-            direction: .center,
-            proximity: observation.collisionRisk == .imminent ? .near : .medium,
-            approximateDistanceMeters: nil,
-            approachSpeed: 0,
-            motionState: .approaching,
-            collisionRisk: observation.collisionRisk,
-            timeToCollisionSeconds: observation.timeToCollisionSeconds,
-            trajectoryConfidence: observation.confidence,
-            confidence: observation.confidence,
-            urgency: 0,
-            timestamp: now,
-            box: CGRect(x: 0.3, y: 0.25, width: 0.4, height: 0.75)
-        )
     }
 
     private func thermalStateName(_ state: ProcessInfo.ThermalState) -> String {

@@ -26,3 +26,13 @@ test('camera start replaces ordinary startup status', () => {
     'Camera active',
   );
 });
+
+test('camera start keeps detector-only warning visible', () => {
+  const warning = 'Depth unavailable. Named object cues remain active.';
+  assert.equal(cameraStartedMessage(warning, {
+    state: 'running',
+    message: warning,
+    severity: 'warning',
+    code: 'depth-unavailable',
+  }), warning);
+});

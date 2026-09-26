@@ -1,7 +1,6 @@
 export type MountingMode = 'handheld' | 'chest';
 export type ProcessingMode = 'responsive' | 'detailed';
 export type ModelVariant = 'n' | 's' | 'm' | 'l' | 'x';
-export type ModelQuantization = 'int8';
 export type Direction = 'left' | 'center' | 'right';
 export type Proximity = 'near' | 'medium' | 'far' | 'unknown';
 export type MotionState =
@@ -14,9 +13,7 @@ export type EventKind =
   | 'obstacle'
   | 'person'
   | 'vehicle'
-  | 'furniture'
-  | 'opening'
-  | 'device-warning';
+  | 'furniture';
 
 export type SessionState = 'idle' | 'starting' | 'running' | 'paused' | 'error';
 export type SessionQuality =
@@ -58,7 +55,7 @@ export interface PipelineMetrics {
   detectorFps: number;
   depthFps: number;
   droppedFrames: number;
-  endToEndLatencyMs: number;
+  processingLatencyMs: number;
   thermalState: string;
   objectModelLoaded?: boolean;
   depthModelLoaded?: boolean;
@@ -75,19 +72,17 @@ export interface FeedbackConfiguration {
   audioVolume: number;
   sensitivity: number;
   warningDistanceMeters: number;
-  feedbackFrequency: number;
   mountingMode: MountingMode;
   processingMode: ProcessingMode;
   modelVariant: ModelVariant;
-  modelQuantization: ModelQuantization;
   depthMapEnabled: boolean;
+  showBoundingBoxes: boolean;
   spokenCategories: EventKind[];
 }
 
 export interface AppPreferences extends FeedbackConfiguration {
   onboardingComplete: boolean;
   showFps: boolean;
-  showBoundingBoxes: boolean;
   cameraDeviceId: string;
 }
 
@@ -101,15 +96,8 @@ export interface DepthMapPayload {
   dataUrl: string;
 }
 
-export interface ModelPreparationPayload {
-  state: 'ready' | 'downloading';
-  modelVariant: ModelVariant;
-  modelQuantization: ModelQuantization;
-}
-
 export interface ModelDownloadProgressPayload {
   modelVariant: ModelVariant;
-  modelQuantization: ModelQuantization;
   progress: number;
   message: string;
 }
@@ -118,7 +106,7 @@ export interface SessionStatusPayload {
   state: SessionState;
   message: string;
   severity?: 'info' | 'warning' | 'error';
-  code?: 'models-ready' | 'model-load-failed';
+  code?: 'models-ready' | 'depth-unavailable' | 'model-load-failed';
   diagnostics?: {
     objectModel: ModelDiagnostic;
     depthModel: ModelDiagnostic;

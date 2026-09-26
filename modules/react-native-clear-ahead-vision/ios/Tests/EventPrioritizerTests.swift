@@ -45,13 +45,27 @@ final class EventPrioritizerTests: XCTestCase {
         XCTAssertEqual(selected?.id, obstacle.id)
     }
 
-    func testCooldownPreventsCueStorms() {
+    func testSameHazardCuesAgainOnlyWhenRiskRises() {
         let prioritizer = EventPrioritizer()
         let event = makeEvent(distance: 1.4)
 
-        XCTAssertNotNil(prioritizer.select(from: [event], configuration: configuration, now: 10))
-        XCTAssertNil(prioritizer.select(from: [event], configuration: configuration, now: 10.1))
-        XCTAssertNotNil(prioritizer.select(from: [event], configuration: configuration, now: 12))
+        let first = prioritizer.select(from: [event], configuration: configuration, now: 10)
+        XCTAssertTrue(prioritizer.shouldAnnounce(first, now: 10))
+        let repeated = prioritizer.select(from: [event], configuration: configuration, now: 12)
+        XCTAssertFalse(prioritizer.shouldAnnounce(repeated, now: 12))
+        let approaching = makeEvent(distance: 1.4, motionState: .approaching)
+        let measured = prioritizer.select(from: [approaching], configuration: configuration, now: 12.5)
+        XCTAssertTrue(prioritizer.shouldAnnounce(measured, now: 12.5))
+        let urgent = makeEvent(distance: 1.4, collisionRisk: .imminent, motionState: .approaching)
+        let escalated = prioritizer.select(from: [urgent], configuration: configuration, now: 13)
+        XCTAssertTrue(prioritizer.shouldAnnounce(escalated, now: 13))
+    }
+
+    func testImminentCollisionBeyondWarningRangeIsKept() {
+        let prioritizer = EventPrioritizer()
+        configuration.warningDistanceMeters = 3
+        let collision = makeEvent(distance: 4, collisionRisk: .imminent)
+        XCTAssertNotNil(prioritizer.select(from: [collision], configuration: configuration, now: 10))
     }
 
     func testImminentCollisionPreemptsCloserOrdinaryEvent() {
@@ -89,34 +103,46 @@ final class EventPrioritizerTests: XCTestCase {
         )
     }
 
-    func testDepthSectorsStaySilentUntilTheyBecomeCollisionWarnings() {
+    func testCoherentDepthPathProducesProximityCue() {
         let prioritizer = EventPrioritizer()
         let ordinaryDepth = makeEvent(
-            id: "depth:center",
+            id: "depth:path",
             kind: .obstacle,
             distance: 1.5
         )
-        let riskyDepth = makeEvent(
-            id: "depth:center",
-            kind: .obstacle,
-            distance: 1.5,
-            collisionRisk: .caution
-        )
+        XCTAssertNotNil(prioritizer.select(from: [ordinaryDepth], configuration: configuration, now: 10))
+    }
 
-        XCTAssertNil(
-            prioritizer.select(
-                from: [ordinaryDepth],
-                configuration: configuration,
-                now: 10
-            )
+    func testNamedObjectTakesPlaceOfMatchingDepthObstacle() {
+        let prioritizer = EventPrioritizer()
+        let box = CGRect(x: 0.35, y: 0.2, width: 0.3, height: 0.5)
+        let named = makeEvent(id: "person:center", distance: 1.5, box: box)
+        let generic = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.6, box: box)
+        XCTAssertEqual(
+            prioritizer.select(from: [generic, named], configuration: configuration, now: 10)?.id,
+            named.id
         )
-        XCTAssertNotNil(
-            prioritizer.select(
-                from: [riskyDepth],
-                configuration: configuration,
-                now: 11
-            )
+    }
+
+    func testWeakNamedDetectionDoesNotHideDepthObstacle() {
+        let prioritizer = EventPrioritizer()
+        let box = CGRect(x: 0.35, y: 0.2, width: 0.3, height: 0.5)
+        let weakNamed = makeEvent(id: "person:center", distance: 1.5, confidence: 0.1, box: box)
+        let generic = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.6, box: box)
+        XCTAssertEqual(
+            prioritizer.select(from: [generic, weakNamed], configuration: configuration, now: 10)?.id,
+            generic.id
         )
+    }
+
+    func testBriefDepthDropoutDoesNotRepeatSameWarning() {
+        let prioritizer = EventPrioritizer()
+        let obstacle = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.6)
+        let first = prioritizer.select(from: [obstacle], configuration: configuration, now: 10)
+        XCTAssertTrue(prioritizer.shouldAnnounce(first, now: 10))
+        XCTAssertNil(prioritizer.select(from: [], configuration: configuration, now: 10.5))
+        let returned = prioritizer.select(from: [obstacle], configuration: configuration, now: 10.8)
+        XCTAssertFalse(prioritizer.shouldAnnounce(returned, now: 10.8))
     }
 
     func testHysteresisRetainsSelectionButUsesFreshEventData() throws {
@@ -138,7 +164,6 @@ final class EventPrioritizerTests: XCTestCase {
             "hapticIntensity": 3.0,
             "audioVolume": -1.0,
             "warningDistanceMeters": 100.0,
-            "feedbackFrequency": Double.nan,
             "mountingMode": "unsupported",
             "spokenCategories": ["person", "unsupported"],
         ])
@@ -146,7 +171,6 @@ final class EventPrioritizerTests: XCTestCase {
         XCTAssertEqual(parsed.hapticIntensity, 1)
         XCTAssertEqual(parsed.audioVolume, 0)
         XCTAssertEqual(parsed.warningDistanceMeters, 12)
-        XCTAssertEqual(parsed.feedbackFrequency, 0.55)
         XCTAssertEqual(parsed.mountingMode, "handheld")
         XCTAssertEqual(parsed.spokenCategories, Set(["person"]))
     }
@@ -196,7 +220,9 @@ final class EventPrioritizerTests: XCTestCase {
         direction: Direction = .center,
         distance: Double = 2,
         confidence: Double = 0.9,
-        collisionRisk: CollisionRisk = .none
+        collisionRisk: CollisionRisk = .none,
+        motionState: MotionState = .stationary,
+        box: CGRect? = nil
     ) -> SpatialEvent {
         SpatialEvent(
             id: id,
@@ -205,13 +231,14 @@ final class EventPrioritizerTests: XCTestCase {
             proximity: Proximity.from(distance: distance),
             approximateDistanceMeters: distance,
             approachSpeed: 0,
+            motionState: motionState,
             collisionRisk: collisionRisk,
             timeToCollisionSeconds: collisionRisk == .none ? nil : 1,
             trajectoryConfidence: collisionRisk == .none ? 0 : 0.9,
             confidence: confidence,
             urgency: 0,
             timestamp: 10,
-            box: nil
+            box: box
         )
     }
 }
