@@ -84,19 +84,20 @@ struct AdaptiveThrottle {
     static let dutyCycle = 0.6
 
     private(set) var smoothedInferenceSeconds = 0.0
-    private var scale = 1.0
+    private var requiredInterval = 0.0
     private var behindSince: TimeInterval?
 
+    // Every schedule is held to the interval the device can sustain; one that
+    // is already slower than that is left alone rather than stretched again.
     func interval(base: Double) -> Double {
-        max(base, min(base * scale, Self.maximumInterval))
+        max(base, min(requiredInterval, Self.maximumInterval))
     }
 
-    mutating func record(inferenceSeconds: Double, baseInterval: Double, at now: TimeInterval) {
+    mutating func record(inferenceSeconds: Double, at now: TimeInterval) {
         smoothedInferenceSeconds = smoothedInferenceSeconds == 0
             ? inferenceSeconds
             : smoothedInferenceSeconds + (inferenceSeconds - smoothedInferenceSeconds) * 0.25
-        let requiredInterval = smoothedInferenceSeconds / Self.dutyCycle
-        scale = max(requiredInterval / baseInterval, 1)
+        requiredInterval = smoothedInferenceSeconds / Self.dutyCycle
         if requiredInterval > Self.maximumInterval {
             if behindSince == nil { behindSince = now }
         } else {

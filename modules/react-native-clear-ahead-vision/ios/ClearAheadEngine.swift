@@ -62,7 +62,6 @@ final class ClearAheadEngine {
     private var latestDepthMapTime: TimeInterval = 0
     private var previousPathObstacle: PathObstacleObservation?
     private var previousPathTime: TimeInterval = 0
-    private var pathConfirmationStartedAt: TimeInterval = 0
     private var pathClosingSpeed = 0.0
     private var pathObservationCount = 0
     private var latestRotationRate = 0.0
@@ -239,7 +238,6 @@ final class ClearAheadEngine {
         depthInferenceError = nil
         previousPathObstacle = nil
         previousPathTime = 0
-        pathConfirmationStartedAt = 0
         pathClosingSpeed = 0
         pathObservationCount = 0
         hasVisibleEvent = false
@@ -391,11 +389,7 @@ final class ClearAheadEngine {
         }
         if shouldDetectObjects || shouldEstimateDepth {
             let inferenceEndTime = ProcessInfo.processInfo.systemUptime
-            throttle.record(
-                inferenceSeconds: inferenceEndTime - frameStartTime,
-                baseInterval: baseObjectInterval,
-                at: inferenceEndTime
-            )
+            throttle.record(inferenceSeconds: inferenceEndTime - frameStartTime, at: inferenceEndTime)
             if throttle.isOverloaded(at: inferenceEndTime) {
                 markTransientQuality(
                     "overloaded",
@@ -628,11 +622,10 @@ final class ClearAheadEngine {
             pathObservationCount = 0
             return nil
         }
-        let stable = currentRotationRate() < 0.6 && !cameraTooClose
+        let stable = currentRotationRate() < 0.9
         if let previous = previousPathObstacle,
            now - previousPathTime < 0.8,
-           overlapFraction(previous.box, observation.box) >= 0.5,
-           abs(previous.distanceMeters - observation.distanceMeters) <= max(0.45, previous.distanceMeters * 0.25),
+           overlapFraction(previous.box, observation.box) >= 0.3,
            stable {
             let elapsed = max(now - previousPathTime, 0.04)
             let observedSpeed = (previous.distanceMeters - observation.distanceMeters) / elapsed
@@ -641,14 +634,12 @@ final class ClearAheadEngine {
         } else {
             pathClosingSpeed = 0
             pathObservationCount = 1
-            pathConfirmationStartedAt = now
         }
         previousPathObstacle = observation
         previousPathTime = now
         let approachSpeed = stable && pathObservationCount >= 2 ? max(0, pathClosingSpeed) : 0
-        let timeToCollision = approachSpeed >= 0.35 ? observation.distanceMeters / approachSpeed : nil
+        let timeToCollision = approachSpeed > 0.2 ? observation.distanceMeters / approachSpeed : nil
         let risk = observation.collisionRisk(observations: pathObservationCount,
-                                             duration: now - pathConfirmationStartedAt,
                                              closingSpeed: approachSpeed, stable: stable)
         let confidence = min(0.6 + observation.coverage * 0.5, 0.95)
         return SpatialEvent(
@@ -661,7 +652,7 @@ final class ClearAheadEngine {
             motionState: approachSpeed > 0.15 ? .approaching : .stationary,
             collisionRisk: risk,
             timeToCollisionSeconds: timeToCollision,
-            trajectoryConfidence: confidence * min(Double(pathObservationCount) / 4, 1),
+            trajectoryConfidence: confidence * min(Double(pathObservationCount) / 3, 1),
             confidence: confidence,
             urgency: 0,
             timestamp: now,
