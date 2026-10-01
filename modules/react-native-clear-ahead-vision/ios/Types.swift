@@ -162,6 +162,7 @@ struct FeedbackConfiguration {
     var speechEnabled = false
     var hapticIntensity = 0.72
     var audioVolume = 0.65
+    var continuousAudio = true
     var sensitivity = 0.65
     var warningDistanceMeters = 6.0
     var mountingMode = "handheld"
@@ -180,6 +181,7 @@ struct FeedbackConfiguration {
         speechEnabled = dictionary["speechEnabled"] as? Bool ?? false
         hapticIntensity = Self.clamp(dictionary["hapticIntensity"] as? Double, fallback: 0.72)
         audioVolume = Self.clamp(dictionary["audioVolume"] as? Double, fallback: 0.65)
+        continuousAudio = dictionary["continuousAudio"] as? Bool ?? true
         sensitivity = Self.clamp(dictionary["sensitivity"] as? Double, fallback: 0.65)
         let requestedWarningDistance = dictionary["warningDistanceMeters"] as? Double
         warningDistanceMeters = requestedWarningDistance?.isFinite == true

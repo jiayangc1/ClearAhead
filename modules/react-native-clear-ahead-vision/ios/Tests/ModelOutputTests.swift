@@ -186,16 +186,26 @@ final class ModelOutputTests: XCTestCase {
     func testPathCollisionRequiresStablePersistentEvidence() {
         let obstacle = PathObstacleObservation(distanceMeters: 1.2,
                                                box: CGRect(x: 0.3, y: 0.2, width: 0.4, height: 0.5), coverage: 0.3)
-        XCTAssertEqual(obstacle.collisionRisk(observations: 3, duration: 1, closingSpeed: 1, stable: true), .none)
-        XCTAssertEqual(obstacle.collisionRisk(observations: 4, duration: 0.5, closingSpeed: 1, stable: true), .none)
-        XCTAssertEqual(obstacle.collisionRisk(observations: 4, duration: 0.8, closingSpeed: 1, stable: false), .none)
-        XCTAssertEqual(obstacle.collisionRisk(observations: 4, duration: 0.8, closingSpeed: 1, stable: true), .imminent)
-        XCTAssertEqual(obstacle.collisionRisk(observations: 4, duration: 0.8, closingSpeed: 0.5, stable: true), .caution)
-        XCTAssertEqual(obstacle.collisionRisk(observations: 5, duration: 1.5, closingSpeed: 0, stable: true), .none)
-        let close = PathObstacleObservation(distanceMeters: 0.5, box: obstacle.box, coverage: 0.3)
-        XCTAssertEqual(close.collisionRisk(observations: 5, duration: 1.5, closingSpeed: 0, stable: true), .caution)
-        let sparse = PathObstacleObservation(distanceMeters: 0.5, box: obstacle.box, coverage: 0.1)
-        XCTAssertEqual(sparse.collisionRisk(observations: 5, duration: 1.5, closingSpeed: 1, stable: true), .none)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 2, closingSpeed: 1, stable: true), .none)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 3, closingSpeed: 1, stable: false), .none)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 3, closingSpeed: 1, stable: true), .imminent)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 3, closingSpeed: 0.5, stable: true), .caution)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 3, closingSpeed: 0, stable: true), .none)
+        // A wall within a step warns even when the walker is too slow to measure.
+        let close = PathObstacleObservation(distanceMeters: 0.9, box: obstacle.box, coverage: 0.1)
+        XCTAssertEqual(close.collisionRisk(observations: 3, closingSpeed: 0, stable: true), .caution)
+    }
+
+    func testDepthPathFindsNarrowObstacleAhead() throws {
+        // About a doorframe edge or pole: 6 of 32 path columns, centered.
+        let array = try MLMultiArray(shape: [1, 1, 192, 256], dataType: .float32)
+        for index in 0..<array.count { array[index] = NSNumber(value: 8) }
+        for row in 50..<120 {
+            for column in 115..<140 { array[row * 256 + column] = NSNumber(value: 1.2) }
+        }
+        let map = try XCTUnwrap(DepthMap(array: array))
+        let obstacle = try XCTUnwrap(map.pathObstacle(within: 3))
+        XCTAssertEqual(obstacle.distanceMeters, 1.2, accuracy: 0.01)
     }
 
     func testBoundingBoxVerbosityFiltersUnnecessaryObjects() {

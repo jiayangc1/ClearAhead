@@ -46,29 +46,35 @@ final class SessionHealthTests: XCTestCase {
 
     func testThrottleStretchesIntervalsOnlyWhenInferenceIsSlow() {
         var throttle = AdaptiveThrottle()
-        throttle.record(inferenceSeconds: 0.04, baseInterval: 0.11, at: 1)
+        throttle.record(inferenceSeconds: 0.04, at: 1)
         XCTAssertEqual(throttle.interval(base: 0.11), 0.11, accuracy: 0.001)
         XCTAssertEqual(throttle.interval(base: 0.35), 0.35, accuracy: 0.001)
 
         throttle = AdaptiveThrottle()
-        throttle.record(inferenceSeconds: 0.15, baseInterval: 0.11, at: 1)
+        throttle.record(inferenceSeconds: 0.15, at: 1)
         XCTAssertEqual(throttle.interval(base: 0.11), 0.25, accuracy: 0.001)
-        // Intervals never stretch past what hazard tracking can tolerate.
-        XCTAssertEqual(throttle.interval(base: 0.35), AdaptiveThrottle.maximumInterval, accuracy: 0.001)
+        // Depth keeps pace with the detector instead of being stretched a second time.
+        XCTAssertEqual(throttle.interval(base: 0.18), 0.25, accuracy: 0.001)
+        XCTAssertEqual(throttle.interval(base: 0.35), 0.35, accuracy: 0.001)
         XCTAssertFalse(throttle.isOverloaded(at: 60))
+
+        // Intervals never stretch past what hazard tracking can tolerate.
+        throttle = AdaptiveThrottle()
+        throttle.record(inferenceSeconds: 0.4, at: 1)
+        XCTAssertEqual(throttle.interval(base: 0.11), AdaptiveThrottle.maximumInterval, accuracy: 0.001)
     }
 
     func testThrottleReportsOverloadOnlyAfterSustainedSlowInference() {
         var throttle = AdaptiveThrottle()
-        throttle.record(inferenceSeconds: 0.4, baseInterval: 0.11, at: 10)
+        throttle.record(inferenceSeconds: 0.4, at: 10)
         XCTAssertFalse(throttle.isOverloaded(at: 10))
-        throttle.record(inferenceSeconds: 0.4, baseInterval: 0.11, at: 12)
+        throttle.record(inferenceSeconds: 0.4, at: 12)
         XCTAssertFalse(throttle.isOverloaded(at: 12))
-        throttle.record(inferenceSeconds: 0.4, baseInterval: 0.11, at: 13.1)
+        throttle.record(inferenceSeconds: 0.4, at: 13.1)
         XCTAssertTrue(throttle.isOverloaded(at: 13.1))
         // Recovery clears the warning without waiting.
         for step in 0..<12 {
-            throttle.record(inferenceSeconds: 0.05, baseInterval: 0.11, at: 14 + Double(step) * 0.1)
+            throttle.record(inferenceSeconds: 0.05, at: 14 + Double(step) * 0.1)
         }
         XCTAssertFalse(throttle.isOverloaded(at: 20))
     }

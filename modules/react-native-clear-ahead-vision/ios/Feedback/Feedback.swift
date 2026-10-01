@@ -19,6 +19,8 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         let configuration: FeedbackConfiguration
         let priority: Double
         let createdAt: TimeInterval
+
+        var risk: CollisionRisk { event.collisionRisk }
     }
 
     private var hapticEngine: CHHapticEngine?
@@ -33,6 +35,9 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
     private var tonePlaybackGeneration = 0
     private var pendingTone: PendingTone?
     private var activeTone: PendingTone?
+    /// The hazard whose cue repeats until it clears, kept current by `track`.
+    private var beacon: PendingTone?
+    private var beaconTimer: DispatchWorkItem?
     private var lastAudioRoute: String?
     private var pendingSpeech: PendingSpeech?
     private var activeSpeech: PendingSpeech?
@@ -84,11 +89,7 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         lastSpeechTimes.removeAll()
         speechSynthesizer.stopSpeaking(at: .immediate)
         audioQueue.sync {
-            pendingTone = nil
-            activeTone = nil
-            tonePlaying = false
-            tonePlaybackGeneration += 1
-            audioPlayer.stop()
+            silenceTones()
             audioEngine.stop()
             audioSessionActive = false
         }
@@ -109,15 +110,23 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
             activeUtterance = nil
             speechSynthesizer.stopSpeaking(at: .immediate)
             audioQueue.sync {
-                pendingTone = nil
-                activeTone = nil
-                tonePlaying = false
-                tonePlaybackGeneration += 1
-                audioPlayer.stop()
+                silenceTones()
                 audioEngine.stop()
                 audioSessionActive = false
             }
         }
+    }
+
+    /// Runs on the audio queue. Drops every queued, repeating and sounding cue.
+    private func silenceTones() {
+        pendingTone = nil
+        activeTone = nil
+        beacon = nil
+        beaconTimer?.cancel()
+        beaconTimer = nil
+        tonePlaying = false
+        tonePlaybackGeneration += 1
+        audioPlayer.stop()
     }
 
     private func acceptsAudio(_ token: Int) -> Bool {
@@ -140,7 +149,7 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
             )
         }
         if configuration.audioEnabled {
-            enqueueTone(for: event, configuration: configuration)
+            enqueueTone(for: event, configuration: configuration, announced: true)
         }
         if Self.shouldSpeak(event, configuration: configuration, voiceOverRunning: UIAccessibility.isVoiceOverRunning) {
             if event.collisionRisk != .none {
@@ -148,6 +157,24 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
             } else if configuration.spokenCategories.contains(event.kind.rawValue) {
                 speak(event)
             }
+        }
+    }
+
+    /// Keeps the repeating audio cue following a hazard that is still selected,
+    /// so its pitch, loudness, position and rate change as the hazard does.
+    func track(_ event: SpatialEvent, configuration: FeedbackConfiguration) {
+        guard configuration.audioEnabled, configuration.continuousAudio,
+              generation.accepts(generation.current) else { return }
+        enqueueTone(for: event, configuration: configuration, announced: false)
+    }
+
+    /// The path is clear again: the current burst finishes and nothing repeats.
+    func clearTracking() {
+        audioQueue.async { [weak self] in
+            guard let self else { return }
+            beacon = nil
+            beaconTimer?.cancel()
+            beaconTimer = nil
         }
     }
 
@@ -289,7 +316,7 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         }.joined(separator: ",") + ":\(session.sampleRate)"
     }
 
-    private func enqueueTone(for event: SpatialEvent, configuration: FeedbackConfiguration) {
+    private func enqueueTone(for event: SpatialEvent, configuration: FeedbackConfiguration, announced: Bool) {
         let pending = PendingTone(
             generation: generation.current,
             event: event,
@@ -299,19 +326,36 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         )
         audioQueue.async { [weak self] in
             guard let self, acceptsAudio(pending.generation) else { return }
+            beacon = configuration.continuousAudio ? pending : nil
             if tonePlaying {
-                if pending.priority >= (pendingTone?.priority ?? -1) {
+                // A tracked update is picked up when the burst in progress ends.
+                guard announced else { return }
+                if pending.risk == .imminent, activeTone?.risk != .imminent {
+                    // Do not make an imminent warning wait behind a calmer cue.
+                    tonePlaybackGeneration += 1
+                    audioPlayer.stop()
+                    tonePlaying = false
+                    activeTone = nil
+                    pendingTone = nil
+                    playTone(pending)
+                } else if pending.priority >= (pendingTone?.priority ?? -1) {
                     pendingTone = pending
                 }
                 return
             }
-            playTone(pending)
+            // A new or worse hazard sounds now; otherwise keep the running rhythm.
+            if announced || beaconTimer == nil {
+                beaconTimer?.cancel()
+                beaconTimer = nil
+                if !playTone(pending) { beacon = nil }
+            }
         }
     }
 
-    private func playTone(_ pending: PendingTone) {
+    @discardableResult
+    private func playTone(_ pending: PendingTone) -> Bool {
         guard acceptsAudio(pending.generation), ProcessInfo.processInfo.systemUptime - pending.createdAt <= 0.8,
-              activateAudioEngine() else { return }
+              activateAudioEngine() else { return false }
         lastAudioRoute = currentAudioRoute()
         // Read the active route at playback so queued cues follow output changes.
         let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
@@ -322,7 +366,7 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         let profile = AudioCueProfile(
             event: pending.event, configuration: pending.configuration, stereo: stereo
         )
-        guard let audioBuffer = makeAudioBuffer(profile: profile) else { return }
+        guard profile.gain > 0, let audioBuffer = makeAudioBuffer(profile: profile) else { return false }
         tonePlaying = true
         activeTone = pending
         tonePlaybackGeneration += 1
@@ -340,46 +384,45 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
                 self.activeTone = nil
                 if let next = self.pendingTone {
                     self.pendingTone = nil
-                    self.playTone(next)
+                    if self.playTone(next) { return }
                 }
+                self.scheduleBeacon()
             }
         }
         if !audioPlayer.isPlaying { audioPlayer.play() }
+        return true
+    }
+
+    /// Runs on the audio queue after a burst. The rest before the next one comes
+    /// from the hazard as it is now, so the rhythm tightens as it gets closer.
+    private func scheduleBeacon() {
+        beaconTimer?.cancel()
+        beaconTimer = nil
+        guard let beacon else { return }
+        let rest = AudioCueProfile(event: beacon.event, configuration: beacon.configuration).repeatRest
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            beaconTimer = nil
+            guard !tonePlaying, let current = self.beacon else { return }
+            // A hazard that stopped being reported goes quiet instead of repeating stale data.
+            if !playTone(current) { self.beacon = nil }
+        }
+        beaconTimer = timer
+        audioQueue.asyncAfter(deadline: .now() + rest, execute: timer)
     }
 
     private func makeAudioBuffer(profile: AudioCueProfile) -> AVAudioPCMBuffer? {
         guard let audioFormat else { return nil }
-        let sampleRate = audioFormat.sampleRate
-        let pulseFrames = Int(profile.pulseDuration * sampleRate)
-        let gapFrames = Int(profile.pulseGap * sampleRate)
-        let frameCount = profile.pulseCount * pulseFrames + (profile.pulseCount - 1) * gapFrames
-        guard let buffer = AVAudioPCMBuffer(
+        let samples = AudioCueRenderer.render(profile, sampleRate: audioFormat.sampleRate)
+        let frameCount = samples.left.count
+        guard frameCount > 0, let buffer = AVAudioPCMBuffer(
             pcmFormat: audioFormat,
             frameCapacity: AVAudioFrameCount(frameCount)
-        ) else { return nil }
+        ), let channels = buffer.floatChannelData else { return nil }
         buffer.frameLength = AVAudioFrameCount(frameCount)
-        guard let channels = buffer.floatChannelData else { return nil }
         for frame in 0..<frameCount {
-            channels[0][frame] = 0
-            channels[1][frame] = 0
-        }
-
-        let normalizedPan = min(max((Double(profile.pan) + 1) / 2, 0), 1)
-        let leftGain = Float(sqrt(1 - normalizedPan)) * profile.gain
-        let rightGain = Float(sqrt(normalizedPan)) * profile.gain
-        for pulse in 0..<profile.pulseCount {
-            let pulseStart = pulse * (pulseFrames + gapFrames)
-            for frame in 0..<pulseFrames {
-                let progress = Double(frame) / Double(max(pulseFrames - 1, 1))
-                let elapsed = Double(frame) / sampleRate
-                let sweepRate = (profile.endFrequency - profile.startFrequency) / profile.pulseDuration
-                let phase = 2 * Double.pi
-                    * (profile.startFrequency * elapsed + 0.5 * sweepRate * elapsed * elapsed)
-                let envelope = pow(sin(Double.pi * progress), 2)
-                let sample = Float((sin(phase) + 0.12 * sin(phase * 2)) * envelope * 0.3)
-                channels[0][pulseStart + frame] = sample * leftGain
-                channels[1][pulseStart + frame] = sample * rightGain
-            }
+            channels[0][frame] = samples.left[frame]
+            channels[1][frame] = samples.right[frame]
         }
         return buffer
     }
@@ -472,64 +515,5 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         finishSpeech(utterance)
-    }
-}
-
-struct AudioCueProfile {
-    let startFrequency: Double
-    let endFrequency: Double
-    let pulseCount: Int
-    let pulseDuration: TimeInterval
-    let pulseGap: TimeInterval
-    let pan: Float
-    let gain: Float
-
-    init(event: SpatialEvent, configuration: FeedbackConfiguration, stereo: Bool = true) {
-        let closeness: Double
-        if let distance = event.approximateDistanceMeters {
-            closeness = 1 - min(max(distance / configuration.warningDistanceMeters, 0), 1)
-        } else {
-            switch event.proximity {
-            case .near: closeness = 0.88
-            case .medium: closeness = 0.56
-            case .far: closeness = 0.24
-            case .unknown: closeness = 0.16
-            }
-        }
-
-        let baseFrequency = event.collisionRisk == .none
-            ? 360 + closeness * 720
-            : (event.collisionRisk == .imminent ? 970.0 : 820.0)
-        if event.collisionRisk != .none && stereo {
-            startFrequency = 520
-            endFrequency = event.collisionRisk == .imminent ? 1_420 : 1_120
-        } else {
-            switch event.direction {
-            case .left:
-                startFrequency = baseFrequency * 1.12
-                endFrequency = baseFrequency * 0.88
-            case .center:
-                startFrequency = baseFrequency
-                endFrequency = baseFrequency
-            case .right:
-                startFrequency = baseFrequency * 0.88
-                endFrequency = baseFrequency * 1.12
-            }
-        }
-
-        let urgency = min(max(event.urgency, 0), 1)
-        if event.collisionRisk == .imminent {
-            pulseCount = 4
-        } else if event.collisionRisk == .caution || urgency >= 0.75 {
-            pulseCount = 3
-        } else if urgency >= 0.4 {
-            pulseCount = 2
-        } else {
-            pulseCount = 1
-        }
-        pulseDuration = event.collisionRisk == .none ? 0.075 - urgency * 0.02 : 0.045
-        pulseGap = event.collisionRisk == .none ? 0.18 - urgency * 0.11 : 0.05
-        pan = stereo ? event.pan : 0
-        gain = Float(min(max(configuration.audioVolume * (0.72 + urgency * 0.28), 0), 1))
     }
 }

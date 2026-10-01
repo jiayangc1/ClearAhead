@@ -32,19 +32,16 @@ struct PathObstacleObservation {
     let box: CGRect
     let coverage: Double
 
-    func collisionRisk(observations: Int, duration: TimeInterval, closingSpeed: Double, stable: Bool) -> CollisionRisk {
-        guard stable, observations >= 4, duration >= 0.7, coverage >= 0.15,
+    func collisionRisk(observations: Int, closingSpeed: Double, stable: Bool) -> CollisionRisk {
+        guard stable, observations >= 3,
               distanceMeters.isFinite, distanceMeters > 0, closingSpeed.isFinite else { return .none }
-        if closingSpeed >= 0.35 {
+        if closingSpeed > 0.2 {
             let timeToCollision = distanceMeters / closingSpeed
             if timeToCollision <= 1.5 { return .imminent }
-            if timeToCollision <= 2.5 { return .caution }
+            if timeToCollision <= 3 { return .caution }
         }
-        // Stationary depth alone requires a broad obstruction closer than one step.
-        if observations >= 5, duration >= 1, coverage >= 0.28, distanceMeters <= 0.65 {
-            return .caution
-        }
-        return .none
+        // Too slow to measure a closing speed, but the path is blocked within a step.
+        return distanceMeters <= 1 ? .caution : .none
     }
 }
 
@@ -179,11 +176,13 @@ struct DepthMap: Sendable {
                     queue.append(neighbor)
                 }
             }
-            guard component.count >= 116,
-                  centerCount >= 32,
-                  maxColumn - minColumn >= 7,
-                  maxRow - minRow >= 6,
-                  Double(path.minY) + Double(minRow) * Double(path.height) / Double(rows) <= 0.5 else { continue }
+            // The size limits admit a doorframe or a pole; the center share
+            // keeps something purely off to one side from reading as ahead.
+            guard component.count >= 38,
+                  centerCount >= 12,
+                  maxColumn - minColumn >= 4,
+                  maxRow - minRow >= 4,
+                  Double(path.minY) + Double(minRow) * Double(path.height) / Double(rows) <= 0.55 else { continue }
             let distance = Self.percentile(component, fraction: 0.35)
             let coverage = Double(component.count) / Double(columns * rows)
             let top = Double(path.minY) + Double(minRow) * Double(path.height) / Double(rows)
