@@ -597,6 +597,9 @@ final class ClearAheadEngine {
             risk = .imminent
         } else if let timeToCollision, pathObservationCount >= 3, timeToCollision <= 3 {
             risk = .caution
+        } else if stable, pathObservationCount >= 3, observation.distanceMeters <= 1 {
+            // Too slow to measure a closing speed, but the path is blocked within a step.
+            risk = .caution
         } else {
             risk = .none
         }

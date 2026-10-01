@@ -29,33 +29,9 @@ final class EventPrioritizer {
         now: TimeInterval
     ) -> SpatialEvent? {
         let minimumConfidence = 0.42 + (1 - configuration.sensitivity) * 0.24
-        let namedEvents = events.filter { event in
-            guard !event.id.hasPrefix("depth:"), event.confidence >= minimumConfidence else { return false }
-            return event.collisionRisk != .none
-                || event.approximateDistanceMeters.map { $0 <= configuration.warningDistanceMeters } != false
-        }
-        let rankedEvents = events.filter { candidate in
-            guard candidate.id.hasPrefix("depth:"),
-                  candidate.collisionRisk == .none,
-                  let depthBox = candidate.box,
-                  let depthDistance = candidate.approximateDistanceMeters else { return true }
-            return !namedEvents.contains { named in
-                guard let namedBox = named.box,
-                      let namedDistance = named.approximateDistanceMeters,
-                      abs(namedDistance - depthDistance) <= 0.75 else { return false }
-                let intersection = depthBox.intersection(namedBox)
-                guard !intersection.isNull else { return false }
-                let intersectionArea = Double(intersection.width * intersection.height)
-                let depthArea = Double(depthBox.width * depthBox.height)
-                return intersectionArea / max(depthArea, 0.001) >= 0.4
-            }
-        }.compactMap { candidate -> SpatialEvent? in
-            guard candidate.confidence >= minimumConfidence else {
-                return nil
-            }
-            if let distance = candidate.approximateDistanceMeters,
-               distance > configuration.warningDistanceMeters,
-               candidate.collisionRisk == .none {
+        let rankedEvents = events.compactMap { candidate -> SpatialEvent? in
+            // Something merely being nearby is not a hazard; stay silent until a collision is predicted.
+            guard candidate.collisionRisk != .none, candidate.confidence >= minimumConfidence else {
                 return nil
             }
 

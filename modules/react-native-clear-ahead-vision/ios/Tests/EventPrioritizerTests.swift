@@ -26,14 +26,16 @@ final class EventPrioritizerTests: XCTestCase {
             kind: .obstacle,
             direction: .center,
             distance: 1.2,
-            confidence: 0.82
+            confidence: 0.82,
+            collisionRisk: .caution
         )
         let person = makeEvent(
             id: "person:left",
             kind: .person,
             direction: .left,
             distance: 4,
-            confidence: 0.95
+            confidence: 0.95,
+            collisionRisk: .caution
         )
 
         let selected = prioritizer.select(
@@ -47,13 +49,13 @@ final class EventPrioritizerTests: XCTestCase {
 
     func testSameHazardCuesAgainOnlyWhenRiskRises() {
         let prioritizer = EventPrioritizer()
-        let event = makeEvent(distance: 1.4)
+        let event = makeEvent(distance: 1.4, collisionRisk: .caution)
 
         let first = prioritizer.select(from: [event], configuration: configuration, now: 10)
         XCTAssertTrue(prioritizer.shouldAnnounce(first, now: 10))
         let repeated = prioritizer.select(from: [event], configuration: configuration, now: 12)
         XCTAssertFalse(prioritizer.shouldAnnounce(repeated, now: 12))
-        let approaching = makeEvent(distance: 1.4, motionState: .approaching)
+        let approaching = makeEvent(distance: 1.4, collisionRisk: .caution, motionState: .approaching)
         let measured = prioritizer.select(from: [approaching], configuration: configuration, now: 12.5)
         XCTAssertTrue(prioritizer.shouldAnnounce(measured, now: 12.5))
         let urgent = makeEvent(distance: 1.4, collisionRisk: .imminent, motionState: .approaching)
@@ -97,30 +99,25 @@ final class EventPrioritizerTests: XCTestCase {
             prioritizer.select(from: [collision], configuration: configuration, now: 10)?.collisionRisk,
             .imminent
         )
-        XCTAssertEqual(
-            prioritizer.select(from: [cleared], configuration: configuration, now: 11)?.collisionRisk,
-            .none
-        )
+        XCTAssertNil(prioritizer.select(from: [cleared], configuration: configuration, now: 11))
     }
 
-    func testCoherentDepthPathProducesProximityCue() {
+    func testObstructionWithoutPredictedCollisionStaysSilent() {
         let prioritizer = EventPrioritizer()
-        let ordinaryDepth = makeEvent(
-            id: "depth:path",
-            kind: .obstacle,
-            distance: 1.5
+        let wallAhead = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.5)
+        let nearbyPerson = makeEvent(id: "person:left", direction: .left, distance: 1.2)
+        XCTAssertNil(
+            prioritizer.select(from: [wallAhead, nearbyPerson], configuration: configuration, now: 10)
         )
-        XCTAssertNotNil(prioritizer.select(from: [ordinaryDepth], configuration: configuration, now: 10))
+        XCTAssertFalse(prioritizer.hasActiveEvent)
     }
 
-    func testNamedObjectTakesPlaceOfMatchingDepthObstacle() {
+    func testDepthPathOnCollisionCourseIsSelected() {
         let prioritizer = EventPrioritizer()
-        let box = CGRect(x: 0.35, y: 0.2, width: 0.3, height: 0.5)
-        let named = makeEvent(id: "person:center", distance: 1.5, box: box)
-        let generic = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.6, box: box)
+        let wallAhead = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.5, collisionRisk: .imminent)
         XCTAssertEqual(
-            prioritizer.select(from: [generic, named], configuration: configuration, now: 10)?.id,
-            named.id
+            prioritizer.select(from: [wallAhead], configuration: configuration, now: 10)?.id,
+            wallAhead.id
         )
     }
 
@@ -128,7 +125,7 @@ final class EventPrioritizerTests: XCTestCase {
         let prioritizer = EventPrioritizer()
         let box = CGRect(x: 0.35, y: 0.2, width: 0.3, height: 0.5)
         let weakNamed = makeEvent(id: "person:center", distance: 1.5, confidence: 0.1, box: box)
-        let generic = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.6, box: box)
+        let generic = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.6, collisionRisk: .caution, box: box)
         XCTAssertEqual(
             prioritizer.select(from: [generic, weakNamed], configuration: configuration, now: 10)?.id,
             generic.id
@@ -137,7 +134,7 @@ final class EventPrioritizerTests: XCTestCase {
 
     func testBriefDepthDropoutDoesNotRepeatSameWarning() {
         let prioritizer = EventPrioritizer()
-        let obstacle = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.6)
+        let obstacle = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.6, collisionRisk: .caution)
         let first = prioritizer.select(from: [obstacle], configuration: configuration, now: 10)
         XCTAssertTrue(prioritizer.shouldAnnounce(first, now: 10))
         XCTAssertNil(prioritizer.select(from: [], configuration: configuration, now: 10.5))
@@ -147,8 +144,8 @@ final class EventPrioritizerTests: XCTestCase {
 
     func testHysteresisRetainsSelectionButUsesFreshEventData() throws {
         let prioritizer = EventPrioritizer()
-        let initial = makeEvent(id: "person:center", distance: 1.5)
-        let updated = makeEvent(id: "person:center", distance: 1.8)
+        let initial = makeEvent(id: "person:center", distance: 1.5, collisionRisk: .caution)
+        let updated = makeEvent(id: "person:center", distance: 1.8, collisionRisk: .caution)
 
         _ = prioritizer.select(from: [initial], configuration: configuration, now: 10)
         let selected = try XCTUnwrap(
