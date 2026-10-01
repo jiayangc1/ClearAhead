@@ -55,7 +55,7 @@ final class ModelOutputTests: XCTestCase {
 
         XCTAssertEqual(map.width, 8)
         XCTAssertEqual(map.height, 8)
-        XCTAssertEqual(map.distance(inVisionBox: bottomLeftVisionBox), 0.8, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(map.distance(inVisionBox: bottomLeftVisionBox)), 0.8, accuracy: 0.001)
     }
 
     func testRejectsLegacyRawDetectionLayout() throws {
@@ -86,5 +86,59 @@ final class ModelOutputTests: XCTestCase {
         }
         let floor = try XCTUnwrap(DepthMap(array: array))
         XCTAssertNil(floor.pathObstacle(within: 3))
+    }
+
+    func testDepthMapDownsamplesLargeOutputs() throws {
+        let array = try MLMultiArray(shape: [1, 1, 640, 640], dataType: .float32)
+        let pointer = array.dataPointer.assumingMemoryBound(to: Float.self)
+        for index in 0..<(640 * 640) { pointer[index] = index / 640 < 320 ? 6 : 2 }
+        let map = try XCTUnwrap(DepthMap(array: array))
+        XCTAssertEqual(map.width, 160)
+        XCTAssertEqual(map.height, 160)
+        XCTAssertEqual(map.values[0], 6, accuracy: 0.001)
+        XCTAssertEqual(map.values[159 * 160 + 159], 2, accuracy: 0.001)
+    }
+
+    func testGroundHazardFindsLowObjectOnRecedingFloor() throws {
+        let map = try XCTUnwrap(DepthMap(array: floorScene { row, column in
+            // A box about 1.6 m away, slightly left of center, well below the horizon.
+            (70..<82).contains(row) && (36..<50).contains(column) ? 1.6 : nil
+        }))
+        let hazard = try XCTUnwrap(map.groundHazard(within: 2.5))
+        XCTAssertEqual(hazard.distanceMeters, 1.6, accuracy: 0.05)
+        XCTAssertLessThan(hazard.box.midX, 0.5)
+        XCTAssertLessThan(hazard.box.maxY, 0.5)
+    }
+
+    func testGroundHazardIgnoresClearFloorWallsAndTallObjects() throws {
+        let clear = try XCTUnwrap(DepthMap(array: floorScene { _, _ in nil }))
+        XCTAssertNil(clear.groundHazard(within: 2.5))
+
+        let wall = try MLMultiArray(shape: [1, 1, 100, 100], dataType: .float32)
+        for index in 0..<10_000 { wall[index] = NSNumber(value: 1.2) }
+        XCTAssertNil(try XCTUnwrap(DepthMap(array: wall)).groundHazard(within: 2.5))
+
+        let tall = try XCTUnwrap(DepthMap(array: floorScene { row, column in
+            row >= 20 && row < 90 && (40..<60).contains(column) ? 1.5 : nil
+        }))
+        XCTAssertNil(tall.groundHazard(within: 2.5))
+
+        let distant = try XCTUnwrap(DepthMap(array: floorScene { row, column in
+            (56..<62).contains(row) && (44..<56).contains(column) ? 4.0 : nil
+        }))
+        XCTAssertNil(distant.groundHazard(within: 2.5))
+    }
+
+    /// A 100x100 scene: far background above the horizon and a floor that
+    /// recedes from 0.9 m at the bottom edge to 6 m at mid-height.
+    private func floorScene(_ object: (Int, Int) -> Double?) throws -> MLMultiArray {
+        let array = try MLMultiArray(shape: [1, 1, 100, 100], dataType: .float32)
+        for row in 0..<100 {
+            let floor = row < 50 ? 8.0 : 6.0 - Double(row - 50) / 49 * 5.1
+            for column in 0..<100 {
+                array[row * 100 + column] = NSNumber(value: object(row, column) ?? floor)
+            }
+        }
+        return array
     }
 }

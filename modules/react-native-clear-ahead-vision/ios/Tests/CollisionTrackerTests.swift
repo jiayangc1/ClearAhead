@@ -137,7 +137,7 @@ final class CollisionTrackerTests: XCTestCase {
 
         XCTAssertEqual(latest?.kind, .person)
         XCTAssertNil(latest?.timeToCollisionSeconds)
-        XCTAssertEqual(latest?.collisionRisk, .none)
+        XCTAssertEqual(latest?.collisionRisk, CollisionRisk.none)
     }
 
     func testRapidCameraRotationSuppressesCollisionRisk() {
@@ -152,7 +152,7 @@ final class CollisionTrackerTests: XCTestCase {
             ).first
         }
 
-        XCTAssertEqual(latest?.collisionRisk, .none)
+        XCTAssertEqual(latest?.collisionRisk, CollisionRisk.none)
         XCTAssertLessThan(latest?.trajectoryConfidence ?? 1, 0.65)
     }
 
@@ -169,7 +169,7 @@ final class CollisionTrackerTests: XCTestCase {
         }
 
         XCTAssertEqual(latest?.motionState, .crossing)
-        XCTAssertEqual(latest?.collisionRisk, .none)
+        XCTAssertEqual(latest?.collisionRisk, CollisionRisk.none)
     }
 
     func testExpiredTrackGetsANewStableIdentifier() {
@@ -207,7 +207,7 @@ final class CollisionTrackerTests: XCTestCase {
             rotationRate: 0
         ).first
 
-        XCTAssertNotEqual(retained?.collisionRisk, .none)
+        XCTAssertNotEqual(retained?.collisionRisk, CollisionRisk.none)
     }
 
     func testDepthTimeoutClearsCollisionTiming() {
@@ -233,7 +233,7 @@ final class CollisionTrackerTests: XCTestCase {
             rotationRate: 0
         ).first
         XCTAssertNil(stale?.timeToCollisionSeconds)
-        XCTAssertEqual(stale?.collisionRisk, .none)
+        XCTAssertEqual(stale?.collisionRisk, CollisionRisk.none)
     }
 
     func testFirstDepthAfterOutageResetsClosingSpeed() {
@@ -266,6 +266,25 @@ final class CollisionTrackerTests: XCTestCase {
             now: 4.3, configuration: configuration, rotationRate: 0
         ).first
         XCTAssertGreaterThan(next?.approachSpeed ?? 0, 0)
+    }
+
+    func testStationaryLowObjectAFewStepsAheadIsCautionedButPersonIsNot() {
+        func latestRisk(kind: EventKind, label: String) -> CollisionRisk? {
+            let tracker = CollisionTracker()
+            var latest: SpatialEvent?
+            for step in 0..<4 {
+                let now = 1 + Double(step) * 0.2
+                let object = ObjectDetection(
+                    kind: kind, label: label, box: CGRect(x: 0.42, y: 0.1, width: 0.16, height: 0.14),
+                    depth: DepthMeasurement(distanceMeters: 2, timestamp: now), confidence: 0.95
+                )
+                latest = tracker.update(detections: [object], now: now,
+                                        configuration: configuration, rotationRate: 0).first
+            }
+            return latest?.collisionRisk
+        }
+        XCTAssertEqual(latestRisk(kind: .obstacle, label: "suitcase"), .caution)
+        XCTAssertEqual(latestRisk(kind: .person, label: "person"), CollisionRisk.none)
     }
 
     private func detection(

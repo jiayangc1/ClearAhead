@@ -20,19 +20,39 @@ struct DepthMap: Sendable {
     let height: Int
     let values: [Double]
 
-    init?(array: MLMultiArray) {
+    // Hazard analysis samples coarse grids, so parsing keeps at most
+    // maxDimension values per side instead of the model's full output.
+    init?(array: MLMultiArray, maxDimension: Int = 160) {
         let shape = array.shape.map(\.intValue)
         guard shape.count >= 2 else { return nil }
-        let height = shape[shape.count - 2]
-        let width = shape[shape.count - 1]
-        guard width > 1, height > 1 else { return nil }
+        let sourceHeight = shape[shape.count - 2]
+        let sourceWidth = shape[shape.count - 1]
+        guard sourceWidth > 1, sourceHeight > 1 else { return nil }
 
         let rowStride = array.strides[shape.count - 2].intValue
         let columnStride = array.strides[shape.count - 1].intValue
+        let limit = max(maxDimension, 2)
+        let step = max(1, (max(sourceWidth, sourceHeight) + limit - 1) / limit)
+        let width = (sourceWidth + step - 1) / step
+        let height = (sourceHeight + step - 1) / step
         var depthValues = [Double](repeating: .nan, count: width * height)
+        // Subscripting boxes every element in an NSNumber; read the common
+        // element types straight from the backing store instead.
+        let read: (Int) -> Double
+        switch array.dataType {
+        case .float32:
+            let pointer = array.dataPointer.assumingMemoryBound(to: Float.self)
+            read = { Double(pointer[$0]) }
+        case .double:
+            let pointer = array.dataPointer.assumingMemoryBound(to: Double.self)
+            read = { pointer[$0] }
+        default:
+            read = { array[$0].doubleValue }
+        }
         for row in 0..<height {
+            let rowOffset = row * step * rowStride
             for column in 0..<width {
-                let value = array[row * rowStride + column * columnStride].doubleValue
+                let value = read(rowOffset + column * step * columnStride)
                 if value.isFinite, value > 0 {
                     depthValues[row * width + column] = value
                 }
@@ -142,6 +162,103 @@ struct DepthMap: Sendable {
             } else {
                 best = observation
             }
+        }
+        return best
+    }
+
+    /// Finds something low on the ground ahead: a region in the lower half of
+    /// the view that sits closer than the floor visible beside it. Tall
+    /// obstacles are left to `pathObstacle`.
+    func groundHazard(within maximumDistance: Double) -> PathObstacleObservation? {
+        let columns = 32
+        let rows = 20
+        let region = CGRect(x: 0.18, y: 0.5, width: 0.64, height: 0.48)
+        var distances = [Double](repeating: .nan, count: columns * rows)
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let x = min(width - 1, Int((Double(region.minX) + (Double(column) + 0.5) * Double(region.width) / Double(columns)) * Double(width)))
+                let y = min(height - 1, Int((Double(region.minY) + (Double(row) + 0.5) * Double(region.height) / Double(rows)) * Double(height)))
+                distances[row * columns + column] = values[y * width + x]
+            }
+        }
+
+        // At one image row the floor is the farthest surface in view; anything
+        // resting on it is hit by the same ray sooner.
+        var floor = [Double](repeating: .nan, count: rows)
+        for row in 0..<rows {
+            let valid = distances[(row * columns)..<((row + 1) * columns)].filter(\.isFinite)
+            if valid.count >= columns / 2 { floor[row] = Self.percentile(valid, fraction: 0.7) }
+        }
+        // Without a floor receding toward the horizon this is a wall or an
+        // unreadable view, not ground with something on it.
+        let upperFloor = floor.prefix(rows / 2).filter(\.isFinite)
+        let lowerFloor = floor.suffix(rows / 2).filter(\.isFinite)
+        guard upperFloor.count >= 3, lowerFloor.count >= 3,
+              Self.percentile(Array(upperFloor), fraction: 0.5)
+                >= Self.percentile(Array(lowerFloor), fraction: 0.5) * 1.25 else { return nil }
+
+        var raised = [Bool](repeating: false, count: distances.count)
+        for row in 0..<rows where floor[row].isFinite {
+            for column in 0..<columns {
+                let distance = distances[row * columns + column]
+                guard distance.isFinite, distance <= maximumDistance else { continue }
+                raised[row * columns + column] = floor[row] - distance >= max(0.25, floor[row] * 0.18)
+            }
+        }
+
+        var visited = [Bool](repeating: false, count: distances.count)
+        var best: PathObstacleObservation?
+        for start in distances.indices where raised[start] && !visited[start] {
+            var queue = [start]
+            var offset = 0
+            var component: [Double] = []
+            var minColumn = columns
+            var maxColumn = 0
+            var minRow = rows
+            var maxRow = 0
+            visited[start] = true
+            while offset < queue.count {
+                let index = queue[offset]
+                offset += 1
+                let row = index / columns
+                let column = index % columns
+                component.append(distances[index])
+                minColumn = min(minColumn, column)
+                maxColumn = max(maxColumn, column)
+                minRow = min(minRow, row)
+                maxRow = max(maxRow, row)
+                for neighbor in [
+                    row > 0 ? index - columns : -1,
+                    row + 1 < rows ? index + columns : -1,
+                    column > 0 ? index - 1 : -1,
+                    column + 1 < columns ? index + 1 : -1,
+                ] where neighbor >= 0 && !visited[neighbor] && raised[neighbor] {
+                    let maximumJump = max(0.3, min(distances[index], distances[neighbor]) * 0.2)
+                    guard abs(distances[index] - distances[neighbor]) <= maximumJump else { continue }
+                    visited[neighbor] = true
+                    queue.append(neighbor)
+                }
+            }
+            // A region reaching the top of the scan continues upward: that is a
+            // tall obstacle or a side wall, not something to trip over.
+            guard component.count >= 6,
+                  maxColumn - minColumn >= 1,
+                  maxRow - minRow >= 1,
+                  minRow > 0 else { continue }
+            let distance = Self.percentile(component, fraction: 0.35)
+            let top = Double(region.minY) + Double(minRow) * Double(region.height) / Double(rows)
+            let bottom = Double(region.minY) + Double(maxRow + 1) * Double(region.height) / Double(rows)
+            let observation = PathObstacleObservation(
+                distanceMeters: distance,
+                box: CGRect(
+                    x: Double(region.minX) + Double(minColumn) * Double(region.width) / Double(columns),
+                    y: 1 - bottom,
+                    width: Double(maxColumn - minColumn + 1) * Double(region.width) / Double(columns),
+                    height: bottom - top
+                ),
+                coverage: Double(component.count) / Double(columns * rows)
+            )
+            if distance < (best?.distanceMeters ?? .infinity) { best = observation }
         }
         return best
     }
