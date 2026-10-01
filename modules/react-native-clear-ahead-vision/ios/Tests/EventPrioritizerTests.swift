@@ -232,6 +232,52 @@ final class EventPrioritizerTests: XCTestCase {
         XCTAssertGreaterThan(right.pan, center.pan)
     }
 
+    func testSpeakerCuesKeepDirectionIncludingCollisions() {
+        for risk in [CollisionRisk.none, .caution, .imminent] {
+            let left = AudioCueProfile(
+                event: makeEvent(direction: .left, collisionRisk: risk),
+                configuration: configuration, stereo: false
+            )
+            let center = AudioCueProfile(
+                event: makeEvent(collisionRisk: risk),
+                configuration: configuration, stereo: false
+            )
+            let right = AudioCueProfile(
+                event: makeEvent(direction: .right, collisionRisk: risk),
+                configuration: configuration, stereo: false
+            )
+            XCTAssertGreaterThan(left.startFrequency, left.endFrequency)
+            XCTAssertEqual(center.startFrequency, center.endFrequency)
+            XCTAssertLessThan(right.startFrequency, right.endFrequency)
+            XCTAssertEqual(left.pan, 0)
+            XCTAssertEqual(center.pan, 0)
+            XCTAssertEqual(right.pan, 0)
+
+            let stereo = AudioCueProfile(
+                event: makeEvent(direction: .left, collisionRisk: risk),
+                configuration: configuration
+            )
+            XCTAssertEqual(left.pulseCount, stereo.pulseCount)
+            XCTAssertEqual(left.pulseDuration, stereo.pulseDuration)
+            XCTAssertEqual(left.pulseGap, stereo.pulseGap)
+            XCTAssertEqual(left.gain, stereo.gain)
+        }
+    }
+
+    func testStereoCollisionCuesKeepExistingSweepAndPan() {
+        for risk in [CollisionRisk.caution, .imminent] {
+            for direction in Direction.allCases {
+                let profile = AudioCueProfile(
+                    event: makeEvent(direction: direction, collisionRisk: risk),
+                    configuration: configuration
+                )
+                XCTAssertEqual(profile.startFrequency, 520)
+                XCTAssertEqual(profile.endFrequency, risk == .imminent ? 1_420 : 1_120)
+                XCTAssertEqual(profile.pan, direction.pan)
+            }
+        }
+    }
+
     private func makeEvent(
         id: String = "person:center",
         kind: EventKind = .person,
