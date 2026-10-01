@@ -14,6 +14,7 @@ final class ClearAheadModule: RCTEventEmitter {
     }
 
     override static func requiresMainQueueSetup() -> Bool { true }
+    override var methodQueue: DispatchQueue! { DispatchQueue.main }
 
     override func supportedEvents() -> [String]! {
         ["sessionStatus", "topEvent", "eventCleared", "qualityChanged", "performanceMetrics", "detectionsUpdated", "depthMapUpdated", "modelDownloadProgress"]
@@ -22,8 +23,9 @@ final class ClearAheadModule: RCTEventEmitter {
     override func startObserving() { hasListeners = true }
     override func stopObserving() { hasListeners = false }
 
-    static func emit(name: String, body: Any) {
+    static func emit(name: String, body: Any, isCurrent: (() -> Bool)? = nil) {
         DispatchQueue.main.async {
+            guard isCurrent?() ?? true else { return }
             guard let emitter = currentEmitter, emitter.hasListeners else { return }
             emitter.sendEvent(withName: name, body: body)
         }
@@ -95,6 +97,13 @@ final class ClearAheadModule: RCTEventEmitter {
                 }
             }
         }
+    }
+
+    @objc(cancelModelPreparation:rejecter:)
+    func cancelModelPreparation(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+        invalidateSessionRequests()
+        ClearAheadEngine.shared.cancelModelPreparation()
+        resolve(nil)
     }
 
     @objc(stopSession:rejecter:)

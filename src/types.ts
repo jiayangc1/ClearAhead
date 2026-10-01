@@ -9,13 +9,15 @@ export type MotionState =
   | 'receding'
   | 'crossing';
 export type CollisionRisk = 'none' | 'caution' | 'imminent';
-export type EventKind =
-  | 'obstacle'
-  | 'person'
-  | 'vehicle'
-  | 'furniture';
+export type EventKind = 'obstacle' | 'person' | 'vehicle' | 'furniture';
 
-export type SessionState = 'idle' | 'starting' | 'running' | 'paused' | 'error';
+export type SessionState =
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'degraded'
+  | 'paused'
+  | 'error';
 export type SessionQuality =
   | 'good'
   | 'low-light'
@@ -93,7 +95,7 @@ export interface ObjectDetectionOverlay {
 }
 
 export interface DepthMapPayload {
-  dataUrl: string;
+  dataUrl: string | null;
 }
 
 export interface ModelDownloadProgressPayload {
@@ -106,7 +108,15 @@ export interface SessionStatusPayload {
   state: SessionState;
   message: string;
   severity?: 'info' | 'warning' | 'error';
-  code?: 'models-ready' | 'depth-unavailable' | 'model-load-failed';
+  code?:
+    | 'models-ready'
+    | 'depth-unavailable'
+    | 'model-load-failed'
+    | 'receiving-frames'
+    | 'object-unavailable'
+    | 'pipeline-unavailable'
+    | 'camera-stalled'
+    | 'audio-interrupted';
   diagnostics?: {
     objectModel: ModelDiagnostic;
     depthModel: ModelDiagnostic;

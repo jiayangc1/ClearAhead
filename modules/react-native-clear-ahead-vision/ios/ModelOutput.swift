@@ -116,6 +116,8 @@ struct DepthMap: Sendable {
                     column > 0 ? index - 1 : -1,
                     column + 1 < columns ? index + 1 : -1,
                 ] where neighbor >= 0 && !visited[neighbor] && distances[neighbor].isFinite {
+                    let maximumJump = max(0.3, min(distances[index], distances[neighbor]) * 0.2)
+                    guard abs(distances[index] - distances[neighbor]) <= maximumJump else { continue }
                     visited[neighbor] = true
                     queue.append(neighbor)
                 }

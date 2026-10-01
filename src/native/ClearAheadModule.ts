@@ -21,6 +21,7 @@ interface ClearAheadNativeModule {
   stopSession(): Promise<void>;
   updateConfiguration(configuration: FeedbackConfiguration): Promise<void>;
   prepareModels(modelVariant: ModelVariant): Promise<void>;
+  cancelModelPreparation(): Promise<void>;
   startDemo(scenario: DemoScenario): Promise<void>;
   stopDemo(): Promise<void>;
   addListener(eventName: string): void;
@@ -56,6 +57,7 @@ export const ClearAheadModule = {
     nativeModule?.updateConfiguration(configuration) ?? unavailable(),
   prepareModels: (modelVariant: ModelVariant) =>
     nativeModule?.prepareModels(modelVariant) ?? unavailable(),
+  cancelModelPreparation: () => nativeModule?.cancelModelPreparation() ?? unavailable(),
   startDemo: (scenario: DemoScenario) =>
     nativeModule?.startDemo(scenario) ?? unavailable(),
   stopDemo: () => nativeModule?.stopDemo() ?? unavailable(),

@@ -28,16 +28,17 @@ haptics, stereo audio cues, and optional short speech.
 
 ## Requirements
 
-- iPhone 12 or newer
+- iPhone 12 or newer is the physical-device benchmarking target. Installation
+  requires iOS 17 on an arm64 iPhone; older compatible iPhones are not hardware-gated
+  and their performance has not been validated.
 - iOS 17 or newer
 - Full Xcode installation with iOS 17 SDK
 - Node.js 22.11 or newer
 - Ruby and Bundler for CocoaPods
 
-This checkout currently has Xcode Command Line Tools only. TypeScript, Node,
-Nitro code generation, and Swift syntax checks work, but an iOS build, XCTest,
-Instruments profile, camera, haptic, and Bluetooth verification require full
-Xcode and a physical iPhone.
+TypeScript, Node tests, and Nitro code generation can run without Xcode.
+An iOS build and XCTest require macOS with full Xcode. Instruments profiling,
+camera, haptic, audio interruption, and Bluetooth verification require a physical iPhone.
 
 ## Setup
 
@@ -60,8 +61,14 @@ official weights, verifies GitHub's published SHA-256 digests, and installs:
 - YOLO26 nano INT8 Core ML for selected COCO object classes
 - YOLO26 nano depth INT8 Core ML for dense metric depth
 
-Model binaries are ignored by Git and reproduced by
-`scripts/download-models.sh`. Their source and license details are documented in
+The Nano model packages are committed distributable app resources and bundled
+with the app. `scripts/download-models.sh` reproduces them. Settings lets users
+download Small, Medium, Large and Extra Large detector/depth pairs from the
+official [Ultralytics Core ML release](https://github.com/ultralytics/yolo-ios-app/releases/tag/v8.3.0).
+Cellular or metered downloads require approval. Downloads use checksums pinned
+in the app and install only after both models load successfully. Other variants
+are stored on the user's device; only Nano binaries belong in this repository.
+Source and license details are documented in
 `modules/react-native-clear-ahead-vision/models/README.md`.
 
 ## Checks
@@ -76,6 +83,12 @@ npm --prefix modules/react-native-clear-ahead-vision run typecheck
 The JavaScript/domain suite uses the native Node test runner, not Jest. Native
 XCTest coverage lives in the ClearAheadVision pod test spec and runs with the
 full iOS toolchain.
+
+Application checks run on pull requests and main pushes. The iOS job installs
+the pod's `Tests` test spec, builds the app, and selects the generated native
+test scheme with `python3 scripts/check-ios.py`. Re-run `bundle exec pod install`
+after changing native sources or test specs. See [audit dispositions](docs/bug-audit.md)
+for verification limits and remaining physical-device validation.
 
 ## Architecture
 
@@ -117,11 +130,17 @@ needed to establish the actual rate and detection tradeoffs on an iPhone 12.
 
 YOLO26 depth produces a dense metric estimate. Clear Ahead checks for coherent
 near surfaces in the walking path and samples depth inside named detection
-boxes. Named cues continue if depth fails. Collision timing then stays off.
+boxes only when detector and depth observations share a frame. If depth fails,
+named objects retain configured audio, speech and haptic cues with unknown
+distance. Speech respects category preferences and VoiceOver coordination.
+Collision timing stays off until valid depth measurements return.
 Distances are spoken as “about” values because monocular estimates depend on
 scene and camera calibration. Closing speed uses new depth timestamps; camera
 rotation suppresses motion-derived warnings until the view stabilizes. Physical
 device calibration is still required before treating collision timing as reliable.
+The depth region is a fixed central image region, not a calibrated ground-plane
+walking corridor. The standard wide rear camera is the default. Other lens,
+device, and mounting profiles require physical validation.
 
 Ultralytics software and YOLO26 weights are AGPL-3.0. This repository and any
 distributed app containing those models must satisfy the corresponding-source

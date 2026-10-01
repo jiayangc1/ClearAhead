@@ -36,12 +36,16 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   depthMapEnabled: false,
   showFps: true,
   showBoundingBoxes: true,
-  cameraDeviceId: 'widest',
+  cameraDeviceId: 'standard',
   spokenCategories: ['person', 'vehicle', 'obstacle', 'furniture'],
 };
 
 export function hasFeedbackChannel(preferences: AppPreferences): boolean {
-  return preferences.hapticsEnabled || preferences.audioEnabled || preferences.speechEnabled;
+  return (
+    preferences.hapticsEnabled ||
+    preferences.audioEnabled ||
+    preferences.speechEnabled
+  );
 }
 
 const mountingModes = new Set<MountingMode>(['handheld', 'chest']);
@@ -149,7 +153,8 @@ export function normalizePreferences(value: unknown): AppPreferences {
     ),
     cameraDeviceId:
       typeof stored.cameraDeviceId === 'string' &&
-      stored.cameraDeviceId.length > 0
+      stored.cameraDeviceId.length > 0 &&
+      stored.cameraDeviceId !== 'widest'
         ? stored.cameraDeviceId
         : DEFAULT_PREFERENCES.cameraDeviceId,
     spokenCategories,

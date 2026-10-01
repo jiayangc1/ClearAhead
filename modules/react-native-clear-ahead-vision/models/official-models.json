@@ -1,0 +1,12 @@
+[
+  { "name": "yolo26n.mlpackage.zip", "size": 2330762, "sha256": "4d77f5470e3816e6e56fb679bf88b7d24a2d1453951be216b348eec042b86af6" },
+  { "name": "yolo26n-depth.mlpackage.zip", "size": 4264794, "sha256": "5881bf1d5477bdc22b2afbc35102088f98951811fcf09321ec1d6592a1dffae0" },
+  { "name": "yolo26s.mlpackage.zip", "size": 8793498, "sha256": "d0f166da289e0e57a6c1883f10bcad028465f509804399414dff05a37faaac1c" },
+  { "name": "yolo26s-depth.mlpackage.zip", "size": 10548638, "sha256": "817e53afb47af797a577446f1d927bf49af5f85e41791ec6760e455eec85916d" },
+  { "name": "yolo26m.mlpackage.zip", "size": 18618607, "sha256": "a24558b5321dfe6e008c73f561700aabaa3b6bb57bb44f02adaf12f881064690" },
+  { "name": "yolo26m-depth.mlpackage.zip", "size": 20917850, "sha256": "21b254d32be8206fbd9bd85532b5b0fca5b5bd607696e6ddde35990cbe0f4685" },
+  { "name": "yolo26l.mlpackage.zip", "size": 22692397, "sha256": "e989d6b441e7fed13c5145f793883b64cb98a7804654d04df1edc843b31bb0f3" },
+  { "name": "yolo26l-depth.mlpackage.zip", "size": 25139588, "sha256": "c226512da89d46d8e7c4959c21544ce78dc37432c619527d80d33ddec53947e5" },
+  { "name": "yolo26x.mlpackage.zip", "size": 50579002, "sha256": "54260f7605255886284f3a3355244f817a3718079fb128fd6bc9697a27ae5f4d" },
+  { "name": "yolo26x-depth.mlpackage.zip", "size": 53243924, "sha256": "be03375125ff5b0f24b3381884ee7129e2a493be8574d72ebddbcc91bc0ebd98" }
+]

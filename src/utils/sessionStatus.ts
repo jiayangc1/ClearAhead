@@ -1,11 +1,15 @@
-import type {SessionStatusPayload} from '../types';
+import type { SessionStatusPayload } from '../types';
 
 export function cameraStartedMessage(
   currentMessage: string,
   latestStatus?: SessionStatusPayload,
 ): string {
-  return latestStatus?.code === 'model-load-failed' ||
+  return latestStatus?.severity === 'warning' ||
+    latestStatus?.severity === 'error' ||
+    latestStatus?.code === 'model-load-failed' ||
     latestStatus?.code === 'depth-unavailable'
     ? currentMessage
-    : 'Camera active';
+    : latestStatus?.state === 'running'
+    ? latestStatus.message
+    : 'Camera started. Waiting for frames.';
 }

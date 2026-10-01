@@ -39,7 +39,7 @@ function teardownSubscriptionIfUnused() {
 
 export function useReducedMotion() {
   const [reducedMotion, setReducedMotion] = useState<boolean>(
-    cachedReducedMotion ?? false,
+    cachedReducedMotion ?? true,
   );
 
   useEffect(() => {

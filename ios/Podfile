@@ -6,6 +6,7 @@ require Pod::Executable.execute_command('node', ['-p',
   )', __dir__]).strip
 
 platform :ios, '17.0'
+install! 'cocoapods', :share_schemes_for_development_pods => true
 prepare_react_native_project!
 
 linkage = ENV['USE_FRAMEWORKS']
@@ -15,6 +16,7 @@ if linkage != nil
 end
 
 target 'ClearAhead' do
+  pod 'ClearAheadVision', :path => '../modules/react-native-clear-ahead-vision', :testspecs => ['Tests']
   config = use_native_modules!
 
   use_react_native!(

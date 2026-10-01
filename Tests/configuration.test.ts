@@ -10,17 +10,33 @@ import {
 test('default configuration has at least one nonvisual feedback channel', () => {
   assert.equal(DEFAULT_PREFERENCES.hapticsEnabled, true);
   assert.equal(DEFAULT_PREFERENCES.audioEnabled, true);
-  assert.equal(DEFAULT_PREFERENCES.cameraDeviceId, 'widest');
+  assert.equal(DEFAULT_PREFERENCES.cameraDeviceId, 'standard');
+});
+
+test('stored official model variants remain selectable', () => {
+  for (const modelVariant of ['s', 'm', 'l', 'x']) {
+    assert.equal(normalizePreferences({ modelVariant }).modelVariant, modelVariant);
+  }
+});
+
+test('legacy automatic widest setting migrates to standard wide', () => {
+  assert.equal(
+    normalizePreferences({ cameraDeviceId: 'widest' }).cameraDeviceId,
+    'standard',
+  );
 });
 
 test('silent configuration cannot start assist mode', () => {
   assert.equal(hasFeedbackChannel(DEFAULT_PREFERENCES), true);
-  assert.equal(hasFeedbackChannel({
-    ...DEFAULT_PREFERENCES,
-    hapticsEnabled: false,
-    audioEnabled: false,
-    speechEnabled: false,
-  }), false);
+  assert.equal(
+    hasFeedbackChannel({
+      ...DEFAULT_PREFERENCES,
+      hapticsEnabled: false,
+      audioEnabled: false,
+      speechEnabled: false,
+    }),
+    false,
+  );
 });
 
 test('native configuration omits React Native onboarding state', () => {

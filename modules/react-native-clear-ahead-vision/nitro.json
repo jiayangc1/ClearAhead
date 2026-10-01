@@ -1,10 +1,12 @@
 {
   "$schema": "https://nitro.margelo.com/nitro.schema.json",
-  "cxxNamespace": [
-    "clearaheadvision"
-  ],
+  "cxxNamespace": ["clearaheadvision"],
   "ios": {
     "iosModuleName": "ClearAheadVision"
+  },
+  "android": {
+    "androidNamespace": ["clearaheadvision"],
+    "androidCxxLibName": "ClearAheadVision"
   },
   "autolinking": {
     "ClearAheadVision": {
@@ -14,7 +16,5 @@
       }
     }
   },
-  "ignorePaths": [
-    "**/node_modules"
-  ]
+  "ignorePaths": ["**/node_modules"]
 }
