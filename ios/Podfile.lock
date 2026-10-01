@@ -48,6 +48,33 @@ PODS:
     - ReactNativeDependencies
     - VisionCamera
     - Yoga
+    - ZIPFoundation (= 0.9.20)
+  - ClearAheadVision/Tests (0.1.0):
+    - hermes-engine
+    - NitroModules
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - VisionCamera
+    - Yoga
+    - ZIPFoundation (= 0.9.20)
   - DoubleConversion (1.1.6):
     - ReactNativeDependencies
   - fast_float (8.0.0):
@@ -1938,11 +1965,13 @@ PODS:
     - Yoga
   - Yoga (0.0.0):
     - React-Core-prebuilt
+  - ZIPFoundation (0.9.20)
 
 DEPENDENCIES:
   - "AsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - boost (from `build/rndeps-facades/boost`)
   - ClearAheadVision (from `../modules/react-native-clear-ahead-vision`)
+  - ClearAheadVision/Tests (from `../modules/react-native-clear-ahead-vision`)
   - DoubleConversion (from `build/rndeps-facades/DoubleConversion`)
   - fast_float (from `build/rndeps-facades/fast_float`)
   - FBLazyVector (from `build/rncore-facades/FBLazyVector`)
@@ -2035,6 +2064,10 @@ DEPENDENCIES:
   - VisionCamera (from `../node_modules/react-native-vision-camera`)
   - VisionCameraWorklets (from `../node_modules/react-native-vision-camera-worklets`)
   - Yoga (from `build/rncore-facades/Yoga`)
+
+SPEC REPOS:
+  trunk:
+    - ZIPFoundation
 
 EXTERNAL SOURCES:
   AsyncStorage:
@@ -2230,7 +2263,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   AsyncStorage: d46e0a56f22c0cc1228bb0126149e20ef0179dbb
   boost: 2a9d6e1d9873337543f08d9dbc007b288f4e113b
-  ClearAheadVision: f54a25052aeb1124ed5b6eca299971df5ab86c8e
+  ClearAheadVision: 91fa106c9913794a85f32315eb8752fc37133707
   DoubleConversion: e85e4faac763226bfd1cc4c6a98d8355149b27a5
   fast_float: 908e5ee35999f3d91af4b962ac951acac591866c
   FBLazyVector: 1f950f55bf9d0f1130874f80ff0932945b97e2a8
@@ -2322,7 +2355,8 @@ SPEC CHECKSUMS:
   VisionCamera: 086fa6b679d0f32c4ce2fab3507fc54790262546
   VisionCameraWorklets: 631101539cd37cfb03efe63022ceee4e2a5a659a
   Yoga: 58b502c52b14ad3c4468805d461fc37d275c2a42
+  ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
-PODFILE CHECKSUM: 873a19711ab68787dd608012a479f8f27e0bd9ef
+PODFILE CHECKSUM: 6ffc5b9eb1aba9e185913a0bae7e00f4a315fb77
 
 COCOAPODS: 1.15.2

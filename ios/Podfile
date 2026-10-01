@@ -31,9 +31,24 @@ target 'ClearAhead' do
       :mac_catalyst_enabled => false
     )
 
+    # CocoaPods stamps the generated project as last checked by Xcode 15, which
+    # makes current Xcode offer "Update to recommended settings" on every open.
+    installer.pods_project.root_object.attributes['LastUpgradeCheck'] = '2700'
+    installer.pods_project.root_object.attributes['LastSwiftUpdateCheck'] = '2700'
+
     # Hermes selects the matching Debug or Release binary at build time, so
     # this generated script intentionally runs on every build.
     installer.pods_project.targets.each do |pod_target|
+      # Some pods' resource bundles still declare deployment targets below the
+      # range current Xcode supports; raise those to React Native's minimum.
+      pod_target.build_configurations.each do |build_configuration|
+        deployment_target = build_configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        if deployment_target && Gem::Version.new(deployment_target) < Gem::Version.new(min_ios_version_supported)
+          build_configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+        end
+      end
+
+
       pod_target.shell_script_build_phases.each do |script_phase|
         if script_phase.name.include?('[Hermes] Replace Hermes')
           script_phase.always_out_of_date = '1'
