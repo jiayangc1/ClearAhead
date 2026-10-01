@@ -75,6 +75,42 @@ struct SessionQualityState {
     }
 }
 
+// Stretches the inference intervals when the device cannot keep up, so slow
+// hardware runs the models less often instead of falling behind. Frames the
+// camera drops while a model is busy are expected and are not overload.
+struct AdaptiveThrottle {
+    // Hazard tracking needs observations at least this often to stay continuous.
+    static let maximumInterval = 0.5
+    // Inference may occupy this share of wall time; the rest is headroom.
+    static let dutyCycle = 0.6
+
+    private(set) var smoothedInferenceSeconds = 0.0
+    private var scale = 1.0
+    private var behindSince: TimeInterval?
+
+    func interval(base: Double) -> Double {
+        max(base, min(base * scale, Self.maximumInterval))
+    }
+
+    mutating func record(inferenceSeconds: Double, baseInterval: Double, at now: TimeInterval) {
+        smoothedInferenceSeconds = smoothedInferenceSeconds == 0
+            ? inferenceSeconds
+            : smoothedInferenceSeconds + (inferenceSeconds - smoothedInferenceSeconds) * 0.25
+        let requiredInterval = smoothedInferenceSeconds / Self.dutyCycle
+        scale = max(requiredInterval / baseInterval, 1)
+        if requiredInterval > Self.maximumInterval {
+            if behindSince == nil { behindSince = now }
+        } else {
+            behindSince = nil
+        }
+    }
+
+    /// True only once even the slowest schedule has been too fast for 3 seconds.
+    func isOverloaded(at now: TimeInterval) -> Bool {
+        behindSince.map { now - $0 >= 3 } ?? false
+    }
+}
+
 // Queue callbacks carry a token; stop invalidates it before cancelling devices.
 final class FeedbackGeneration {
     private let lock = NSLock()

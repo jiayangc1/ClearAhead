@@ -38,6 +38,8 @@ final class ClearAheadEngine {
     private let prioritizer = EventPrioritizer()
     private let feedback = Feedback()
     private let collisionTracker = CollisionTracker()
+    private var groundHazardTracker = GroundHazardTracker()
+    private var throttle = AdaptiveThrottle()
     private let motionManager = CMMotionManager()
     private var configuration = FeedbackConfiguration()
     private var sessionActive = false
@@ -220,6 +222,8 @@ final class ClearAheadEngine {
     private func resetSessionState() {
         prioritizer.reset()
         collisionTracker.reset()
+        groundHazardTracker.reset()
+        throttle = AdaptiveThrottle()
         objectEvents = []
         depthEvents = []
         latestDepthMap = nil
@@ -276,6 +280,7 @@ final class ClearAheadEngine {
         if frameLock.try() {
             prioritizer.reset()
             collisionTracker.reset()
+            groundHazardTracker.reset()
             objectEvents = []
             depthEvents = []
             latestDepthMap = nil
@@ -321,8 +326,11 @@ final class ClearAheadEngine {
         let thermalState = ProcessInfo.processInfo.thermalState
         let thermallyLimited = thermalState == .serious || thermalState == .critical
         let usesResponsiveProcessing = currentConfiguration.processingMode == "responsive"
-        let objectInterval = thermallyLimited ? 0.22 : 0.11
-        let depthInterval = thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.35 : 0.18)
+        let baseObjectInterval = thermallyLimited ? 0.22 : 0.11
+        let objectInterval = throttle.interval(base: baseObjectInterval)
+        let depthInterval = throttle.interval(
+            base: thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.35 : 0.18)
+        )
 
         if frameStartTime - lastQualityCheck >= 0.65 {
             evaluateImageQuality(pixelBuffer: pixelBuffer)
@@ -350,6 +358,21 @@ final class ClearAheadEngine {
             )
             lastObjectInference = frameStartTime
             objectInferenceCount += 1
+        }
+        if shouldDetectObjects || shouldEstimateDepth {
+            let inferenceEndTime = ProcessInfo.processInfo.systemUptime
+            throttle.record(
+                inferenceSeconds: inferenceEndTime - frameStartTime,
+                baseInterval: baseObjectInterval,
+                at: inferenceEndTime
+            )
+            if throttle.isOverloaded(at: inferenceEndTime) {
+                markTransientQuality(
+                    "overloaded",
+                    message: "Processing is behind. Hold the phone steady.",
+                    duration: 1.5
+                )
+            }
         }
 
         stateLock.lock()
@@ -387,16 +410,10 @@ final class ClearAheadEngine {
     func reportDroppedFrame(reason: String) {
         stateLock.lock()
         guard sessionActive && demoTimer == nil else { stateLock.unlock(); return }
+        // The camera drops frames by design while a model is busy, so drops
+        // only feed the metrics. AdaptiveThrottle decides when processing is behind.
         droppedFrameCount += 1
-        let shouldWarn = droppedFrameCount >= 6
         stateLock.unlock()
-        if shouldWarn {
-            markTransientQuality(
-                "overloaded",
-                message: "Processing is behind. Hold the phone steady.",
-                duration: 1.5
-            )
-        }
     }
 
     func startDemo(scenario: String) {
@@ -591,7 +608,14 @@ final class ClearAheadEngine {
                 }
             }
         }
-        return event.map { [$0] } ?? []
+        let groundEvent = groundHazardTracker.update(
+            depthMap.groundHazard(
+                within: min(configuration.warningDistanceMeters, GroundHazardTracker.warningRangeMeters)
+            ),
+            now: now,
+            cameraStable: currentRotationRate() < 0.9
+        )
+        return [event, groundEvent].compactMap { $0 }
     }
 
     private func recordDepthInferenceFailure(_ message: String) {
@@ -655,7 +679,7 @@ final class ClearAheadEngine {
         return SpatialEvent(
             id: "depth:path",
             kind: .obstacle,
-            direction: .center,
+            direction: Direction.from(horizontalMidpoint: observation.box.midX),
             proximity: Proximity.from(distance: observation.distanceMeters),
             approximateDistanceMeters: (observation.distanceMeters * 10).rounded() / 10,
             approachSpeed: approachSpeed,
@@ -885,6 +909,7 @@ final class ClearAheadEngine {
                     pathClosingSpeed = 0
                     prioritizer.reset()
                     collisionTracker.reset()
+                    groundHazardTracker.reset()
                     hasVisibleEvent = false
                     frameLock.unlock()
                 }
@@ -1027,6 +1052,9 @@ final class ClearAheadEngine {
         case 0: return .person
         case 1, 2, 3, 5, 6, 7: return .vehicle
         case 13, 56, 57, 59, 60, 61: return .furniture
+        // Low things that sit on the ground and trip people: hydrant, cat, dog,
+        // backpack, handbag, suitcase, sports ball, skateboard, potted plant.
+        case 10, 15, 16, 24, 26, 28, 32, 36, 58: return .obstacle
         default: return nil
         }
     }
