@@ -148,6 +148,12 @@ struct SpatialEvent {
         return payload
     }
 
+    /// Stereo position of the hazard. A known box pans continuously with where
+    /// the hazard sits in view; otherwise the coarse direction decides.
+    var pan: Float {
+        guard let box else { return direction.pan }
+        return Float(min(max((Double(box.midX) - 0.5) / 0.3, -1), 1))
+    }
 }
 
 struct FeedbackConfiguration {

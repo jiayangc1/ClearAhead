@@ -297,7 +297,9 @@ final class CollisionTracker {
     private func isPersistentlyNear(_ track: Track, corridor: ClosedRange<Double>) -> Bool {
         let center = Double(track.box.midX)
         guard corridor.contains(center) else { return false }
-        return track.distanceMeters.map { $0 <= 1.25 } ?? false
+        // Low objects are trip hazards a few steps before anything would be hit.
+        let limit = track.kind == .obstacle ? GroundHazardTracker.warningRangeMeters : 1.25
+        return track.distanceMeters.map { $0 <= limit } ?? false
     }
 
     private func intersectionOverUnion(_ lhs: CGRect, _ rhs: CGRect) -> Double {
@@ -324,5 +326,57 @@ final class CollisionTracker {
 
     private func mix(_ lhs: Double, _ rhs: Double, smoothingFactor: Double) -> Double {
         lhs + (rhs - lhs) * smoothingFactor
+    }
+}
+
+/// Turns per-frame ground hazard observations into a cautioned event once the
+/// same low obstacle has persisted. A trip hazard needs no closing speed.
+struct GroundHazardTracker {
+    static let warningRangeMeters = 2.5
+
+    private var previous: PathObstacleObservation?
+    private var previousTime: TimeInterval = 0
+    private var observations = 0
+    private var identifier = 0
+
+    mutating func reset() { self = GroundHazardTracker() }
+
+    mutating func update(
+        _ observation: PathObstacleObservation?,
+        now: TimeInterval,
+        cameraStable: Bool
+    ) -> SpatialEvent? {
+        guard let observation else {
+            if now - previousTime > 0.8 { previous = nil; observations = 0 }
+            return nil
+        }
+        if let previous, now - previousTime <= 0.8,
+           abs(previous.box.midX - observation.box.midX) <= 0.15,
+           abs(previous.distanceMeters - observation.distanceMeters)
+               <= max(0.5, previous.distanceMeters * 0.35) {
+            // Frames taken while the phone swings are kept but do not count as evidence.
+            if cameraStable { observations += 1 }
+        } else {
+            observations = 1
+            identifier += 1
+        }
+        previous = observation
+        previousTime = now
+        let confirmed = cameraStable && observations >= 3
+        return SpatialEvent(
+            id: "depth:ground-\(identifier)",
+            kind: .obstacle,
+            label: "low obstacle",
+            direction: Direction.from(horizontalMidpoint: observation.box.midX),
+            proximity: Proximity.from(distance: observation.distanceMeters),
+            approximateDistanceMeters: (observation.distanceMeters * 10).rounded() / 10,
+            approachSpeed: 0,
+            collisionRisk: confirmed ? .caution : .none,
+            trajectoryConfidence: min(Double(observations) / 3, 1) * 0.8,
+            confidence: 0.8,
+            urgency: 0,
+            timestamp: now,
+            box: observation.box
+        )
     }
 }

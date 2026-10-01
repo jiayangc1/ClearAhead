@@ -38,6 +38,8 @@ final class ClearAheadEngine {
     private let prioritizer = EventPrioritizer()
     private let feedback = Feedback()
     private let collisionTracker = CollisionTracker()
+    private var groundHazardTracker = GroundHazardTracker()
+    private var throttle = AdaptiveThrottle()
     private let motionManager = CMMotionManager()
     private var configuration = FeedbackConfiguration()
     private var sessionActive = false
@@ -227,6 +229,8 @@ final class ClearAheadEngine {
     private func resetSessionState() {
         prioritizer.reset()
         collisionTracker.reset()
+        groundHazardTracker.reset()
+        throttle = AdaptiveThrottle()
         objectEvents = []
         depthEvents = []
         latestDepthMap = nil
@@ -286,6 +290,7 @@ final class ClearAheadEngine {
         if frameLock.try() {
             prioritizer.reset()
             collisionTracker.reset()
+            groundHazardTracker.reset()
             objectEvents = []
             depthEvents = []
             latestDepthMap = nil
@@ -336,9 +341,12 @@ final class ClearAheadEngine {
         let usesResponsiveProcessing = currentConfiguration.processingMode == "responsive"
         // Leave processing headroom instead of immediately starting another costly pair.
         // Model inputs and all safety checks retain their full resolution.
-        let objectInterval = max(thermallyLimited ? 0.22 : 0.11, min(averageObjectDuration * 1.15, 0.35))
-        let depthInterval = max(thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.35 : 0.18),
-                                min((averageObjectDuration + averageDepthDuration) * 1.2, 0.5))
+        let baseObjectInterval = thermallyLimited ? 0.22 : 0.11
+        let objectInterval = max(throttle.interval(base: baseObjectInterval), min(averageObjectDuration * 1.15, 0.35))
+        let depthInterval = max(
+            throttle.interval(base: thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.35 : 0.18)),
+            min((averageObjectDuration + averageDepthDuration) * 1.2, 0.5)
+        )
 
         if frameStartTime - lastQualityCheck >= 0.65 {
             evaluateImageQuality(pixelBuffer: pixelBuffer)
@@ -381,6 +389,21 @@ final class ClearAheadEngine {
             averageObjectDuration += ((ProcessInfo.processInfo.systemUptime - started) - averageObjectDuration) * 0.2
             objectInferenceCount += 1
         }
+        if shouldDetectObjects || shouldEstimateDepth {
+            let inferenceEndTime = ProcessInfo.processInfo.systemUptime
+            throttle.record(
+                inferenceSeconds: inferenceEndTime - frameStartTime,
+                baseInterval: baseObjectInterval,
+                at: inferenceEndTime
+            )
+            if throttle.isOverloaded(at: inferenceEndTime) {
+                markTransientQuality(
+                    "overloaded",
+                    message: "Processing is behind. Hold the phone steady.",
+                    duration: 1.5
+                )
+            }
+        }
 
         stateLock.lock()
         let stalled = health.stalled
@@ -417,6 +440,8 @@ final class ClearAheadEngine {
     func reportDroppedFrame(reason: String) {
         stateLock.lock()
         guard sessionActive else { stateLock.unlock(); return }
+        // The camera drops frames by design while a model is busy, so drops
+        // only feed the metrics. AdaptiveThrottle decides when processing is behind.
         droppedFrameCount += 1
         stateLock.unlock()
     }
@@ -556,7 +581,14 @@ final class ClearAheadEngine {
                 }
             }
         }
-        return event.map { [$0] } ?? []
+        let groundEvent = groundHazardTracker.update(
+            depthMap.groundHazard(
+                within: min(configuration.warningDistanceMeters, GroundHazardTracker.warningRangeMeters)
+            ),
+            now: now,
+            cameraStable: currentRotationRate() < 0.9
+        )
+        return [event, groundEvent].compactMap { $0 }
     }
 
     private func recordDepthInferenceFailure(_ message: String) {
@@ -617,7 +649,7 @@ final class ClearAheadEngine {
         return SpatialEvent(
             id: "depth:path",
             kind: .obstacle,
-            direction: .center,
+            direction: Direction.from(horizontalMidpoint: observation.box.midX),
             proximity: Proximity.from(distance: observation.distanceMeters),
             approximateDistanceMeters: (observation.distanceMeters * 10).rounded() / 10,
             approachSpeed: approachSpeed,
@@ -839,6 +871,7 @@ final class ClearAheadEngine {
                     pathClosingSpeed = 0
                     prioritizer.reset()
                     collisionTracker.reset()
+                    groundHazardTracker.reset()
                     hasVisibleEvent = false
                     frameLock.unlock()
                 }

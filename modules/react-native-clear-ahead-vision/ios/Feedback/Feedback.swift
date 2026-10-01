@@ -529,7 +529,7 @@ struct AudioCueProfile {
         }
         pulseDuration = event.collisionRisk == .none ? 0.075 - urgency * 0.02 : 0.045
         pulseGap = event.collisionRisk == .none ? 0.18 - urgency * 0.11 : 0.05
-        pan = stereo ? event.direction.pan : 0
+        pan = stereo ? event.pan : 0
         gain = Float(min(max(configuration.audioVolume * (0.72 + urgency * 0.28), 0), 1))
     }
 }

@@ -31,7 +31,7 @@ final class ModelDownloadTests: XCTestCase {
         let zip = root.appendingPathComponent("bad.zip")
         let archive = try Archive(url: zip, accessMode: .create)
         try archive.addEntry(with: "yolo26s.mlpackage/../../old.mlpackage", type: .file,
-                             uncompressedSize: 1, provider: { _, _ in Data([8]) })
+                             uncompressedSize: Int64(1), provider: { _, _ in Data([8]) })
         XCTAssertThrowsError(try ModelManager.extract(zip, packageName: "yolo26s.mlpackage",
                                                      to: root.appendingPathComponent("stage"), request: ModelDownloadRequest()))
         XCTAssertEqual(try Data(contentsOf: old), Data([7]))
@@ -45,7 +45,7 @@ final class ModelDownloadTests: XCTestCase {
         let archive = try Archive(url: zip, accessMode: .create)
         for path in ["Manifest.json", "Data/com.apple.CoreML/model.mlmodel", "Data/com.apple.CoreML/weights/weight.bin"] {
             try archive.addEntry(with: "yolo26s.mlpackage/\(path)", type: .file,
-                                 uncompressedSize: 1, provider: { _, _ in Data([7]) })
+                                 uncompressedSize: Int64(1), provider: { _, _ in Data([7]) })
         }
         let destination = root.appendingPathComponent("stage")
         let package = try ModelManager.extract(zip, packageName: "yolo26s.mlpackage", to: destination,

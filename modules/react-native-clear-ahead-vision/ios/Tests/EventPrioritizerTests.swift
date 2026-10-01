@@ -278,6 +278,63 @@ final class EventPrioritizerTests: XCTestCase {
         }
     }
 
+    func testStereoPanFollowsWhereTheHazardSitsInView() {
+        func pan(midX: Double) -> Float {
+            let box = CGRect(x: midX - 0.1, y: 0.2, width: 0.2, height: 0.3)
+            let event = makeEvent(direction: Direction.from(horizontalMidpoint: midX), collisionRisk: .caution, box: box)
+            return AudioCueProfile(event: event, configuration: configuration).pan
+        }
+        XCTAssertEqual(pan(midX: 0.5), 0, accuracy: 0.001)
+        // Off-center hazards that still count as "center" are audibly placed.
+        XCTAssertLessThan(pan(midX: 0.42), -0.2)
+        XCTAssertGreaterThan(pan(midX: 0.58), 0.2)
+        XCTAssertLessThan(pan(midX: 0.25), pan(midX: 0.42))
+        XCTAssertEqual(pan(midX: 0.05), -1)
+        XCTAssertEqual(pan(midX: 0.95), 1)
+    }
+
+    func testGroundHazardCautionsOnceItPersists() throws {
+        var tracker = GroundHazardTracker()
+        let hazard = PathObstacleObservation(
+            distanceMeters: 1.8, box: CGRect(x: 0.2, y: 0.1, width: 0.16, height: 0.12), coverage: 0.05
+        )
+        XCTAssertEqual(tracker.update(hazard, now: 10, cameraStable: true)?.collisionRisk, CollisionRisk.none)
+        XCTAssertEqual(tracker.update(hazard, now: 10.3, cameraStable: true)?.collisionRisk, CollisionRisk.none)
+        let confirmed = try XCTUnwrap(tracker.update(hazard, now: 10.6, cameraStable: true))
+        XCTAssertEqual(confirmed.collisionRisk, .caution)
+        XCTAssertEqual(confirmed.direction, .left)
+        XCTAssertEqual(confirmed.label, "low obstacle")
+        XCTAssertNil(confirmed.timeToCollisionSeconds)
+
+        // A stationary low obstacle is announced by the prioritizer.
+        let prioritizer = EventPrioritizer()
+        let selected = prioritizer.select(from: [confirmed], configuration: configuration, now: 10.6)
+        XCTAssertEqual(selected?.id, confirmed.id)
+        XCTAssertTrue(prioritizer.shouldAnnounce(selected, now: 10.6))
+    }
+
+    func testGroundHazardNeedsStableCameraAndNewObstacleGetsNewIdentity() throws {
+        var tracker = GroundHazardTracker()
+        let first = PathObstacleObservation(
+            distanceMeters: 1.8, box: CGRect(x: 0.2, y: 0.1, width: 0.16, height: 0.12), coverage: 0.05
+        )
+        for step in 0..<4 {
+            let event = tracker.update(first, now: 10 + Double(step) * 0.3, cameraStable: false)
+            XCTAssertEqual(event?.collisionRisk, CollisionRisk.none)
+        }
+        let firstId = try XCTUnwrap(tracker.update(first, now: 11.2, cameraStable: true)).id
+
+        let second = PathObstacleObservation(
+            distanceMeters: 1.2, box: CGRect(x: 0.6, y: 0.1, width: 0.16, height: 0.12), coverage: 0.05
+        )
+        let moved = try XCTUnwrap(tracker.update(second, now: 11.5, cameraStable: true))
+        XCTAssertNotEqual(moved.id, firstId)
+        XCTAssertEqual(moved.collisionRisk, .none)
+
+        XCTAssertNil(tracker.update(nil, now: 13, cameraStable: true))
+        XCTAssertEqual(tracker.update(second, now: 13.1, cameraStable: true)?.collisionRisk, CollisionRisk.none)
+    }
+
     func testQualityAndEqualPrioritySpeechCannotInterruptHazards() {
         XCTAssertFalse(Feedback.shouldInterruptSpeech(currentPriority: 1, incomingPriority: 0.5, mayInterrupt: false))
         XCTAssertFalse(Feedback.shouldInterruptSpeech(currentPriority: 2, incomingPriority: 2, mayInterrupt: true))
