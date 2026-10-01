@@ -144,7 +144,9 @@ final class ModelOutputTests: XCTestCase {
     }
 
     func testDepthCopyPreservesSupportedFloatingPointTypesAndInvalidPixels() throws {
-        for dataType in [MLMultiArrayDataType.float16, .float32, .double] {
+        var dataTypes = [MLMultiArrayDataType.float32, .double]
+        if #available(iOS 16.0, *) { dataTypes.append(.float16) }
+        for dataType in dataTypes {
             let array = try MLMultiArray(shape: [1, 1, 8, 8], dataType: dataType)
             for index in 0..<64 { array[index] = NSNumber(value: 2.5) }
             array[0] = NSNumber(value: Double.nan)
