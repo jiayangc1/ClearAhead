@@ -7,12 +7,45 @@ struct YOLODetection {
     let classIdentifier: Int
     let confidence: Double
     let box: CGRect
+
+    var kind: EventKind? {
+        switch classIdentifier {
+        case 0: return .person
+        case 1, 2, 3, 5, 6, 7: return .vehicle
+        case 13, 56, 57, 59, 60, 61: return .furniture
+        // Low things that sit on the ground and trip people: hydrant, cat, dog,
+        // backpack, handbag, suitcase, sports ball, skateboard, potted plant.
+        case 10, 15, 16, 24, 26, 28, 32, 36, 58: return .obstacle
+        default: return nil
+        }
+    }
+
+    func shouldDisplay(verbosity: String) -> Bool {
+        if verbosity == "verbose" { return confidence >= 0.25 }
+        guard verbosity == "standard", confidence >= 0.6, let kind else { return false }
+        return kind != .furniture || (box.maxX >= 0.34 && box.minX <= 0.66 && box.height >= 0.12)
+    }
 }
 
 struct PathObstacleObservation {
     let distanceMeters: Double
     let box: CGRect
     let coverage: Double
+
+    func collisionRisk(observations: Int, duration: TimeInterval, closingSpeed: Double, stable: Bool) -> CollisionRisk {
+        guard stable, observations >= 4, duration >= 0.7, coverage >= 0.15,
+              distanceMeters.isFinite, distanceMeters > 0, closingSpeed.isFinite else { return .none }
+        if closingSpeed >= 0.35 {
+            let timeToCollision = distanceMeters / closingSpeed
+            if timeToCollision <= 1.5 { return .imminent }
+            if timeToCollision <= 2.5 { return .caution }
+        }
+        // Stationary depth alone requires a broad obstruction closer than one step.
+        if observations >= 5, duration >= 1, coverage >= 0.28, distanceMeters <= 0.65 {
+            return .caution
+        }
+        return .none
+    }
 }
 
 struct DepthMap: Sendable {
@@ -36,25 +69,26 @@ struct DepthMap: Sendable {
         let width = (sourceWidth + step - 1) / step
         let height = (sourceHeight + step - 1) / step
         var depthValues = [Double](repeating: .nan, count: width * height)
-        // Subscripting boxes every element in an NSNumber; read the common
-        // element types straight from the backing store instead.
-        let read: (Int) -> Double
-        switch array.dataType {
-        case .float32:
-            let pointer = array.dataPointer.assumingMemoryBound(to: Float.self)
-            read = { Double(pointer[$0]) }
-        case .double:
-            let pointer = array.dataPointer.assumingMemoryBound(to: Double.self)
-            read = { pointer[$0] }
-        default:
-            read = { array[$0].doubleValue }
+        func copy<T: BinaryFloatingPoint>(_ pointer: UnsafePointer<T>) {
+            for row in 0..<height {
+                for column in 0..<width {
+                    let value = Double(pointer[row * step * rowStride + column * step * columnStride])
+                    if value.isFinite, value > 0 {
+                        depthValues[row * width + column] = value
+                    }
+                }
+            }
         }
-        for row in 0..<height {
-            let rowOffset = row * step * rowStride
-            for column in 0..<width {
-                let value = read(rowOffset + column * step * columnStride)
-                if value.isFinite, value > 0 {
-                    depthValues[row * width + column] = value
+        // Avoid an NSNumber allocation and Objective-C subscript for every depth pixel.
+        switch array.dataType {
+        case .float16: copy(array.dataPointer.assumingMemoryBound(to: Float16.self))
+        case .float32: copy(array.dataPointer.assumingMemoryBound(to: Float.self))
+        case .double: copy(array.dataPointer.assumingMemoryBound(to: Double.self))
+        default:
+            for row in 0..<height {
+                for column in 0..<width {
+                    let value = array[row * step * rowStride + column * step * columnStride].doubleValue
+                    if value.isFinite, value > 0 { depthValues[row * width + column] = value }
                 }
             }
         }
@@ -71,6 +105,7 @@ struct DepthMap: Sendable {
         let startY = max(0, min(height - 1, Int(clamped.minY * CGFloat(height))))
         let endY = max(startY + 1, min(height, Int(ceil(clamped.maxY * CGFloat(height)))))
         var sampledValues: [Double] = []
+        sampledValues.reserveCapacity(((endX - startX) / max(step, 1) + 1) * ((endY - startY) / max(step, 1) + 1))
         for row in stride(from: startY, to: endY, by: max(step, 1)) {
             for column in stride(from: startX, to: endX, by: max(step, 1)) {
                 let value = values[row * width + column]
@@ -119,6 +154,7 @@ struct DepthMap: Sendable {
             var maxColumn = 0
             var minRow = rows
             var maxRow = 0
+            var centerCount = 0
             visited[start] = true
             while offset < queue.count {
                 let index = queue[offset]
@@ -126,6 +162,7 @@ struct DepthMap: Sendable {
                 let row = index / columns
                 let column = index % columns
                 component.append(distances[index])
+                if (12...19).contains(column), row < 18 { centerCount += 1 }
                 minColumn = min(minColumn, column)
                 maxColumn = max(maxColumn, column)
                 minRow = min(minRow, row)
@@ -142,10 +179,11 @@ struct DepthMap: Sendable {
                     queue.append(neighbor)
                 }
             }
-            guard component.count >= 38,
-                  maxColumn - minColumn >= 4,
-                  maxRow - minRow >= 4,
-                  Double(path.minY) + Double(minRow) * Double(path.height) / Double(rows) <= 0.55 else { continue }
+            guard component.count >= 116,
+                  centerCount >= 32,
+                  maxColumn - minColumn >= 7,
+                  maxRow - minRow >= 6,
+                  Double(path.minY) + Double(minRow) * Double(path.height) / Double(rows) <= 0.5 else { continue }
             let distance = Self.percentile(component, fraction: 0.35)
             let coverage = Double(component.count) / Double(columns * rows)
             let top = Double(path.minY) + Double(minRow) * Double(path.height) / Double(rows)
@@ -269,13 +307,11 @@ struct DepthMap: Sendable {
         return sorted[index]
     }
 
-    func heatmapDataURL(maxDimension: Int = 128) -> String? {
-        let valid = values.filter { $0.isFinite && $0 > 0 }
-        guard valid.count > 8 else { return nil }
-        let near = Self.percentile(valid, fraction: 0.05)
-        let far = Self.percentile(valid, fraction: 0.95)
-        let scale = max(far - near, 0.001)
-        let sampleStep = max(1, max(width, height) / maxDimension)
+    func heatmapDataURL(maxDimension: Int = 128, farDistance: Double = 6) -> String? {
+        // Fixed metric colors do not flicker as scene percentiles change. Convert only preview pixels.
+        let near = 0.25
+        let scale = max(farDistance - near, 0.001)
+        let sampleStep = max(1, Int(ceil(Double(max(width, height)) / Double(max(maxDimension, 1)))))
         let outputWidth = max(1, width / sampleStep)
         let outputHeight = max(1, height / sampleStep)
         var pixels = [UInt8](repeating: 0, count: outputWidth * outputHeight * 4)

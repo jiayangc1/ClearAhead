@@ -29,7 +29,6 @@ import { colors, toFeedbackConfiguration } from '../config';
 import { ClearAheadModule } from '../native/ClearAheadModule';
 import type {
   AppPreferences,
-  DemoScenario,
   ObjectDetectionOverlay,
   PipelineMetrics,
   SessionQuality,
@@ -44,12 +43,10 @@ import { SessionController } from '../utils/sessionController';
 
 export function AssistScreen({
   preferences,
-  demoScenario,
   onMetrics,
   onStop,
 }: {
   preferences: AppPreferences;
-  demoScenario?: DemoScenario;
   onMetrics: (metrics: PipelineMetrics) => void;
   onStop: () => void;
 }) {
@@ -60,12 +57,13 @@ export function AssistScreen({
   const [metrics, setMetrics] = useState<PipelineMetrics>();
   const [detections, setDetections] = useState<ObjectDetectionOverlay[]>([]);
   const [depthMapDataUrl, setDepthMapDataUrl] = useState<string>();
+  const latestMetrics = useRef<PipelineMetrics | undefined>(undefined);
   const [isForeground, setIsForeground] = useState(
     AppState.currentState === 'active',
   );
-  const isDemo = demoScenario != null;
   const previousQuality = useRef(quality);
   const announcements = useRef(new AnnouncementGate());
+  const announcedRisk = useRef<SpatialEvent['collisionRisk']>('none');
   const sessionController = useRef<SessionController | undefined>(undefined);
   const startupError = useRef(false);
   const cameraInterrupted = useRef(false);
@@ -83,7 +81,7 @@ export function AssistScreen({
       quality !== 'good' &&
       announcements.current.message(qualityMessage(quality), Date.now() / 1000)
     ) {
-      AccessibilityInfo.announceForAccessibility(qualityMessage(quality));
+      AccessibilityInfo.announceForAccessibilityWithOptions(qualityMessage(quality), { queue: true });
     }
     previousQuality.current = quality;
   }, [quality]);
@@ -93,7 +91,7 @@ export function AssistScreen({
       sessionState === 'error' &&
       announcements.current.message(statusMessage, Date.now() / 1000)
     ) {
-      AccessibilityInfo.announceForAccessibility(statusMessage);
+      AccessibilityInfo.announceForAccessibilityWithOptions(statusMessage, { queue: true });
     }
   }, [sessionState, statusMessage]);
 
@@ -146,16 +144,19 @@ export function AssistScreen({
           announcements.current.message(
             payload.message,
             Date.now() / 1000,
-            true,
+            payload.severity === 'error',
           )
         ) {
-          AccessibilityInfo.announceForAccessibility(payload.message);
+          AccessibilityInfo.announceForAccessibilityWithOptions(payload.message, { queue: true });
         }
       }),
       ClearAheadModule.onEvent(payload => {
         setEvent(payload);
         if (announcements.current.event(payload, Date.now() / 1000)) {
-          AccessibilityInfo.announceForAccessibility(describeEvent(payload));
+          AccessibilityInfo.announceForAccessibilityWithOptions(describeEvent(payload), {
+            queue: payload.collisionRisk !== 'imminent' || announcedRisk.current === 'imminent',
+          });
+          announcedRisk.current = payload.collisionRisk;
         }
       }),
       ClearAheadModule.onEventCleared(() => {
@@ -165,9 +166,7 @@ export function AssistScreen({
       ClearAheadModule.onQuality(payload => setQuality(payload.quality)),
       ClearAheadModule.onMetrics(payload => {
         setMetrics(payload);
-        if (!isDemo) {
-          onMetrics(payload);
-        }
+        latestMetrics.current = payload;
       }),
       ...(preferences.showBoundingBoxes
         ? [ClearAheadModule.onDetections(setDetections)]
@@ -187,17 +186,13 @@ export function AssistScreen({
     const configuration = toFeedbackConfiguration(preferences);
     const controller = new SessionController(
       () => ClearAheadModule.updateConfiguration(configuration),
-      () =>
-        isDemo
-          ? ClearAheadModule.startDemo(demoScenario)
-          : ClearAheadModule.startSession(configuration),
-      () =>
-        isDemo ? ClearAheadModule.stopDemo() : ClearAheadModule.stopSession(),
+      () => ClearAheadModule.startSession(configuration),
+      () => ClearAheadModule.stopSession(),
     );
     sessionController.current = controller;
     const startNativeSession = () => {
       startupError.current = false;
-      if (!isDemo && !cameraDevice) {
+      if (!cameraDevice) {
         return Promise.reject(
           new Error('No rear camera available. Assist mode cannot start.'),
         );
@@ -235,12 +230,12 @@ export function AssistScreen({
         );
       } else {
         setSessionState('starting');
-        setStatusMessage(isDemo ? 'Restarting safe demo' : 'Restarting camera');
+        setStatusMessage('Restarting camera');
         startNativeSession()
           .then(started => {
             if (active && started) {
               AccessibilityInfo.announceForAccessibility(
-                isDemo ? 'Safe demo resumed.' : 'Assist mode resumed.',
+                'Assist mode resumed.',
               );
             }
           })
@@ -253,8 +248,11 @@ export function AssistScreen({
       subscriptions.forEach(subscription => subscription?.remove());
       appStateSubscription.remove();
       controller.stop().catch(() => undefined);
+      if (latestMetrics.current) {
+        onMetrics(latestMetrics.current);
+      }
     };
-  }, [cameraDevice, demoScenario, isDemo, onMetrics, preferences]);
+  }, [cameraDevice, onMetrics, preferences]);
 
   const eventDescription = useMemo(
     () => (event ? describeEvent(event) : 'Field clear'),
@@ -277,7 +275,7 @@ export function AssistScreen({
 
   return (
     <View style={styles.root}>
-      {!isDemo && cameraDevice ? (
+      {cameraDevice ? (
         <Camera
           style={StyleSheet.absoluteFill}
           device={cameraDevice}
@@ -333,18 +331,8 @@ export function AssistScreen({
             });
           }}
         />
-      ) : isDemo ? (
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={[StyleSheet.absoluteFill, styles.demoBackdrop]}
-        >
-          <View style={styles.demoRingOuter} />
-          <View style={styles.demoRingInner} />
-          <Text style={styles.demoWord}>DEMO</Text>
-        </View>
       ) : null}
-      {!isDemo && preferences.depthMapEnabled ? (
+      {preferences.depthMapEnabled ? (
         depthMapDataUrl ? (
           <Image
             accessibilityElementsHidden
@@ -361,6 +349,7 @@ export function AssistScreen({
         event={event}
         detections={detections}
         showBoundingBoxes={preferences.showBoundingBoxes}
+        boundingBoxVerbosity={preferences.boundingBoxVerbosity}
       />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.assistContent}>
@@ -376,7 +365,7 @@ export function AssistScreen({
               ]}
             />
             <Text style={styles.statusText}>{displayedStatus}</Text>
-            {metrics && !isDemo ? (
+            {metrics ? (
               <Text style={styles.latency}>
                 Processing {Math.round(metrics.processingLatencyMs)} ms
               </Text>
@@ -411,7 +400,7 @@ export function AssistScreen({
             </View>
           ) : null}
 
-          {preferences.depthMapEnabled && !isDemo ? (
+          {preferences.depthMapEnabled ? (
             <View
               accessible
               accessibilityLabel="Depth colors: red is close, blue is far"
@@ -463,7 +452,7 @@ export function AssistScreen({
           </View>
         </ScrollView>
         <PrimaryButton
-          label={isDemo ? 'Stop demo' : 'Stop Assist Mode'}
+          label={'Stop Assist Mode'}
           hint="Stops the camera and all feedback immediately"
           destructive
           onPress={stop}
@@ -576,33 +565,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     marginTop: 2,
-  },
-  demoBackdrop: {
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  demoRingOuter: {
-    position: 'absolute',
-    width: 310,
-    height: 310,
-    borderRadius: 155,
-    borderWidth: 1,
-    borderColor: '#3291FF32',
-  },
-  demoRingInner: {
-    position: 'absolute',
-    width: 210,
-    height: 210,
-    borderRadius: 105,
-    borderWidth: 1,
-    borderColor: '#3291FF52',
-  },
-  demoWord: {
-    color: colors.line,
-    fontSize: 54,
-    fontWeight: '900',
-    letterSpacing: 6,
   },
 });

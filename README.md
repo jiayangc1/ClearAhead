@@ -11,7 +11,7 @@ haptics, stereo audio cues, and optional short speech.
 ## What is implemented
 
 - Bare React Native 0.87 and TypeScript interface with Hermes/New Architecture
-- VoiceOver-labelled onboarding, assist mode, safe demo, and settings
+- VoiceOver-labelled onboarding, assist mode, and settings
 - Annotated three-sector camera view for left, center, and right events
 - Persistent, independent haptic, directional-audio, and speech preferences
 - VisionCamera 5 frame output connected to a typed Nitro Swift module
@@ -22,7 +22,7 @@ haptics, stereo audio cues, and optional short speech.
 - Core Haptics direction patterns, spatially panned AVAudioEngine cues whose
   pitch and pulse rhythm encode distance and urgency, and interruptible
   AVSpeechSynthesizer output
-- Low-light, covered-camera, thermal-pressure, and frame-overload reporting
+- Low-light, covered-camera, and thermal-pressure reporting
 - Responsive and detailed processing modes, with an optional processed-frame-rate display
 - No account, backend, analytics, frame storage, or camera upload
 
@@ -51,9 +51,7 @@ cd ios && bundle exec pod install && cd ..
 npm start
 ```
 
-Open `ios/ClearAhead.xcworkspace` in Xcode and run on a physical iPhone. The
-safe demo works without camera input, but native audio and haptics still require
-an iOS build.
+Open `ios/ClearAhead.xcworkspace` in Xcode and run on a physical iPhone.
 
 Install the pinned Python exporter first. `npm run models` then downloads the
 official weights, verifies GitHub's published SHA-256 digests, and installs:

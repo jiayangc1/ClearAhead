@@ -68,7 +68,6 @@ struct SessionQualityState {
         if thermalLimited { return ("thermal-limited", "Device is warm. Processing has slowed.") }
         if cameraTooClose { return ("camera-too-close", "Camera too close. Move it back.") }
         if transient["moving-too-fast", default: 0] > now { return ("moving-too-fast", "Phone is moving too quickly. Slow down.") }
-        if transient["overloaded", default: 0] > now { return ("overloaded", "Processing is behind. Hold the phone steady.") }
         if imageQuality == "camera-covered" { return (imageQuality, "Camera may be covered. Check the lens.") }
         if imageQuality == "low-light" { return (imageQuality, "Low light. Detection may be less reliable.") }
         return ("good", "Camera view is clear")

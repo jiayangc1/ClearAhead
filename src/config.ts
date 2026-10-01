@@ -1,5 +1,6 @@
 import type {
   AppPreferences,
+  BoundingBoxVerbosity,
   EventKind,
   FeedbackConfiguration,
   ModelVariant,
@@ -36,6 +37,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   depthMapEnabled: false,
   showFps: true,
   showBoundingBoxes: true,
+  boundingBoxVerbosity: 'standard',
   cameraDeviceId: 'standard',
   spokenCategories: ['person', 'vehicle', 'obstacle', 'furniture'],
 };
@@ -51,6 +53,9 @@ export function hasFeedbackChannel(preferences: AppPreferences): boolean {
 const mountingModes = new Set<MountingMode>(['handheld', 'chest']);
 const processingModes = new Set<ProcessingMode>(['responsive', 'detailed']);
 const modelVariants = new Set<ModelVariant>(['n', 's', 'm', 'l', 'x']);
+const boundingBoxVerbosities = new Set<BoundingBoxVerbosity>([
+  'verbose', 'standard', 'less',
+]);
 const eventKinds = new Set<EventKind>([
   'obstacle',
   'person',
@@ -151,6 +156,11 @@ export function normalizePreferences(value: unknown): AppPreferences {
       stored.showBoundingBoxes,
       DEFAULT_PREFERENCES.showBoundingBoxes,
     ),
+    boundingBoxVerbosity: boundingBoxVerbosities.has(
+      stored.boundingBoxVerbosity as BoundingBoxVerbosity,
+    )
+      ? (stored.boundingBoxVerbosity as BoundingBoxVerbosity)
+      : DEFAULT_PREFERENCES.boundingBoxVerbosity,
     cameraDeviceId:
       typeof stored.cameraDeviceId === 'string' &&
       stored.cameraDeviceId.length > 0 &&
@@ -178,6 +188,7 @@ export function toFeedbackConfiguration(
     modelVariant: preferences.modelVariant,
     depthMapEnabled: preferences.depthMapEnabled,
     showBoundingBoxes: preferences.showBoundingBoxes,
+    boundingBoxVerbosity: preferences.boundingBoxVerbosity,
     spokenCategories: preferences.spokenCategories,
   };
 }

@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreHaptics
 import Foundation
+import OSLog
 import UIKit
 
 final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
@@ -17,6 +18,7 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         let event: SpatialEvent
         let configuration: FeedbackConfiguration
         let priority: Double
+        let createdAt: TimeInterval
     }
 
     private var hapticEngine: CHHapticEngine?
@@ -28,10 +30,17 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
     private let audioQueue = DispatchQueue(label: "com.clearahead.feedback.audio", qos: .userInitiated)
     private var audioFormat: AVAudioFormat?
     private var tonePlaying = false
+    private var tonePlaybackGeneration = 0
     private var pendingTone: PendingTone?
+    private var activeTone: PendingTone?
+    private var lastAudioRoute: String?
     private var pendingSpeech: PendingSpeech?
-    private var lastSpokenKey: String?
-    private var lastSpokenTime: TimeInterval = 0
+    private var activeSpeech: PendingSpeech?
+    private var activeUtterance: AVSpeechUtterance?
+    private var lastSpeechTimes: [String: TimeInterval] = [:]
+    private var audioSessionActive = false
+    private let logger = Logger(subsystem: "com.clearahead.vision", category: "feedback")
+    private var observers: [NSObjectProtocol] = []
     private let generation = FeedbackGeneration()
     private let availabilityLock = NSLock()
     private var audioAvailable = true
@@ -41,6 +50,17 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         speechSynthesizer.delegate = self
         prepareHaptics()
         prepareAudio()
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.recoverAudioOutput(force: true)
+        })
+        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: nil) { [weak self] _ in
+            self?.recoverAudioOutput(force: false)
+        })
+    }
+
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     func start(audioAvailable: Bool = true) {
@@ -59,14 +79,18 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         // dispatch from frame processing to main while it may wait for frameLock.
         precondition(Thread.isMainThread)
         pendingSpeech = nil
-        lastSpokenKey = nil
-        lastSpokenTime = 0
+        activeSpeech = nil
+        activeUtterance = nil
+        lastSpeechTimes.removeAll()
         speechSynthesizer.stopSpeaking(at: .immediate)
         audioQueue.sync {
             pendingTone = nil
+            activeTone = nil
             tonePlaying = false
+            tonePlaybackGeneration += 1
             audioPlayer.stop()
             audioEngine.stop()
+            audioSessionActive = false
         }
         try? hapticPlayer?.stop(atTime: 0)
         hapticPlayer = nil
@@ -81,12 +105,17 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         if !available {
             if generation.accepts(generation.current) { generation.start() }
             pendingSpeech = nil
+            activeSpeech = nil
+            activeUtterance = nil
             speechSynthesizer.stopSpeaking(at: .immediate)
             audioQueue.sync {
                 pendingTone = nil
+                activeTone = nil
                 tonePlaying = false
+                tonePlaybackGeneration += 1
                 audioPlayer.stop()
                 audioEngine.stop()
+                audioSessionActive = false
             }
         }
     }
@@ -130,7 +159,7 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
 
     func speakWarning(_ message: String, configuration: FeedbackConfiguration) {
         guard configuration.speechEnabled, !UIAccessibility.isVoiceOverRunning else { return }
-        requestSpeech(text: message, key: "warning:\(message)", priority: 2, mayInterrupt: true)
+        requestSpeech(text: message, key: "warning:\(message)", priority: 0.5, mayInterrupt: false)
     }
 
     private func prepareHaptics() {
@@ -196,19 +225,68 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         audioEngine.connect(audioPlayer, to: audioEngine.mainMixerNode, format: format)
     }
 
-    private func activateAudioEngine() {
+    static let playbackOptions: AVAudioSession.CategoryOptions = [.mixWithOthers, .duckOthers]
+
+    private func activateAudioSession() -> Bool {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                options: [.mixWithOthers, .duckOthers, .allowBluetoothA2DP]
-            )
-            try session.setActive(true)
-            if !audioEngine.isRunning { try audioEngine.start() }
+            // Playback routes to Bluetooth automatically and to the speaker without headphones.
+            // Bluetooth input options are invalid for this output-only category on newer iOS.
+            if session.category != .playback || session.mode != .default || session.categoryOptions != Self.playbackOptions {
+                try session.setCategory(.playback, mode: .default, options: Self.playbackOptions)
+                audioSessionActive = false
+            }
+            if !audioSessionActive {
+                try session.setActive(true)
+                audioSessionActive = true
+            }
+            return true
         } catch {
-            // A later cue retries activation and engine startup.
+            audioSessionActive = false
+            logger.error("Audio activation failed: \(String(describing: error), privacy: .public)")
+            return false
         }
+    }
+
+    private func activateAudioEngine() -> Bool {
+        guard activateAudioSession() else { return false }
+        if audioEngine.isRunning { return true }
+        do {
+            try audioEngine.start()
+            return true
+        } catch {
+            logger.error("Audio engine failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    private func recoverAudioOutput(force: Bool) {
+        let token = generation.current
+        audioQueue.async { [weak self] in
+            guard let self, acceptsAudio(token), force || (tonePlaying && !audioEngine.isRunning) else { return }
+            if force, currentAudioRoute() == lastAudioRoute { return }
+            let interruptedTone = activeTone
+            pendingTone = nil
+            activeTone = nil
+            tonePlaying = false
+            tonePlaybackGeneration += 1
+            audioPlayer.stop()
+            audioEngine.stop()
+            audioEngine.reset()
+            audioEngine.disconnectNodeOutput(audioPlayer)
+            audioEngine.connect(audioPlayer, to: audioEngine.mainMixerNode, format: audioFormat)
+            audioSessionActive = false
+            lastAudioRoute = currentAudioRoute()
+            // Replay a still-current interrupted cue on the new route; otherwise start lazily.
+            if let interruptedTone { playTone(interruptedTone) }
+        }
+    }
+
+    private func currentAudioRoute() -> String {
+        let session = AVAudioSession.sharedInstance()
+        return session.currentRoute.outputs.map {
+            "\($0.uid):\($0.channels?.count ?? 0)"
+        }.joined(separator: ",") + ":\(session.sampleRate)"
     }
 
     private func enqueueTone(for event: SpatialEvent, configuration: FeedbackConfiguration) {
@@ -216,7 +294,8 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
             generation: generation.current,
             event: event,
             configuration: configuration,
-            priority: event.urgency + (event.collisionRisk == .imminent ? 1 : 0)
+            priority: event.urgency + (event.collisionRisk == .imminent ? 1 : 0),
+            createdAt: ProcessInfo.processInfo.systemUptime
         )
         audioQueue.async { [weak self] in
             guard let self, acceptsAudio(pending.generation) else { return }
@@ -231,9 +310,9 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func playTone(_ pending: PendingTone) {
-        guard acceptsAudio(pending.generation) else { return }
-        activateAudioEngine()
-        guard audioEngine.isRunning else { return }
+        guard acceptsAudio(pending.generation), ProcessInfo.processInfo.systemUptime - pending.createdAt <= 0.8,
+              activateAudioEngine() else { return }
+        lastAudioRoute = currentAudioRoute()
         // Read the active route at playback so queued cues follow output changes.
         let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
         let stereo = !outputs.isEmpty && outputs.allSatisfy {
@@ -245,6 +324,9 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         )
         guard let audioBuffer = makeAudioBuffer(profile: profile) else { return }
         tonePlaying = true
+        activeTone = pending
+        tonePlaybackGeneration += 1
+        let playbackGeneration = tonePlaybackGeneration
         audioPlayer.scheduleBuffer(
             audioBuffer,
             at: nil,
@@ -252,8 +334,10 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
             completionCallbackType: .dataPlayedBack
         ) { [weak self] _ in
             self?.audioQueue.async {
-                guard let self, self.acceptsAudio(pending.generation) else { return }
+                guard let self, self.acceptsAudio(pending.generation),
+                      self.tonePlaybackGeneration == playbackGeneration else { return }
                 self.tonePlaying = false
+                self.activeTone = nil
                 if let next = self.pendingTone {
                     self.pendingTone = nil
                     self.playTone(next)
@@ -331,13 +415,17 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self, acceptsAudio(token), !UIAccessibility.isVoiceOverRunning else { return }
             let now = ProcessInfo.processInfo.systemUptime
-            guard key != lastSpokenKey || now - lastSpokenTime >= 2.5 else { return }
+            guard key != activeSpeech?.key, key != pendingSpeech?.key,
+                  now - (lastSpeechTimes[key] ?? -Double.infinity) >= (priority >= 2 ? 4 : 6) else { return }
             let speech = PendingSpeech(generation: token, text: text, key: key, priority: priority, createdAt: now)
-            if mayInterrupt, speechSynthesizer.isSpeaking {
+            if let current = activeSpeech,
+               Self.shouldInterruptSpeech(currentPriority: current.priority, incomingPriority: priority, mayInterrupt: mayInterrupt) {
                 pendingSpeech = nil
+                activeSpeech = nil
+                activeUtterance = nil
                 speechSynthesizer.stopSpeaking(at: .immediate)
                 startSpeech(speech)
-            } else if speechSynthesizer.isSpeaking {
+            } else if activeSpeech != nil || speechSynthesizer.isSpeaking {
                 if priority >= (pendingSpeech?.priority ?? -1) {
                     pendingSpeech = speech
                 }
@@ -349,31 +437,41 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
 
     private func startSpeech(_ speech: PendingSpeech) {
         guard acceptsAudio(speech.generation), !UIAccessibility.isVoiceOverRunning else { return }
-        audioQueue.sync { activateAudioEngine() }
-        lastSpokenKey = speech.key
-        lastSpokenTime = ProcessInfo.processInfo.systemUptime
+        guard audioQueue.sync(execute: { activateAudioSession() }) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        lastSpeechTimes = lastSpeechTimes.filter { now - $0.value < 10 }
+        lastSpeechTimes[speech.key] = now
+        activeSpeech = speech
         let utterance = AVSpeechUtterance(string: speech.text)
         utterance.rate = 0.58
         utterance.preUtteranceDelay = 0
+        activeUtterance = utterance
         speechSynthesizer.speak(utterance)
     }
 
-    private func drainPendingSpeech() {
+    static func shouldInterruptSpeech(currentPriority: Double, incomingPriority: Double, mayInterrupt: Bool) -> Bool {
+        mayInterrupt && incomingPriority >= 2 && incomingPriority > currentPriority
+    }
+
+    private func finishSpeech(_ utterance: AVSpeechUtterance) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, !speechSynthesizer.isSpeaking, let pendingSpeech else { return }
+            guard let self, utterance === activeUtterance else { return }
+            activeSpeech = nil
+            activeUtterance = nil
+            guard let pendingSpeech else { return }
             self.pendingSpeech = nil
-            if acceptsAudio(pendingSpeech.generation), ProcessInfo.processInfo.systemUptime - pendingSpeech.createdAt <= 1.5 {
+            if acceptsAudio(pendingSpeech.generation), ProcessInfo.processInfo.systemUptime - pendingSpeech.createdAt <= 3 {
                 startSpeech(pendingSpeech)
             }
         }
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        drainPendingSpeech()
+        finishSpeech(utterance)
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        drainPendingSpeech()
+        finishSpeech(utterance)
     }
 }
 

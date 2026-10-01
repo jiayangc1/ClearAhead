@@ -154,14 +154,6 @@ struct SpatialEvent {
         guard let box else { return direction.pan }
         return Float(min(max((Double(box.midX) - 0.5) / 0.3, -1), 1))
     }
-
-    func withTimestamp(_ timestamp: TimeInterval) -> SpatialEvent {
-        SpatialEvent(id: id, kind: kind, label: label, direction: direction, proximity: proximity,
-                     approximateDistanceMeters: approximateDistanceMeters, approachSpeed: approachSpeed,
-                     motionState: motionState, collisionRisk: collisionRisk, timeToCollisionSeconds: timeToCollisionSeconds,
-                     trajectoryConfidence: trajectoryConfidence, confidence: confidence, urgency: urgency,
-                     timestamp: timestamp, box: box)
-    }
 }
 
 struct FeedbackConfiguration {
@@ -177,6 +169,7 @@ struct FeedbackConfiguration {
     var modelVariant = "n"
     var depthMapEnabled = false
     var showBoundingBoxes = true
+    var boundingBoxVerbosity = "standard"
     var spokenCategories: Set<String> = ["person", "vehicle", "obstacle", "furniture"]
 
     init() {}
@@ -199,6 +192,9 @@ struct FeedbackConfiguration {
         modelVariant = ["n", "s", "m", "l", "x"].contains(requestedVariant) ? requestedVariant : "n"
         depthMapEnabled = dictionary["depthMapEnabled"] as? Bool ?? false
         showBoundingBoxes = dictionary["showBoundingBoxes"] as? Bool ?? true
+        let requestedVerbosity = dictionary["boundingBoxVerbosity"] as? String ?? "standard"
+        boundingBoxVerbosity = ["verbose", "standard", "less"].contains(requestedVerbosity)
+            ? requestedVerbosity : "standard"
         if let requestedCategories = dictionary["spokenCategories"] as? [String] {
             let supportedCategories = Set(EventKind.allCases.map(\.rawValue))
             spokenCategories = Set(requestedCategories.filter(supportedCategories.contains))

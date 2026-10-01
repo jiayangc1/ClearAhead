@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
-  AppState,
   Easing,
   StatusBar,
   StyleSheet,
@@ -14,25 +13,19 @@ import { BrandLogo } from './src/components/BrandLogo';
 import {
   colors,
   hasFeedbackChannel,
-  toFeedbackConfiguration,
 } from './src/config';
 import { usePreferences } from './src/hooks/usePreferences';
 import { useReducedMotion } from './src/hooks/useReducedMotion';
-import { ClearAheadModule } from './src/native/ClearAheadModule';
 import { AssistScreen } from './src/screens/AssistScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import type { DemoScenario, PipelineMetrics } from './src/types';
-import {
-  SessionController,
-  runFeedbackTest,
-} from './src/utils/sessionController';
+import type { PipelineMetrics } from './src/types';
 
 type Route =
   | { name: 'home' }
   | { name: 'settings' }
-  | { name: 'assist'; demoScenario?: DemoScenario };
+  | { name: 'assist' };
 
 export default function App() {
   const { preferences, setPreferences, isHydrated, storageError } =
@@ -44,8 +37,6 @@ export default function App() {
     cameraPermission.hasPermission && hasFeedbackChannel(preferences);
   const reduceMotion = useReducedMotion();
   const routeProgress = useRef(new Animated.Value(1)).current;
-  const feedbackTest = useRef<AbortController | undefined>(undefined);
-  useEffect(() => () => feedbackTest.current?.abort(), []);
   useEffect(() => {
     if (reduceMotion) {
       routeProgress.stopAnimation();
@@ -108,34 +99,7 @@ export default function App() {
           onMountingModeChange={mountingMode =>
             setPreferences({ mountingMode })
           }
-          onTestFeedback={async () => {
-            if (AppState.currentState !== 'active') {
-              throw new Error('Return to the app to test feedback.');
-            }
-            feedbackTest.current?.abort();
-            const abort = new AbortController();
-            feedbackTest.current = abort;
-            const session = new SessionController(
-              () =>
-                ClearAheadModule.updateConfiguration(
-                  toFeedbackConfiguration(preferences),
-                ),
-              () => ClearAheadModule.startDemo('crossing-person'),
-              () => ClearAheadModule.stopDemo(),
-            );
-            const subscription = AppState.addEventListener('change', state => {
-              if (state !== 'active') {
-                abort.abort();
-              }
-            });
-            try {
-              await runFeedbackTest(session, abort.signal);
-            } finally {
-              subscription.remove();
-            }
-          }}
           onComplete={() => {
-            feedbackTest.current?.abort();
             setPreferences({ onboardingComplete: true });
           }}
         />
@@ -176,10 +140,6 @@ export default function App() {
             onStart={() => {
               if (canStartAssist) navigate({ name: 'assist' });
             }}
-            onDemo={() => {
-              if (hasFeedbackChannel(preferences))
-                navigate({ name: 'assist', demoScenario: 'crossing-person' });
-            }}
             onSettings={() => navigate({ name: 'settings' })}
             onHome={() => navigate({ name: 'home' })}
           />
@@ -200,7 +160,6 @@ export default function App() {
         {route.name === 'assist' ? (
           <AssistScreen
             preferences={preferences}
-            demoScenario={route.demoScenario}
             onMetrics={setLastMetrics}
             onStop={() => navigate({ name: 'home' })}
           />
