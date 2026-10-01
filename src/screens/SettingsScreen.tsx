@@ -196,7 +196,7 @@ export function SettingsScreen({
           <ToggleRow
             label="Directional audio"
             description={
-              'Pitch shows distance, pulse speed shows urgency, and stereo position shows direction.'
+              'Pitch shows distance and pulse speed shows urgency. On speakers: falling pitch means left, steady means ahead, rising means right. Headphones add stereo direction.'
             }
             value={preferences.audioEnabled}
             onValueChange={value => onChange({ audioEnabled: value })}

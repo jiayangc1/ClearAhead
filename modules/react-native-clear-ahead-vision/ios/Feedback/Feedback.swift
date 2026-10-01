@@ -14,7 +14,8 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
 
     private struct PendingTone {
         let generation: Int
-        let profile: AudioCueProfile
+        let event: SpatialEvent
+        let configuration: FeedbackConfiguration
         let priority: Double
     }
 
@@ -213,7 +214,8 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
     private func enqueueTone(for event: SpatialEvent, configuration: FeedbackConfiguration) {
         let pending = PendingTone(
             generation: generation.current,
-            profile: AudioCueProfile(event: event, configuration: configuration),
+            event: event,
+            configuration: configuration,
             priority: event.urgency + (event.collisionRisk == .imminent ? 1 : 0)
         )
         audioQueue.async { [weak self] in
@@ -230,9 +232,18 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
 
     private func playTone(_ pending: PendingTone) {
         guard acceptsAudio(pending.generation) else { return }
-        guard let audioBuffer = makeAudioBuffer(profile: pending.profile) else { return }
         activateAudioEngine()
         guard audioEngine.isRunning else { return }
+        // Read the active route at playback so queued cues follow output changes.
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        let stereo = !outputs.isEmpty && outputs.allSatisfy {
+            $0.portType != .builtInSpeaker && $0.portType != .builtInReceiver
+                && ($0.channels?.count ?? 0) >= 2
+        }
+        let profile = AudioCueProfile(
+            event: pending.event, configuration: pending.configuration, stereo: stereo
+        )
+        guard let audioBuffer = makeAudioBuffer(profile: profile) else { return }
         tonePlaying = true
         audioPlayer.scheduleBuffer(
             audioBuffer,
@@ -375,7 +386,7 @@ struct AudioCueProfile {
     let pan: Float
     let gain: Float
 
-    init(event: SpatialEvent, configuration: FeedbackConfiguration) {
+    init(event: SpatialEvent, configuration: FeedbackConfiguration, stereo: Bool = true) {
         let closeness: Double
         if let distance = event.approximateDistanceMeters {
             closeness = 1 - min(max(distance / configuration.warningDistanceMeters, 0), 1)
@@ -388,8 +399,10 @@ struct AudioCueProfile {
             }
         }
 
-        let baseFrequency = 360 + closeness * 720
-        if event.collisionRisk != .none {
+        let baseFrequency = event.collisionRisk == .none
+            ? 360 + closeness * 720
+            : (event.collisionRisk == .imminent ? 970.0 : 820.0)
+        if event.collisionRisk != .none && stereo {
             startFrequency = 520
             endFrequency = event.collisionRisk == .imminent ? 1_420 : 1_120
         } else {
@@ -418,7 +431,7 @@ struct AudioCueProfile {
         }
         pulseDuration = event.collisionRisk == .none ? 0.075 - urgency * 0.02 : 0.045
         pulseGap = event.collisionRisk == .none ? 0.18 - urgency * 0.11 : 0.05
-        pan = event.direction.pan
+        pan = stereo ? event.direction.pan : 0
         gain = Float(min(max(configuration.audioVolume * (0.72 + urgency * 0.28), 0), 1))
     }
 }
