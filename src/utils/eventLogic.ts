@@ -59,7 +59,6 @@ export function qualityMessage(quality: SessionQuality): string {
     'camera-too-close': 'Camera too close. Move it back.',
     'moving-too-fast': 'Phone is moving too quickly. Slow down.',
     'thermal-limited': 'Device is warm. Processing has slowed.',
-    overloaded: 'Processing is behind. Hold the phone steady.',
   };
   return messages[quality];
 }

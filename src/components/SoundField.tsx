@@ -1,16 +1,18 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors } from '../config';
-import type { ObjectDetectionOverlay, SpatialEvent } from '../types';
+import type { BoundingBoxVerbosity, ObjectDetectionOverlay, SpatialEvent } from '../types';
 
-export function SoundField({
+export const SoundField = React.memo(function SoundFieldView({
   event,
   detections,
   showBoundingBoxes,
+  boundingBoxVerbosity,
 }: {
   event?: SpatialEvent;
   detections: ObjectDetectionOverlay[];
   showBoundingBoxes: boolean;
+  boundingBoxVerbosity: BoundingBoxVerbosity;
 }) {
   return (
     <View
@@ -66,15 +68,17 @@ export function SoundField({
                 ]}
               />
               <Text style={styles.boxLabel} numberOfLines={1}>
-                {detection.label.toUpperCase()}{' '}
-                {Math.round(detection.confidence * 100)}%
+                {detection.label.toUpperCase()}
+                {boundingBoxVerbosity === 'verbose'
+                  ? ` ${Math.round(detection.confidence * 100)}%`
+                  : ''}
               </Text>
             </View>
           ))
         : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   directionGlow: {

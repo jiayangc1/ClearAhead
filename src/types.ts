@@ -1,5 +1,6 @@
 export type MountingMode = 'handheld' | 'chest';
 export type ProcessingMode = 'responsive' | 'detailed';
+export type BoundingBoxVerbosity = 'verbose' | 'standard' | 'less';
 export type ModelVariant = 'n' | 's' | 'm' | 'l' | 'x';
 export type Direction = 'left' | 'center' | 'right';
 export type Proximity = 'near' | 'medium' | 'far' | 'unknown';
@@ -24,8 +25,7 @@ export type SessionQuality =
   | 'camera-covered'
   | 'camera-too-close'
   | 'moving-too-fast'
-  | 'thermal-limited'
-  | 'overloaded';
+  | 'thermal-limited';
 
 export interface NormalizedBox {
   x: number;
@@ -79,6 +79,7 @@ export interface FeedbackConfiguration {
   modelVariant: ModelVariant;
   depthMapEnabled: boolean;
   showBoundingBoxes: boolean;
+  boundingBoxVerbosity: BoundingBoxVerbosity;
   spokenCategories: EventKind[];
 }
 
@@ -133,8 +134,3 @@ export interface QualityPayload {
   quality: SessionQuality;
   message: string;
 }
-
-export type DemoScenario =
-  | 'hallway'
-  | 'crossing-person'
-  | 'approaching-vehicle';

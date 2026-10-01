@@ -5,12 +5,16 @@ const riskRank = { none: 0, caution: 1, imminent: 2 };
 
 export class AnnouncementGate {
   private lastEvent?: SpatialEvent;
-  private lastEventTime = -Infinity;
   private lastMessage = '';
   private lastMessageTime = -Infinity;
+  private lastAnnouncementTime = -Infinity;
+  private clearedAt?: number;
 
   event(event: SpatialEvent, now: number): boolean {
-    const previous = this.lastEvent;
+    const previous = this.clearedAt != null && now - this.clearedAt >= 3
+      ? undefined : this.lastEvent;
+    this.clearedAt = undefined;
+    const escalated = !previous || riskRank[event.collisionRisk] > riskRank[previous.collisionRisk];
     const changed =
       !previous ||
       event.id !== previous.id ||
@@ -21,28 +25,29 @@ export class AnnouncementGate {
       event.urgency >= previous.urgency + 0.2;
     if (
       !changed ||
-      (event.collisionRisk !== 'imminent' && now - this.lastEventTime < 0.32)
+      (!escalated && now - this.lastAnnouncementTime < 1.2)
     ) {
       return false;
     }
     this.lastEvent = event;
-    this.lastEventTime = now;
+    this.lastAnnouncementTime = now;
     return true;
   }
 
   message(message: string, now: number, urgent = false): boolean {
     if (
-      (message === this.lastMessage && now - this.lastMessageTime < 2.5) ||
-      (!urgent && now - this.lastMessageTime < 1)
+      (message === this.lastMessage && now - this.lastMessageTime < 10) ||
+      (!urgent && now - this.lastAnnouncementTime < 3)
     ) {
       return false;
     }
     this.lastMessage = message;
     this.lastMessageTime = now;
+    this.lastAnnouncementTime = now;
     return true;
   }
 
-  clear(): void {
-    this.lastEvent = undefined;
+  clear(now = Date.now() / 1000): void {
+    this.clearedAt ??= now;
   }
 }

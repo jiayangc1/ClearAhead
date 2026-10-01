@@ -1,4 +1,5 @@
 import CoreML
+import UIKit
 import XCTest
 @testable import ClearAheadVision
 
@@ -86,5 +87,86 @@ final class ModelOutputTests: XCTestCase {
         }
         let floor = try XCTUnwrap(DepthMap(array: array))
         XCTAssertNil(floor.pathObstacle(within: 3))
+    }
+
+    func testDepthCopyPreservesSupportedFloatingPointTypesAndInvalidPixels() throws {
+        for dataType in [MLMultiArrayDataType.float16, .float32, .double] {
+            let array = try MLMultiArray(shape: [1, 1, 8, 8], dataType: dataType)
+            for index in 0..<64 { array[index] = NSNumber(value: 2.5) }
+            array[0] = NSNumber(value: Double.nan)
+            array[1] = NSNumber(value: -1)
+            let map = try XCTUnwrap(DepthMap(array: array))
+            XCTAssertTrue(map.values[0].isNaN)
+            XCTAssertTrue(map.values[1].isNaN)
+            XCTAssertEqual(map.values[2], 2.5, accuracy: 0.001)
+        }
+    }
+
+    func testDepthCopyRespectsNoncontiguousStrides() throws {
+        let pointer = UnsafeMutablePointer<Float>.allocate(capacity: 128)
+        pointer.initialize(repeating: 99, count: 128)
+        defer { pointer.deinitialize(count: 128); pointer.deallocate() }
+        for row in 0..<8 {
+            for column in 0..<8 { pointer[row * 16 + column * 2] = Float(row + 1) }
+        }
+        let array = try MLMultiArray(dataPointer: UnsafeMutableRawPointer(pointer), shape: [1, 1, 8, 8], dataType: .float32,
+                                     strides: [128, 128, 16, 2], deallocator: nil)
+        let map = try XCTUnwrap(DepthMap(array: array))
+        XCTAssertEqual(map.values[0], 1)
+        XCTAssertEqual(map.values[63], 8)
+        XCTAssertFalse(map.values.contains(99))
+    }
+
+    func testSparseSideObstructionDoesNotBecomeObstacleAhead() throws {
+        let array = try MLMultiArray(shape: [1, 1, 192, 256], dataType: .float32)
+        for index in 0..<array.count { array[index] = NSNumber(value: 8) }
+        for row in 40..<130 {
+            for column in 65..<100 { array[row * 256 + column] = NSNumber(value: 0.6) }
+        }
+        let map = try XCTUnwrap(DepthMap(array: array))
+        XCTAssertNil(map.pathObstacle(within: 3))
+    }
+
+    func testPathCollisionRequiresStablePersistentEvidence() {
+        let obstacle = PathObstacleObservation(distanceMeters: 1.2,
+                                               box: CGRect(x: 0.3, y: 0.2, width: 0.4, height: 0.5), coverage: 0.3)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 3, duration: 1, closingSpeed: 1, stable: true), .none)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 4, duration: 0.5, closingSpeed: 1, stable: true), .none)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 4, duration: 0.8, closingSpeed: 1, stable: false), .none)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 4, duration: 0.8, closingSpeed: 1, stable: true), .imminent)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 4, duration: 0.8, closingSpeed: 0.5, stable: true), .caution)
+        XCTAssertEqual(obstacle.collisionRisk(observations: 5, duration: 1.5, closingSpeed: 0, stable: true), .none)
+        let close = PathObstacleObservation(distanceMeters: 0.5, box: obstacle.box, coverage: 0.3)
+        XCTAssertEqual(close.collisionRisk(observations: 5, duration: 1.5, closingSpeed: 0, stable: true), .caution)
+        let sparse = PathObstacleObservation(distanceMeters: 0.5, box: obstacle.box, coverage: 0.1)
+        XCTAssertEqual(sparse.collisionRisk(observations: 5, duration: 1.5, closingSpeed: 1, stable: true), .none)
+    }
+
+    func testBoundingBoxVerbosityFiltersUnnecessaryObjects() {
+        let pathBox = CGRect(x: 0.4, y: 0.2, width: 0.2, height: 0.4)
+        let person = YOLODetection(classIdentifier: 0, confidence: 0.9, box: pathBox)
+        let cup = YOLODetection(classIdentifier: 41, confidence: 0.9, box: pathBox)
+        let weakPerson = YOLODetection(classIdentifier: 0, confidence: 0.3, box: pathBox)
+        let sideChair = YOLODetection(classIdentifier: 56, confidence: 0.9, box: CGRect(x: 0, y: 0.2, width: 0.15, height: 0.4))
+        XCTAssertTrue(person.shouldDisplay(verbosity: "standard"))
+        XCTAssertFalse(cup.shouldDisplay(verbosity: "standard"))
+        XCTAssertFalse(weakPerson.shouldDisplay(verbosity: "standard"))
+        XCTAssertFalse(sideChair.shouldDisplay(verbosity: "standard"))
+        XCTAssertTrue(cup.shouldDisplay(verbosity: "verbose"))
+        XCTAssertTrue(weakPerson.shouldDisplay(verbosity: "verbose"))
+        XCTAssertFalse(person.shouldDisplay(verbosity: "less"))
+    }
+
+    func testDepthPreviewIsBoundedAndKeepsFullDepthValues() throws {
+        let array = try MLMultiArray(shape: [1, 1, 48, 64], dataType: .float32)
+        for index in 0..<array.count { array[index] = NSNumber(value: 2.5) }
+        let map = try XCTUnwrap(DepthMap(array: array))
+        let url = try XCTUnwrap(map.heatmapDataURL(maxDimension: 16, farDistance: 6))
+        let data = try XCTUnwrap(Data(base64Encoded: String(url.dropFirst("data:image/png;base64,".count))))
+        let image = try XCTUnwrap(UIImage(data: data)?.cgImage)
+        XCTAssertEqual(image.width, 16)
+        XCTAssertEqual(image.height, 12)
+        XCTAssertEqual(map.values.count, 48 * 64)
+        XCTAssertEqual(try XCTUnwrap(map.distance(inVisionBox: CGRect(x: 0, y: 0, width: 1, height: 1))), 2.5, accuracy: 0.001)
     }
 }

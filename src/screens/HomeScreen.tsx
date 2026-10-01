@@ -4,7 +4,6 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {BrandLogo} from '../components/BrandLogo';
 import {BottomNavigation} from '../components/BottomNavigation';
 import {PrimaryButton} from '../components/Controls';
-import {SpringPressable} from '../components/Motion';
 import {colors, hasFeedbackChannel} from '../config';
 import type {AppPreferences, PipelineMetrics} from '../types';
 
@@ -13,7 +12,6 @@ export function HomeScreen({
   lastMetrics,
   hasCameraPermission,
   onStart,
-  onDemo,
   onSettings,
   onHome,
 }: {
@@ -21,7 +19,6 @@ export function HomeScreen({
   lastMetrics?: PipelineMetrics;
   hasCameraPermission: boolean;
   onStart: () => void;
-  onDemo: () => void;
   onSettings: () => void;
   onHome: () => void;
 }) {
@@ -49,7 +46,7 @@ export function HomeScreen({
           </View>
           {!hasCameraPermission ? (
             <Text accessibilityRole="alert" style={styles.cameraWarning}>
-              Camera access is off. Enable Camera in iOS Settings or try the safe demo.
+              Camera access is off. Enable Camera in iOS Settings.
             </Text>
           ) : null}
           {!feedbackReady ? (
@@ -84,19 +81,6 @@ export function HomeScreen({
           </View>
         </View>
 
-        <View style={styles.actions}>
-          <SpringPressable
-            accessibilityRole="button"
-            accessibilityLabel="Try a safe demo"
-            accessibilityHint="Runs a seated simulation without the camera"
-            onPress={onDemo}
-            disabled={!feedbackReady}
-            pressedScale={0.95}
-            style={styles.demoButton}
-          >
-            <Text style={styles.demoText}>Try a safe demo</Text>
-          </SpringPressable>
-        </View>
       </ScrollView>
       <BottomNavigation active="home" onHome={onHome} onAssist={onStart} onSettings={onSettings} assistDisabled={!assistReady} />
     </SafeAreaView>
@@ -184,8 +168,5 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     flex: 1,
   },
-  actions: {paddingTop: 10},
   cameraWarning: {color: colors.amber, fontSize: 15, lineHeight: 21},
-  demoButton: {minHeight: 50, alignItems: 'center', justifyContent: 'center'},
-  demoText: {color: colors.muted, fontSize: 15, fontWeight: '700'},
 });
