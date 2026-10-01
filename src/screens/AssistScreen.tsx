@@ -9,6 +9,7 @@ import {
   AccessibilityInfo,
   AppState,
   Image,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -37,6 +38,9 @@ import type {
 } from '../types';
 import { describeEvent, qualityMessage } from '../utils/eventLogic';
 import { cameraStartedMessage } from '../utils/sessionStatus';
+import { chooseRearCamera } from '../utils/cameraSelection';
+import { AnnouncementGate } from '../utils/announcements';
+import { SessionController } from '../utils/sessionController';
 
 export function AssistScreen({
   preferences,
@@ -61,41 +65,34 @@ export function AssistScreen({
   );
   const isDemo = demoScenario != null;
   const previousQuality = useRef(quality);
+  const announcements = useRef(new AnnouncementGate());
+  const sessionController = useRef<SessionController | undefined>(undefined);
+  const startupError = useRef(false);
+  const cameraInterrupted = useRef(false);
   const latestStatus = useRef<
     import('../types').SessionStatusPayload | undefined
   >(undefined);
   const cameraDevices = useCameraDevices();
   const cameraDevice = useMemo(() => {
-    const backDevices = cameraDevices
-      .filter(device => device.position === 'back')
-      .sort(
-        (left, right) =>
-          (left.focalLength ?? Number.MAX_VALUE) -
-          (right.focalLength ?? Number.MAX_VALUE),
-      );
-    if (preferences.cameraDeviceId !== 'widest') {
-      const selected = backDevices.find(
-        device => device.id === preferences.cameraDeviceId,
-      );
-      if (selected) {
-        return selected;
-      }
-    }
-    return (
-      backDevices.find(device => device.type === 'ultra-wide-angle') ??
-      backDevices[0]
-    );
+    return chooseRearCamera(cameraDevices, preferences.cameraDeviceId);
   }, [cameraDevices, preferences.cameraDeviceId]);
 
   useEffect(() => {
-    if (quality !== previousQuality.current && quality !== 'good') {
+    if (
+      quality !== previousQuality.current &&
+      quality !== 'good' &&
+      announcements.current.message(qualityMessage(quality), Date.now() / 1000)
+    ) {
       AccessibilityInfo.announceForAccessibility(qualityMessage(quality));
     }
     previousQuality.current = quality;
   }, [quality]);
 
   useEffect(() => {
-    if (sessionState === 'error') {
+    if (
+      sessionState === 'error' &&
+      announcements.current.message(statusMessage, Date.now() / 1000)
+    ) {
       AccessibilityInfo.announceForAccessibility(statusMessage);
     }
   }, [sessionState, statusMessage]);
@@ -132,12 +129,39 @@ export function AssistScreen({
     let active = true;
     const subscriptions = [
       ClearAheadModule.onStatus(payload => {
+        if (!active || AppState.currentState !== 'active') {
+          return;
+        }
+        if (
+          (startupError.current || cameraInterrupted.current) &&
+          payload.state === 'idle'
+        ) {
+          return;
+        }
         latestStatus.current = payload;
         setSessionState(payload.state);
         setStatusMessage(payload.message);
+        if (
+          (payload.severity === 'warning' || payload.severity === 'error') &&
+          announcements.current.message(
+            payload.message,
+            Date.now() / 1000,
+            true,
+          )
+        ) {
+          AccessibilityInfo.announceForAccessibility(payload.message);
+        }
       }),
-      ClearAheadModule.onEvent(payload => setEvent(payload)),
-      ClearAheadModule.onEventCleared(() => setEvent(undefined)),
+      ClearAheadModule.onEvent(payload => {
+        setEvent(payload);
+        if (announcements.current.event(payload, Date.now() / 1000)) {
+          AccessibilityInfo.announceForAccessibility(describeEvent(payload));
+        }
+      }),
+      ClearAheadModule.onEventCleared(() => {
+        setEvent(undefined);
+        announcements.current.clear();
+      }),
       ClearAheadModule.onQuality(payload => setQuality(payload.quality)),
       ClearAheadModule.onMetrics(payload => {
         setMetrics(payload);
@@ -149,7 +173,11 @@ export function AssistScreen({
         ? [ClearAheadModule.onDetections(setDetections)]
         : []),
       ...(preferences.depthMapEnabled
-        ? [ClearAheadModule.onDepthMap(payload => setDepthMapDataUrl(payload.dataUrl))]
+        ? [
+            ClearAheadModule.onDepthMap(payload =>
+              setDepthMapDataUrl(payload.dataUrl ?? undefined),
+            ),
+          ]
         : []),
       ClearAheadModule.onModelDownload(payload =>
         setStatusMessage(payload.message),
@@ -157,17 +185,31 @@ export function AssistScreen({
     ];
 
     const configuration = toFeedbackConfiguration(preferences);
-    const startNativeSession = () =>
-      ClearAheadModule.updateConfiguration(configuration).then(() =>
+    const controller = new SessionController(
+      () => ClearAheadModule.updateConfiguration(configuration),
+      () =>
         isDemo
           ? ClearAheadModule.startDemo(demoScenario)
           : ClearAheadModule.startSession(configuration),
-      );
+      () =>
+        isDemo ? ClearAheadModule.stopDemo() : ClearAheadModule.stopSession(),
+    );
+    sessionController.current = controller;
+    const startNativeSession = () => {
+      startupError.current = false;
+      if (!isDemo && !cameraDevice) {
+        return Promise.reject(
+          new Error('No rear camera available. Assist mode cannot start.'),
+        );
+      }
+      return controller.start();
+    };
     const handleStartError = (error: unknown) => {
-      if (!active) {
+      if (!active || AppState.currentState !== 'active') {
         return;
       }
       setSessionState('error');
+      startupError.current = true;
       setStatusMessage(
         error instanceof Error ? error.message : 'Session could not start',
       );
@@ -180,10 +222,12 @@ export function AssistScreen({
     const appStateSubscription = AppState.addEventListener('change', next => {
       setIsForeground(next === 'active');
       if (next !== 'active') {
-        (isDemo
-          ? ClearAheadModule.stopDemo()
-          : ClearAheadModule.stopSession()
-        ).catch(() => undefined);
+        cameraInterrupted.current = false;
+        controller.stop().catch(() => undefined);
+        setEvent(undefined);
+        setDetections([]);
+        setDepthMapDataUrl(undefined);
+        announcements.current.clear();
         setSessionState('paused');
         setStatusMessage('Paused while Clear Ahead is in the background');
         AccessibilityInfo.announceForAccessibility(
@@ -193,8 +237,8 @@ export function AssistScreen({
         setSessionState('starting');
         setStatusMessage(isDemo ? 'Restarting safe demo' : 'Restarting camera');
         startNativeSession()
-          .then(() => {
-            if (active) {
+          .then(started => {
+            if (active && started) {
               AccessibilityInfo.announceForAccessibility(
                 isDemo ? 'Safe demo resumed.' : 'Assist mode resumed.',
               );
@@ -208,20 +252,25 @@ export function AssistScreen({
       active = false;
       subscriptions.forEach(subscription => subscription?.remove());
       appStateSubscription.remove();
-      (isDemo
-        ? ClearAheadModule.stopDemo()
-        : ClearAheadModule.stopSession()
-      ).catch(() => undefined);
+      controller.stop().catch(() => undefined);
     };
-  }, [demoScenario, isDemo, onMetrics, preferences]);
+  }, [cameraDevice, demoScenario, isDemo, onMetrics, preferences]);
 
   const eventDescription = useMemo(
     () => (event ? describeEvent(event) : 'Field clear'),
     [event],
   );
+  const statusHasWarning =
+    sessionState === 'error' ||
+    latestStatus.current?.severity === 'warning' ||
+    latestStatus.current?.severity === 'error';
+  const displayedStatus =
+    statusHasWarning || quality === 'good'
+      ? statusMessage
+      : qualityMessage(quality);
 
   const stop = () => {
-    (isDemo ? ClearAheadModule.stopDemo() : ClearAheadModule.stopSession())
+    (sessionController.current?.stop() ?? ClearAheadModule.stopSession())
       .catch(() => undefined)
       .finally(onStop);
   };
@@ -244,19 +293,44 @@ export function AssistScreen({
             );
           }}
           onError={error => {
+            startupError.current = true;
             setSessionState('error');
             setStatusMessage(error.message);
-            ClearAheadModule.stopSession().catch(() => undefined);
+            sessionController.current?.stop().catch(() => undefined);
+            setEvent(undefined);
+            setDetections([]);
+            setDepthMapDataUrl(undefined);
           }}
           onInterruptionStarted={() => {
+            if (AppState.currentState !== 'active') {
+              return;
+            }
+            cameraInterrupted.current = true;
+            sessionController.current?.stop().catch(() => undefined);
             setSessionState('paused');
             setStatusMessage('Camera interrupted');
+            setEvent(undefined);
+            setDetections([]);
+            setDepthMapDataUrl(undefined);
+            announcements.current.clear();
           }}
           onInterruptionEnded={() => {
-            setSessionState('running');
-            setStatusMessage(current =>
-              cameraStartedMessage(current, latestStatus.current),
-            );
+            cameraInterrupted.current = false;
+            if (AppState.currentState !== 'active') {
+              return;
+            }
+            startupError.current = false;
+            setSessionState('starting');
+            setStatusMessage('Waiting for camera frames');
+            sessionController.current?.start().catch(error => {
+              startupError.current = true;
+              setSessionState('error');
+              setStatusMessage(
+                error instanceof Error
+                  ? error.message
+                  : 'Camera could not restart',
+              );
+            });
           }}
         />
       ) : isDemo ? (
@@ -289,114 +363,111 @@ export function AssistScreen({
         showBoundingBoxes={preferences.showBoundingBoxes}
       />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
-        <View
-          accessible
-          accessibilityLiveRegion="polite"
-          accessibilityLabel={`${statusMessage}. ${qualityMessage(quality)}`}
-          style={styles.statusPill}
-        >
-          <View
-            style={[
-              styles.statusDot,
-              quality !== 'good' && styles.statusDotWarning,
-            ]}
-          />
-          <Text style={styles.statusText}>
-            {quality === 'good' ? statusMessage : qualityMessage(quality)}
-          </Text>
-          {metrics && !isDemo ? (
-            <Text style={styles.latency}>
-              Processing {Math.round(metrics.processingLatencyMs)} ms
-            </Text>
-          ) : null}
-        </View>
-
-        {preferences.showFps ? (
+        <ScrollView contentContainerStyle={styles.assistContent}>
           <View
             accessible
-            accessibilityLabel={
-              metrics
-                ? `Processed ${metrics.cameraFps.toFixed(
-                    1,
-                  )} frames per second. Objects ${metrics.detectorFps.toFixed(
-                    1,
-                  )} per second. Depth ${metrics.depthFps.toFixed(
-                    1,
-                  )} per second. ${metrics.droppedFrames} dropped frames.`
-                : 'Waiting for frame rate measurements'
-            }
-            style={styles.fpsLine}
+            accessibilityLabel={`${statusMessage}. ${qualityMessage(quality)}`}
+            style={styles.statusPill}
           >
-            <Text style={styles.fpsText}>
-              {metrics
-                ? `${metrics.cameraFps.toFixed(
-                    0,
-                  )} fps  ·  objects ${metrics.detectorFps.toFixed(
-                    0,
-                  )}  ·  depth ${metrics.depthFps.toFixed(0)}`
-                : 'Measuring performance…'}
-            </Text>
-          </View>
-        ) : null}
-
-        {preferences.depthMapEnabled && !isDemo ? (
-          <View
-            accessible
-            accessibilityLabel="Depth colors: red is close, blue is far"
-            style={styles.depthLegend}
-          >
-            <Text style={styles.depthNear}>CLOSE</Text>
-            <View style={styles.depthLegendLine} />
-            <Text style={styles.depthFar}>FAR</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.spacer} />
-
-        <View style={styles.bottomGroup}>
-          <View
-            accessible
-            accessibilityLiveRegion="polite"
-            accessibilityLabel={eventDescription}
-            style={[
-              styles.eventCard,
-              event?.collisionRisk === 'caution' && styles.eventCardCaution,
-              event?.collisionRisk === 'imminent' && styles.eventCardCritical,
-            ]}
-          >
-            <View style={styles.eventHeader}>
-              <Text style={styles.eventEyebrow}>
-                {event?.collisionRisk === 'imminent'
-                  ? 'COLLISION LIKELY'
-                  : event?.collisionRisk === 'caution'
-                  ? 'POSSIBLE COLLISION'
-                  : event
-                  ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
-                  : 'FIELD CLEAR'}
+            <View
+              style={[
+                styles.statusDot,
+                quality !== 'good' && styles.statusDotWarning,
+              ]}
+            />
+            <Text style={styles.statusText}>{displayedStatus}</Text>
+            {metrics && !isDemo ? (
+              <Text style={styles.latency}>
+                Processing {Math.round(metrics.processingLatencyMs)} ms
               </Text>
-              {!event ? <View style={styles.clearMark} /> : null}
-            </View>
-            <Text style={styles.eventTitle}>
-              {event?.collisionRisk === 'imminent'
-                ? 'Stop'
-                : event?.collisionRisk === 'caution'
-                ? 'Caution'
-                : event
-                ? event.label ?? event.kind.replace('-', ' ')
-                : 'Listening'}
-            </Text>
-            {event ? (
-              <Text style={styles.eventDescription}>{eventDescription}</Text>
             ) : null}
           </View>
 
-          <PrimaryButton
-            label={isDemo ? 'Stop demo' : 'Stop Assist Mode'}
-            hint="Stops the camera and all feedback immediately"
-            destructive
-            onPress={stop}
-          />
-        </View>
+          {preferences.showFps ? (
+            <View
+              accessible
+              accessibilityLabel={
+                metrics
+                  ? `Processed ${metrics.cameraFps.toFixed(
+                      1,
+                    )} frames per second. Objects ${metrics.detectorFps.toFixed(
+                      1,
+                    )} per second. Depth ${metrics.depthFps.toFixed(
+                      1,
+                    )} per second. ${metrics.droppedFrames} dropped frames.`
+                  : 'Waiting for frame rate measurements'
+              }
+              style={styles.fpsLine}
+            >
+              <Text style={styles.fpsText}>
+                {metrics
+                  ? `${metrics.cameraFps.toFixed(
+                      0,
+                    )} fps  ·  objects ${metrics.detectorFps.toFixed(
+                      0,
+                    )}  ·  depth ${metrics.depthFps.toFixed(0)}`
+                  : 'Measuring performance…'}
+              </Text>
+            </View>
+          ) : null}
+
+          {preferences.depthMapEnabled && !isDemo ? (
+            <View
+              accessible
+              accessibilityLabel="Depth colors: red is close, blue is far"
+              style={styles.depthLegend}
+            >
+              <Text style={styles.depthNear}>CLOSE</Text>
+              <View style={styles.depthLegendLine} />
+              <Text style={styles.depthFar}>FAR</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.spacer} />
+
+          <View style={styles.bottomGroup}>
+            <View
+              accessible
+              accessibilityLabel={eventDescription}
+              style={[
+                styles.eventCard,
+                event?.collisionRisk === 'caution' && styles.eventCardCaution,
+                event?.collisionRisk === 'imminent' && styles.eventCardCritical,
+              ]}
+            >
+              <View style={styles.eventHeader}>
+                <Text style={styles.eventEyebrow}>
+                  {event?.collisionRisk === 'imminent'
+                    ? 'COLLISION LIKELY'
+                    : event?.collisionRisk === 'caution'
+                    ? 'POSSIBLE COLLISION'
+                    : event
+                    ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
+                    : 'FIELD CLEAR'}
+                </Text>
+                {!event ? <View style={styles.clearMark} /> : null}
+              </View>
+              <Text style={styles.eventTitle}>
+                {event?.collisionRisk === 'imminent'
+                  ? 'Stop'
+                  : event?.collisionRisk === 'caution'
+                  ? 'Caution'
+                  : event
+                  ? event.label ?? event.kind.replace('-', ' ')
+                  : 'Listening'}
+              </Text>
+              {event ? (
+                <Text style={styles.eventDescription}>{eventDescription}</Text>
+              ) : null}
+            </View>
+          </View>
+        </ScrollView>
+        <PrimaryButton
+          label={isDemo ? 'Stop demo' : 'Stop Assist Mode'}
+          hint="Stops the camera and all feedback immediately"
+          destructive
+          onPress={stop}
+        />
       </SafeAreaView>
     </View>
   );
@@ -406,6 +477,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.black },
   depthLoading: { backgroundColor: colors.black },
   safeArea: { flex: 1, paddingHorizontal: 14, paddingVertical: 10 },
+  assistContent: { flexGrow: 1, paddingBottom: 10 },
   statusPill: {
     minHeight: 44,
     alignSelf: 'stretch',

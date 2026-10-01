@@ -9,6 +9,52 @@ final class CollisionTrackerTests: XCTestCase {
         configuration.sensitivity = 1
     }
 
+    func testVehicleClassJitterKeepsIdentity() {
+        let tracker = CollisionTracker()
+        let car = ObjectDetection(kind: .vehicle, label: "car", box: CGRect(x: 0.4, y: 0.2, width: 0.2, height: 0.4),
+                                  depth: DepthMeasurement(distanceMeters: 3, timestamp: 1), confidence: 0.95)
+        let truck = ObjectDetection(kind: .vehicle, label: "truck", box: car.box,
+                                    depth: DepthMeasurement(distanceMeters: 2.8, timestamp: 1.2), confidence: 0.95)
+        let first = tracker.update(detections: [car], now: 1, configuration: configuration, rotationRate: 0).first
+        let second = tracker.update(detections: [truck], now: 1.2, configuration: configuration, rotationRate: 0).first
+        XCTAssertEqual(first?.id, second?.id)
+        XCTAssertEqual(second?.label, "truck")
+    }
+
+    func testGlobalAssignmentPreservesConstrainedTrack() {
+        let tracker = CollisionTracker()
+        let first = tracker.update(detections: [detection(x: 0.1), detection(x: 0.35)],
+                                   now: 1, configuration: configuration, rotationRate: 0)
+        let next = tracker.update(detections: [detection(x: 0.2, confidence: 0.99), detection(x: 0.08, confidence: 0.8)],
+                                  now: 1.2, configuration: configuration, rotationRate: 0)
+        XCTAssertEqual(next[0].id, first[1].id)
+        XCTAssertEqual(next[1].id, first[0].id)
+    }
+
+    func testShortOcclusionKeepsTrackIdentity() {
+        let tracker = CollisionTracker()
+        let first = tracker.update(detections: [detection(x: 0.4)], now: 1,
+                                   configuration: configuration, rotationRate: 0).first
+        _ = tracker.update(detections: [], now: 1.2, configuration: configuration, rotationRate: 0)
+        let next = tracker.update(detections: [detection(x: 0.42, depthTime: 1.4)], now: 1.4,
+                                  configuration: configuration, rotationRate: 0).first
+        XCTAssertEqual(first?.id, next?.id)
+    }
+
+    func testConstantDepthCrossingProducesCorridorEntryCaution() {
+        let tracker = CollisionTracker()
+        var latest: SpatialEvent?
+        for (index, x) in [0.02, 0.08, 0.14].enumerated() {
+            let now = 1 + Double(index) * 0.2
+            latest = tracker.update(detections: [detection(x: x, distance: 2, depthTime: now)],
+                                    now: now, configuration: configuration, rotationRate: 0).first
+        }
+        XCTAssertEqual(latest?.motionState, .crossing)
+        XCTAssertEqual(latest?.collisionRisk, .caution)
+        // Corridor entry is not a measured physical time-to-impact.
+        XCTAssertNil(latest?.timeToCollisionSeconds)
+    }
+
     func testAssociatesTwoPeopleInSameSectorWithoutMergingTracks() {
         let tracker = CollisionTracker()
         let first = tracker.update(
@@ -110,12 +156,12 @@ final class CollisionTrackerTests: XCTestCase {
         XCTAssertLessThan(latest?.trajectoryConfidence ?? 1, 0.65)
     }
 
-    func testLateralTrajectoryIsClassifiedAsCrossing() {
+    func testDistantLateralTrajectoryIsClassifiedAsCrossing() {
         let tracker = CollisionTracker()
         var latest: SpatialEvent?
         for (index, x) in [0.05, 0.14, 0.23].enumerated() {
             latest = tracker.update(
-                detections: [detection(x: x, distance: 3)],
+                detections: [detection(x: x, distance: 5)],
                 now: 1 + Double(index) * 0.25,
                 configuration: configuration,
                 rotationRate: 0

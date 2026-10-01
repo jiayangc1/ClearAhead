@@ -10,6 +10,9 @@ RCT_EXTERN_METHOD(startSession:(NSDictionary *)configuration
 RCT_EXTERN_METHOD(stopSession:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(cancelModelPreparation:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(updateConfiguration:(NSDictionary *)configuration
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)

@@ -56,7 +56,12 @@ yarn-error.log
 /coverage
 .build/
 
-# Core ML scratch inputs; exported YOLO26 packages are distributable app resources.
+# Only the Nano detector and depth packages belong in the repository.
+modules/react-native-clear-ahead-vision/models/*.mlpackage/
+!modules/react-native-clear-ahead-vision/models/YOLO26n.mlpackage/
+!modules/react-native-clear-ahead-vision/models/YOLO26nDepth.mlpackage/
+modules/react-native-clear-ahead-vision/models/*.mlpackage.zip
+modules/react-native-clear-ahead-vision/models/*.mlmodelc/
 modules/react-native-clear-ahead-vision/models/*.mlmodel
 modules/react-native-clear-ahead-vision/models/__MACOSX/
 

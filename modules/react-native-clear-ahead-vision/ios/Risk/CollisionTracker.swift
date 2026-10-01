@@ -25,13 +25,15 @@ final class CollisionTracker {
     private final class Track {
         let id: String
         let kind: EventKind
-        let label: String
+        var label: String
         var box: CGRect
+        var lastObservedBox: CGRect
         var distanceMeters: Double?
         var lastDepthDistance: Double?
         var lastDepthTime: TimeInterval?
         var confidence: Double
         var lateralVelocity = 0.0
+        var verticalVelocity = 0.0
         var signedClosingSpeed = 0.0
         var observations = 1
         var lastSeen: TimeInterval
@@ -43,6 +45,7 @@ final class CollisionTracker {
             kind = detection.kind
             label = detection.label
             box = detection.box
+            lastObservedBox = detection.box
             distanceMeters = detection.depth?.distanceMeters
             lastDepthDistance = detection.depth?.distanceMeters
             lastDepthTime = detection.depth?.timestamp
@@ -66,20 +69,20 @@ final class CollisionTracker {
         rotationRate: Double
     ) -> [SpatialEvent] {
         tracks.removeAll { now - $0.lastSeen > 0.8 }
-        var unmatched = Set(tracks.indices)
         var updatedTracks: [Track] = []
-
-        for detection in detections.sorted(by: { $0.confidence > $1.confidence }) {
-            let closestMatch = unmatched
-                .filter { tracks[$0].label == detection.label }
-                .map { index in (index, associationCost(track: tracks[index], detection: detection, now: now)) }
-                .filter { $0.1 < 0.72 }
-                .min { $0.1 < $1.1 }
-
+        let observations = Array(detections.sorted { $0.confidence > $1.confidence }.prefix(32))
+        let existingCount = tracks.count
+        let costs = observations.map { detection in
+            tracks.map { track in
+                track.kind == detection.kind ? associationCost(track: track, detection: detection, now: now) : 1000
+            } + [Double](repeating: 0.72, count: observations.count)
+        }
+        let assignment = minimumCostAssignment(costs)
+        for (index, detection) in observations.enumerated() {
+            let column = assignment[index]
             let track: Track
-            if let closestMatch {
-                track = tracks[closestMatch.0]
-                unmatched.remove(closestMatch.0)
+            if column < existingCount, costs[index][column] < 0.72 {
+                track = tracks[column]
                 apply(detection, to: track, now: now)
             } else {
                 track = Track(id: "track-\(nextIdentifier)", detection: detection, now: now)
@@ -100,18 +103,27 @@ final class CollisionTracker {
         now: TimeInterval
     ) -> Double {
         let elapsedTime = min(max(now - track.lastSeen, 0), 0.8)
-        let predictedCenter = Double(track.box.midX) + track.lateralVelocity * elapsedTime
-        let centerDistance = abs(predictedCenter - Double(detection.box.midX))
-        let overlap = intersectionOverUnion(track.box, detection.box)
+        let predictedBox = track.lastObservedBox.offsetBy(dx: track.lateralVelocity * elapsedTime,
+                                                        dy: track.verticalVelocity * elapsedTime)
+        let centerDistance = hypot(Double(predictedBox.midX - detection.box.midX), Double(predictedBox.midY - detection.box.midY))
+        let overlap = intersectionOverUnion(predictedBox, detection.box)
         let scaleDifference = abs(log(max(Double(detection.box.height), 0.02) / max(Double(track.box.height), 0.02)))
-        return (1 - overlap) * 0.5 + min(centerDistance / 0.35, 1) * 0.35 + min(scaleDifference, 1) * 0.15
+        let predictedDepth = track.distanceMeters.map { max(0, $0 - track.signedClosingSpeed * elapsedTime) }
+        let depthDifference: Double
+        if let predictedDepth, let depth = detection.depth {
+            depthDifference = min(abs(predictedDepth - depth.distanceMeters) / max(predictedDepth, 1), 1)
+        } else { depthDifference = 0 }
+        return (1 - overlap) * 0.35 + min(centerDistance / 0.35, 1) * 0.35
+            + min(scaleDifference, 1) * 0.15 + depthDifference * 0.15
     }
 
     private func apply(_ detection: ObjectDetection, to track: Track, now: TimeInterval) {
         let elapsedTime = max(now - track.lastSeen, 0.04)
         let smoothingFactor = 0.4
-        let observedLateralVelocity = (Double(detection.box.midX) - Double(track.box.midX)) / elapsedTime
+        let observedLateralVelocity = (Double(detection.box.midX) - Double(track.lastObservedBox.midX)) / elapsedTime
         track.lateralVelocity = mix(track.lateralVelocity, observedLateralVelocity, smoothingFactor: smoothingFactor)
+        let observedVerticalVelocity = Double(detection.box.midY - track.lastObservedBox.midY) / elapsedTime
+        track.verticalVelocity = mix(track.verticalVelocity, observedVerticalVelocity, smoothingFactor: smoothingFactor)
 
         if let depth = detection.depth,
            depth.timestamp > (track.lastDepthTime ?? -Double.infinity) {
@@ -131,6 +143,8 @@ final class CollisionTracker {
         }
 
         track.box = interpolate(track.box, detection.box, smoothingFactor: smoothingFactor)
+        track.lastObservedBox = detection.box
+        track.label = detection.label
         track.confidence = mix(track.confidence, detection.confidence, smoothingFactor: smoothingFactor)
         track.observations += 1
         track.lastSeen = now
@@ -155,6 +169,17 @@ final class CollisionTracker {
         let corridor = configuration.mountingMode == "chest" ? 0.34...0.66 : 0.30...0.70
         let projectedRange = (projectedCenter - projectedWidth / 2)...(projectedCenter + projectedWidth / 2)
         let corridorOverlap = overlapFraction(projectedRange, corridor)
+        let currentLeft = Double(track.box.minX)
+        let currentRight = Double(track.box.maxX)
+        let corridorEntry: Double?
+        if track.lateralVelocity > 0.08, currentRight < corridor.lowerBound {
+            corridorEntry = (corridor.lowerBound - currentRight) / track.lateralVelocity
+        } else if track.lateralVelocity < -0.08, currentLeft > corridor.upperBound {
+            corridorEntry = (corridor.upperBound - currentLeft) / track.lateralVelocity
+        } else if currentRight >= corridor.lowerBound && currentLeft <= corridor.upperBound {
+            corridorEntry = abs(track.lateralVelocity) > 0.08 ? 0 : nil
+        } else { corridorEntry = nil }
+        let crossesSoon = corridorEntry.map { $0 >= 0 && $0 <= 1.5 } ?? false
         let cameraStable = rotationRate < 0.9
         let observationConfidence = min(Double(track.observations) / 3, 1)
         let trajectoryConfidence = min(track.confidence * observationConfidence * (cameraStable ? 1 : 0.25), 1)
@@ -164,7 +189,7 @@ final class CollisionTracker {
             motionState = .approaching
         } else if depthIsFresh && track.signedClosingSpeed < -0.15 {
             motionState = .receding
-        } else if abs(track.lateralVelocity) > 0.08 && corridorOverlap > 0.25 {
+        } else if abs(track.lateralVelocity) > 0.08 && (corridorOverlap > 0.25 || crossesSoon) {
             motionState = .crossing
         } else {
             motionState = .stationary
@@ -175,11 +200,14 @@ final class CollisionTracker {
         if cameraStable,
            track.observations >= 3,
            trajectoryConfidence >= minimumConfidence,
-           corridorOverlap >= 0.25,
            distance != nil {
-            if let timeToCollision, timeToCollision <= 1.5 {
+            if let timeToCollision, timeToCollision <= 1.5, corridorOverlap >= 0.25 {
                 detectedRisk = .imminent
-            } else if let timeToCollision, timeToCollision <= 3 {
+            } else if let timeToCollision, timeToCollision <= 3, corridorOverlap >= 0.25 {
+                detectedRisk = .caution
+            } else if crossesSoon, let distance, distance <= min(configuration.warningDistanceMeters, 3),
+                      abs(track.signedClosingSpeed) <= 0.15 {
+                // Angular corridor entry supports caution, not a physical TTC.
                 detectedRisk = .caution
             } else if isPersistentlyNear(track, corridor: corridor) {
                 detectedRisk = .caution
@@ -217,6 +245,53 @@ final class CollisionTracker {
             timestamp: now,
             box: track.box
         )
+    }
+
+    // Hungarian assignment. Dummy columns allow every detection to remain
+    // unmatched without forcing an implausible identity swap.
+    private func minimumCostAssignment(_ costs: [[Double]]) -> [Int] {
+        let rows = costs.count
+        guard rows > 0 else { return [] }
+        let columns = costs[0].count
+        var rowPotential = [Double](repeating: 0, count: rows + 1)
+        var columnPotential = [Double](repeating: 0, count: columns + 1)
+        var matchedRow = [Int](repeating: 0, count: columns + 1)
+        var previousColumn = [Int](repeating: 0, count: columns + 1)
+        for row in 1...rows {
+            matchedRow[0] = row
+            var column = 0
+            var minimum = [Double](repeating: .infinity, count: columns + 1)
+            var used = [Bool](repeating: false, count: columns + 1)
+            repeat {
+                used[column] = true
+                let currentRow = matchedRow[column]
+                var delta = Double.infinity
+                var nextColumn = 0
+                for candidate in 1...columns where !used[candidate] {
+                    let cost = costs[currentRow - 1][candidate - 1] - rowPotential[currentRow] - columnPotential[candidate]
+                    if cost < minimum[candidate] {
+                        minimum[candidate] = cost
+                        previousColumn[candidate] = column
+                    }
+                    if minimum[candidate] < delta { delta = minimum[candidate]; nextColumn = candidate }
+                }
+                for candidate in 0...columns {
+                    if used[candidate] {
+                        rowPotential[matchedRow[candidate]] += delta
+                        columnPotential[candidate] -= delta
+                    } else { minimum[candidate] -= delta }
+                }
+                column = nextColumn
+            } while matchedRow[column] != 0
+            repeat {
+                let previous = previousColumn[column]
+                matchedRow[column] = matchedRow[previous]
+                column = previous
+            } while column != 0
+        }
+        var result = [Int](repeating: columns, count: rows)
+        for column in 1...columns where matchedRow[column] != 0 { result[matchedRow[column] - 1] = column - 1 }
+        return result
     }
 
     private func isPersistentlyNear(_ track: Track, corridor: ClosedRange<Double>) -> Bool {

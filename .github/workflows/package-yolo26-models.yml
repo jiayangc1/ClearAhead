@@ -30,11 +30,11 @@ jobs:
           cache-dependency-path: scripts/model-requirements.txt
       - name: Install pinned exporter
         run: python -m pip install -r scripts/model-requirements.txt
-      - name: Export and validate all downloadable model pairs
-        run: python scripts/export-yolo26-models.py --output modules/react-native-clear-ahead-vision/models --variants all --release-output release-assets
-      - name: Publish verified runtime model assets
+      - name: Export and validate development model pairs
+        run: python scripts/export-yolo26-models.py --output .build/development-models --variants all --release-output release-assets
+      - name: Publish development model assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view yolo26-coreml-v1 >/dev/null 2>&1 || gh release create yolo26-coreml-v1 --title "YOLO26 Core ML models" --notes "INT8 Core ML detector and depth pairs downloaded automatically by Clear Ahead."
+          gh release view yolo26-coreml-v1 >/dev/null 2>&1 || gh release create yolo26-coreml-v1 --title "YOLO26 Core ML models" --notes "INT8 Core ML detector and depth development artifacts. App downloads use the official Ultralytics release."
           gh release upload yolo26-coreml-v1 release-assets/* --clobber

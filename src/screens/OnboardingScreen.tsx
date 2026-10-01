@@ -1,11 +1,18 @@
-import React, {useEffect, useRef, useState} from 'react';
-import {AccessibilityInfo, findNodeHandle, ScrollView, StyleSheet, Text, View} from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import {BrandLogo} from '../components/BrandLogo';
-import {colors} from '../config';
-import {PrimaryButton} from '../components/Controls';
-import {Entrance, SpringPressable} from '../components/Motion';
-import type {MountingMode} from '../types';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  findNodeHandle,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { BrandLogo } from '../components/BrandLogo';
+import { colors } from '../config';
+import { PrimaryButton } from '../components/Controls';
+import { Entrance, SpringPressable } from '../components/Motion';
+import type { MountingMode } from '../types';
 
 export function OnboardingScreen({
   mountingMode,
@@ -26,11 +33,19 @@ export function OnboardingScreen({
 }) {
   const [step, setStep] = useState(0);
   const [isTestingFeedback, setIsTestingFeedback] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string>();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const scrollRef = useRef<React.ElementRef<typeof ScrollView>>(null);
   const titleRef = useRef<React.ElementRef<typeof Text>>(null);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({y: 0, animated: false});
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
     const frame = requestAnimationFrame(() => {
       const node = findNodeHandle(titleRef.current);
       if (node) {
@@ -42,21 +57,47 @@ export function OnboardingScreen({
 
   const testFeedback = () => {
     setIsTestingFeedback(true);
+    setFeedbackError(undefined);
     onTestFeedback()
-      .catch(() => undefined)
-      .finally(() => setIsTestingFeedback(false));
+      .catch(error => {
+        if (!mounted.current) {
+          return;
+        }
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Feedback test failed. Please try again.';
+        setFeedbackError(message);
+        AccessibilityInfo.announceForAccessibility(message);
+      })
+      .finally(() => {
+        if (mounted.current) {
+          setIsTestingFeedback(false);
+        }
+      });
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} accessibilityViewIsModal keyboardShouldPersistTaps="handled">
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.content}
+        accessibilityViewIsModal
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.brandRow}>
           <BrandLogo width={52} />
           <View style={styles.progressCopy}>
             <Text style={styles.eyebrow}>SETUP {step + 1} OF 3</Text>
             <View style={styles.progressTrack}>
               {[0, 1, 2].map(index => (
-                <View key={index} style={[styles.progressSegment, index <= step && styles.progressSegmentActive]} />
+                <View
+                  key={index}
+                  style={[
+                    styles.progressSegment,
+                    index <= step && styles.progressSegmentActive,
+                  ]}
+                />
               ))}
             </View>
           </View>
@@ -64,46 +105,98 @@ export function OnboardingScreen({
         <StepTransition step={step}>
           {step === 0 ? (
             <>
-              <Text ref={titleRef} accessibilityRole="header" style={styles.title}>
+              <Text
+                ref={titleRef}
+                accessibilityRole="header"
+                style={styles.title}
+              >
                 Awareness, not a guarantee.
               </Text>
-              <Text style={styles.body}>Clear Ahead turns nearby camera events into haptic and audio cues. It can miss hazards or estimate them incorrectly.</Text>
+              <Text style={styles.body}>
+                Clear Ahead turns nearby camera events into haptic and audio
+                cues. It can miss hazards or estimate them incorrectly.
+              </Text>
               <View style={styles.warning}>
                 <Text style={styles.warningLabel}>SAFETY LIMIT</Text>
-                <Text style={styles.warningText}>Keep using your cane, guide dog, mobility training, and judgment. Do not use this app as collision avoidance.</Text>
+                <Text style={styles.warningText}>
+                  Keep using your cane, guide dog, mobility training, and
+                  judgment. Do not use this app as collision avoidance.
+                </Text>
               </View>
-              <PrimaryButton label="I understand" hint="Continues to phone position setup" onPress={() => setStep(1)} />
+              <PrimaryButton
+                label="I understand"
+                hint="Continues to phone position setup"
+                onPress={() => setStep(1)}
+              />
             </>
           ) : null}
 
           {step === 1 ? (
             <>
-              <Text ref={titleRef} accessibilityRole="header" style={styles.title}>
+              <Text
+                ref={titleRef}
+                accessibilityRole="header"
+                style={styles.title}
+              >
                 Where will you carry your phone?
               </Text>
-              <Text style={styles.body}>This changes how Clear Ahead interprets the camera angle. You can change it later.</Text>
-              <Choice label="In my hand" description="Camera points forward at about chest height." selected={mountingMode === 'handheld'} onPress={() => onMountingModeChange('handheld')} />
-              <Choice label="Chest mounted" description="Phone stays upright with the rear camera unobstructed." selected={mountingMode === 'chest'} onPress={() => onMountingModeChange('chest')} />
-              <PrimaryButton label="Continue" hint="Continues to camera permission" onPress={() => setStep(2)} />
+              <Text style={styles.body}>
+                This changes how Clear Ahead interprets the camera angle. You
+                can change it later.
+              </Text>
+              <Choice
+                label="In my hand"
+                description="Camera points forward at about chest height."
+                selected={mountingMode === 'handheld'}
+                onPress={() => onMountingModeChange('handheld')}
+              />
+              <Choice
+                label="Chest mounted"
+                description="Phone stays upright with the rear camera unobstructed."
+                selected={mountingMode === 'chest'}
+                onPress={() => onMountingModeChange('chest')}
+              />
+              <PrimaryButton
+                label="Continue"
+                hint="Continues to camera permission"
+                onPress={() => setStep(2)}
+              />
             </>
           ) : null}
 
           {step === 2 ? (
             <>
-              <Text ref={titleRef} accessibilityRole="header" style={styles.title}>
+              <Text
+                ref={titleRef}
+                accessibilityRole="header"
+                style={styles.title}
+              >
                 Camera access stays on this phone.
               </Text>
-              <Text style={styles.body}>Frames are analyzed on-device. Clear Ahead does not save, upload, or share camera images.</Text>
-              <View style={styles.permissionState} accessibilityLiveRegion="polite">
+              <Text style={styles.body}>
+                Frames are analyzed on-device. Clear Ahead does not save,
+                upload, or share camera images.
+              </Text>
+              <View
+                style={styles.permissionState}
+                accessibilityLiveRegion="polite"
+              >
                 <Text style={styles.permissionLabel}>CAMERA</Text>
-                <Text style={styles.permissionValue}>{hasCameraPermission ? 'Ready' : 'Permission needed'}</Text>
+                <Text style={styles.permissionValue}>
+                  {hasCameraPermission ? 'Ready' : 'Permission needed'}
+                </Text>
               </View>
               {!hasCameraPermission && canRequestCameraPermission ? (
-                <PrimaryButton label="Allow camera access" hint="Opens the iOS camera permission prompt" onPress={() => requestCameraPermission()} />
+                <PrimaryButton
+                  label="Allow camera access"
+                  hint="Opens the iOS camera permission prompt"
+                  onPress={() => requestCameraPermission()}
+                />
               ) : null}
               {!hasCameraPermission && !canRequestCameraPermission ? (
                 <Text accessibilityRole="alert" style={styles.permissionHelp}>
-                  Camera access is blocked. Open iOS Settings, choose Clear Ahead, then enable Camera.
+                  Camera access is blocked. Open iOS Settings, choose Clear
+                  Ahead, then enable Camera.
                 </Text>
               ) : null}
               <SpringPressable
@@ -113,11 +206,31 @@ export function OnboardingScreen({
                 disabled={isTestingFeedback}
                 onPress={testFeedback}
                 pressedScale={0.96}
-                style={[styles.testButton, isTestingFeedback && styles.testButtonDisabled]}
+                style={[
+                  styles.testButton,
+                  isTestingFeedback && styles.testButtonDisabled,
+                ]}
               >
-                <Text style={styles.testButtonText}>{isTestingFeedback ? 'Playing feedback…' : 'Test feedback cues'}</Text>
+                <Text style={styles.testButtonText}>
+                  {isTestingFeedback
+                    ? 'Playing feedback…'
+                    : 'Test feedback cues'}
+                </Text>
               </SpringPressable>
-              <PrimaryButton label={hasCameraPermission ? 'Finish setup' : 'Continue without camera'} hint="Opens the Clear Ahead home screen" onPress={onComplete} />
+              {feedbackError ? (
+                <Text accessibilityRole="alert" style={styles.permissionHelp}>
+                  {feedbackError}
+                </Text>
+              ) : null}
+              <PrimaryButton
+                label={
+                  hasCameraPermission
+                    ? 'Finish setup'
+                    : 'Continue without camera'
+                }
+                hint="Opens the Clear Ahead home screen"
+                onPress={onComplete}
+              />
             </>
           ) : null}
         </StepTransition>
@@ -126,7 +239,13 @@ export function OnboardingScreen({
   );
 }
 
-function StepTransition({step, children}: {step: number; children: React.ReactNode}) {
+function StepTransition({
+  step,
+  children,
+}: {
+  step: number;
+  children: React.ReactNode;
+}) {
   if (step === 0) {
     return <View style={styles.stepContent}>{children}</View>;
   }
@@ -138,17 +257,29 @@ function StepTransition({step, children}: {step: number; children: React.ReactNo
   );
 }
 
-function Choice({label, description, selected, onPress}: {label: string; description: string; selected: boolean; onPress: () => void}) {
+function Choice({
+  label,
+  description,
+  selected,
+  onPress,
+}: {
+  label: string;
+  description: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
   return (
     <SpringPressable
       accessibilityRole="radio"
       accessibilityLabel={`${label}. ${description}`}
-      accessibilityState={{checked: selected}}
+      accessibilityState={{ checked: selected }}
       onPress={onPress}
       pressedScale={0.975}
       style={[styles.choice, selected && styles.choiceSelected]}
     >
-      <View style={[styles.radio, selected && styles.radioSelected]}>{selected ? <View style={styles.radioCore} /> : null}</View>
+      <View style={[styles.radio, selected && styles.radioSelected]}>
+        {selected ? <View style={styles.radioCore} /> : null}
+      </View>
       <View style={styles.choiceCopy}>
         <Text style={styles.choiceLabel}>{label}</Text>
         <Text style={styles.choiceDescription}>{description}</Text>
@@ -158,11 +289,11 @@ function Choice({label, description, selected, onPress}: {label: string; descrip
 }
 
 const styles = StyleSheet.create({
-  safeArea: {flex: 1, backgroundColor: colors.night},
-  content: {flexGrow: 1, padding: 24, paddingTop: 38, gap: 22},
-  brandRow: {flexDirection: 'row', alignItems: 'center', gap: 14},
-  progressCopy: {flex: 1, gap: 8},
-  progressTrack: {flexDirection: 'row', gap: 6},
+  safeArea: { flex: 1, backgroundColor: colors.night },
+  content: { flexGrow: 1, padding: 24, paddingTop: 38, gap: 22 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  progressCopy: { flex: 1, gap: 8 },
+  progressTrack: { flexDirection: 'row', gap: 6 },
   progressSegment: {
     height: 3,
     flex: 1,
@@ -175,15 +306,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 5,
   },
-  stepContent: {gap: 22},
+  stepContent: { gap: 22 },
   eyebrow: {
     color: colors.cyan,
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1.6,
   },
-  title: {color: colors.text, fontSize: 39, fontWeight: '800'},
-  body: {color: colors.muted, fontSize: 19, lineHeight: 28},
+  title: { color: colors.text, fontSize: 39, fontWeight: '800' },
+  body: { color: colors.muted, fontSize: 19, lineHeight: 28 },
   warning: {
     backgroundColor: colors.surface,
     borderLeftWidth: 5,
@@ -226,7 +357,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: colors.muted,
   },
-  radioSelected: {borderWidth: 7, borderColor: colors.cyan},
+  radioSelected: { borderWidth: 7, borderColor: colors.cyan },
   radioCore: {
     position: 'absolute',
     width: 6,
@@ -236,8 +367,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     top: 2,
   },
-  choiceCopy: {flex: 1},
-  choiceLabel: {color: colors.text, fontSize: 20, fontWeight: '800'},
+  choiceCopy: { flex: 1 },
+  choiceLabel: { color: colors.text, fontSize: 20, fontWeight: '800' },
   choiceDescription: {
     color: colors.muted,
     fontSize: 16,
@@ -257,8 +388,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1.4,
   },
-  permissionValue: {color: colors.cyan, fontSize: 17, fontWeight: '800'},
-  permissionHelp: {color: colors.amber, fontSize: 17, lineHeight: 24},
+  permissionValue: { color: colors.cyan, fontSize: 17, fontWeight: '800' },
+  permissionHelp: { color: colors.amber, fontSize: 17, lineHeight: 24 },
   testButton: {
     minHeight: 56,
     borderRadius: 17,
@@ -268,6 +399,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 18,
   },
-  testButtonText: {color: colors.cyan, fontSize: 17, fontWeight: '800'},
-  testButtonDisabled: {opacity: 0.5},
+  testButtonText: { color: colors.cyan, fontSize: 17, fontWeight: '800' },
+  testButtonDisabled: { opacity: 0.5 },
 });

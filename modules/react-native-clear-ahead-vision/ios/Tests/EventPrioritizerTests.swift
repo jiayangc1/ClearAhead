@@ -4,6 +4,27 @@ import XCTest
 final class EventPrioritizerTests: XCTestCase {
     private var configuration = FeedbackConfiguration()
 
+    func testUnknownDistanceKeepsFeedback() {
+        let prioritizer = EventPrioritizer()
+        let event = SpatialEvent(id: "distant-person", kind: .person, direction: .center, proximity: .unknown,
+                                 approximateDistanceMeters: nil, approachSpeed: 0, confidence: 0.95,
+                                 urgency: 0, timestamp: 10, box: nil)
+        let selected = prioritizer.select(from: [event], configuration: configuration, now: 10)
+        XCTAssertNotNil(selected)
+        XCTAssertTrue(prioritizer.shouldAnnounce(selected, now: 10))
+    }
+
+    func testUnknownDistanceKeepsConfiguredSpeech() {
+        var configuration = FeedbackConfiguration()
+        configuration.speechEnabled = true
+        let event = SpatialEvent(id: "person", kind: .person, direction: .center, proximity: .unknown,
+                                 approximateDistanceMeters: nil, approachSpeed: 0, confidence: 0.95,
+                                 urgency: 0.3, timestamp: 10, box: nil)
+        XCTAssertTrue(Feedback.shouldSpeak(event, configuration: configuration, voiceOverRunning: false))
+        configuration.speechEnabled = false
+        XCTAssertFalse(Feedback.shouldSpeak(event, configuration: configuration, voiceOverRunning: false))
+    }
+
     func testFiltersLowConfidenceAndDistantEvents() {
         let prioritizer = EventPrioritizer()
         let lowConfidence = makeEvent(confidence: 0.1)

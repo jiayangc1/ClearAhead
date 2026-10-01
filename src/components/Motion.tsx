@@ -27,6 +27,7 @@ export function Entrance({
 
   useEffect(() => {
     if (reduceMotion) {
+      progress.stopAnimation();
       progress.setValue(1);
       return;
     }
@@ -39,6 +40,7 @@ export function Entrance({
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
+    return () => progress.stopAnimation();
   }, [delay, progress, reduceMotion]);
 
   return (

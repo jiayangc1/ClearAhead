@@ -3,6 +3,19 @@ import XCTest
 @testable import ClearAheadVision
 
 final class ModelOutputTests: XCTestCase {
+    func testDiscontinuousNearPixelsDoNotMergeIntoObstacle() throws {
+        let array = try MLMultiArray(shape: [1, 1, 192, 256], dataType: .float32)
+        for row in 0..<192 {
+            for column in 0..<256 {
+                // Alternating depths ensure every sampled neighbor is discontinuous.
+                let pathColumn = Int((Double(column) / 256 - 0.26) / 0.48 * 32)
+                let pathRow = Int((Double(row) / 192 - 0.18) / 0.58 * 24)
+                array[row * 256 + column] = NSNumber(value: (pathColumn + pathRow) % 2 == 0 ? 1.0 : 4.0)
+            }
+        }
+        let map = try XCTUnwrap(DepthMap(array: array))
+        XCTAssertNil(map.pathObstacle(within: 6))
+    }
     func testDecodesYOLO26EndToEndRows() throws {
         let array = try MLMultiArray(shape: [1, 2, 6], dataType: .float32)
         let rows: [[Double]] = [

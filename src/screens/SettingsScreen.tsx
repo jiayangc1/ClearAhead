@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  AppState,
   Linking,
   Pressable,
   ScrollView,
@@ -53,7 +54,7 @@ export function SettingsScreen({
 }) {
   const [openSection, setOpenSection] = useState<string | null>('Performance');
   const [modelStatus, setModelStatus] = useState(
-    'Downloaded automatically when selected',
+    'Nano detector and depth are bundled with the app',
   );
   const modelRequest = useRef(0);
   const pendingModelVariant = useRef<ModelVariant | undefined>(undefined);
@@ -87,12 +88,34 @@ export function SettingsScreen({
   };
 
   useEffect(() => {
+    const requestState = modelRequest;
+    const pendingSelection = pendingModelVariant;
     const subscription = ClearAheadModule.onModelDownload(payload => {
-      if (payload.modelVariant === pendingModelVariant.current) {
+      if (payload.modelVariant === pendingSelection.current) {
         setModelStatus(payload.message);
       }
     });
-    return () => subscription?.remove();
+    const cancelPending = () => {
+      requestState.current += 1;
+      if (pendingSelection.current) {
+        pendingSelection.current = undefined;
+        ClearAheadModule.cancelModelPreparation().catch(() => undefined);
+        setModelStatus('Model download cancelled. Select a model to retry.');
+      }
+    };
+    const lifecycle = AppState.addEventListener('change', state => {
+      if (state !== 'active') {
+        cancelPending();
+      }
+    });
+    return () => {
+      subscription?.remove();
+      lifecycle.remove();
+      requestState.current += 1;
+      if (pendingSelection.current) {
+        ClearAheadModule.cancelModelPreparation().catch(() => undefined);
+      }
+    };
   }, []);
 
   const selectModel = (modelVariant: ModelVariant) => {
@@ -132,7 +155,9 @@ export function SettingsScreen({
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         {storageError ? (
-          <Text accessibilityRole="alert" style={styles.safetyNote}>{storageError}</Text>
+          <Text accessibilityRole="alert" style={styles.safetyNote}>
+            {storageError}
+          </Text>
         ) : null}
         <Section {...sectionProps('Performance')}>
           <Text style={styles.sectionHelp}>
@@ -341,8 +366,8 @@ export function SettingsScreen({
 
         <Section {...sectionProps('Advanced')}>
           <Text style={styles.sectionHelp}>
-            Select one matched YOLO26 detector and depth pair. Models download
-            in the background and stay cached on this device.
+            Nano is bundled. Other models download from Ultralytics and stay on
+            this device. Cellular downloads require your approval.
           </Text>
           {(['n', 's', 'm', 'l', 'x'] as ModelVariant[]).map(variant => (
             <ModelChoice
@@ -363,16 +388,17 @@ export function SettingsScreen({
           />
           <Text style={styles.advancedSubheading}>Camera field of view</Text>
           <Text style={styles.cameraHelp}>
-            Available fields of view depend on this device. Automatic uses the
-            widest rear camera and remains the default.
+            Available fields of view depend on this device. Automatic prefers
+            the standard wide rear camera. Other lenses need device calibration.
           </Text>
           <CameraChoice
-            label="Automatic · widest available"
-            description="Uses the widest rear camera present on this device."
+            label="Automatic · standard wide"
+            description="Uses the standard wide rear camera when available."
             selected={
-              preferences.cameraDeviceId === 'widest' || !hasSelectedCamera
+              preferences.cameraDeviceId === 'standard' ||
+              (preferences.cameraDeviceId !== 'widest' && !hasSelectedCamera)
             }
-            onPress={() => onChange({ cameraDeviceId: 'widest' })}
+            onPress={() => onChange({ cameraDeviceId: 'standard' })}
           />
           {backCameras.map(device => (
             <CameraChoice
@@ -417,7 +443,9 @@ export function SettingsScreen({
         onHome={onHome}
         onAssist={onAssist}
         onSettings={onSettings}
-        assistDisabled={!hasCameraPermission || !hasFeedbackChannel(preferences)}
+        assistDisabled={
+          !hasCameraPermission || !hasFeedbackChannel(preferences)
+        }
       />
     </SafeAreaView>
   );

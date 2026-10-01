@@ -147,6 +147,14 @@ struct SpatialEvent {
         }
         return payload
     }
+
+    func withTimestamp(_ timestamp: TimeInterval) -> SpatialEvent {
+        SpatialEvent(id: id, kind: kind, label: label, direction: direction, proximity: proximity,
+                     approximateDistanceMeters: approximateDistanceMeters, approachSpeed: approachSpeed,
+                     motionState: motionState, collisionRisk: collisionRisk, timeToCollisionSeconds: timeToCollisionSeconds,
+                     trajectoryConfidence: trajectoryConfidence, confidence: confidence, urgency: urgency,
+                     timestamp: timestamp, box: box)
+    }
 }
 
 struct FeedbackConfiguration {
