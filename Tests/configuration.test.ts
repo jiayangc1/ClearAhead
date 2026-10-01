@@ -49,6 +49,9 @@ test('native configuration omits React Native onboarding state', () => {
   assert.equal('modelQuantization' in configuration, false);
   assert.equal('modelQuantization' in DEFAULT_PREFERENCES, false);
   assert.equal('feedbackFrequency' in configuration, false);
+  assert.equal(configuration.continuousAudio, true);
+  assert.equal(normalizePreferences({ continuousAudio: false }).continuousAudio, false);
+  assert.equal(normalizePreferences({ continuousAudio: 'no' }).continuousAudio, true);
   assert.equal(configuration.depthMapEnabled, false);
   assert.equal(configuration.showBoundingBoxes, true);
 });

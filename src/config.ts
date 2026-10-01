@@ -29,6 +29,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   speechEnabled: false,
   hapticIntensity: 0.72,
   audioVolume: 0.65,
+  continuousAudio: true,
   sensitivity: 0.65,
   warningDistanceMeters: 6,
   mountingMode: 'handheld',
@@ -132,6 +133,10 @@ export function normalizePreferences(value: unknown): AppPreferences {
       0,
       1,
     ),
+    continuousAudio: boolean(
+      stored.continuousAudio,
+      DEFAULT_PREFERENCES.continuousAudio,
+    ),
     sensitivity: finiteNumber(
       stored.sensitivity,
       DEFAULT_PREFERENCES.sensitivity,
@@ -181,6 +186,7 @@ export function toFeedbackConfiguration(
     speechEnabled: preferences.speechEnabled,
     hapticIntensity: preferences.hapticIntensity,
     audioVolume: preferences.audioVolume,
+    continuousAudio: preferences.continuousAudio,
     sensitivity: preferences.sensitivity,
     warningDistanceMeters: preferences.warningDistanceMeters,
     mountingMode: preferences.mountingMode,

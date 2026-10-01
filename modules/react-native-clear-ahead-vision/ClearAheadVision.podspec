@@ -20,6 +20,7 @@ Pod::Spec.new do |s|
     "ios/Entry/Module.swift",
     "ios/Entry/ModuleBridge.m",
     "ios/Entry/ModuleEntry.swift",
+    "ios/Feedback/AudioCue.swift",
     "ios/Feedback/Feedback.swift",
     "ios/ModelOutput.swift",
     "ios/Models/ModelManager.swift",

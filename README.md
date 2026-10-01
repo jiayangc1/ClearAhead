@@ -19,8 +19,8 @@ haptics, stereo audio cues, and optional short speech.
 - Stable tracking for named people, vehicles, and furniture
 - Depth-based path obstacle cues for walls and unlabeled hazards
 - Collision timing from successive timestamped depth readings; cues repeat when risk increases
-- Core Haptics direction patterns, spatially panned AVAudioEngine cues whose
-  pitch and pulse rhythm encode distance and urgency, and interruptible
+- Core Haptics direction patterns, a repeating AVAudioEngine cue that follows
+  the selected hazard (see [Audio cues](#audio-cues)), and interruptible
   AVSpeechSynthesizer output
 - Low-light, covered-camera, and thermal-pressure reporting
 - Responsive and detailed processing modes, with an optional processed-frame-rate display
@@ -123,6 +123,26 @@ more often. The on-screen FPS value counts frames accepted for processing, not
 the camera capture rate; object and depth rates are shown separately. The home
 screen displays the last live assist-session reading. Device profiling is still
 needed to establish the actual rate and detection tradeoffs on an iPhone 12.
+
+## Audio cues
+
+While a hazard is selected its cue repeats and is re-rendered from the latest
+observation before every burst, so the sound changes as the hazard does.
+
+| The hazard's | is heard as |
+|---|---|
+| position | stereo placement (level and arrival-time difference between the ears), following the hazard continuously across the view |
+| distance or time to collision | pitch up to an octave higher, louder, and a shorter rest between bursts |
+| kind | timbre and register: soft tone (person), tick (obstacle), low buzz (vehicle), knock (furniture), thump (low ground obstacle) |
+| risk | two pulses for caution; three rough pulses for imminent, which also cuts off a calmer cue |
+| motion (headphones) | rising pitch when approaching, falling when receding, wavering when crossing |
+| direction (single speaker) | falling pitch for left, steady for ahead, rising for right |
+
+Hazards straight ahead and confident detections are loudest. The cue stops when
+the path clears or no fresh observation arrives for 0.8 seconds. “Repeat audio
+while a hazard remains” in Settings switches back to a single cue per change.
+The mapping is unit-tested; how well it reads to a listener on real routes
+(AirPods, bone conduction, the phone speaker) has not been user-tested.
 
 ## Distance and safety behavior
 

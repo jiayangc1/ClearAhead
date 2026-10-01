@@ -72,6 +72,7 @@ export interface FeedbackConfiguration {
   speechEnabled: boolean;
   hapticIntensity: number;
   audioVolume: number;
+  continuousAudio: boolean;
   sensitivity: number;
   warningDistanceMeters: number;
   mountingMode: MountingMode;

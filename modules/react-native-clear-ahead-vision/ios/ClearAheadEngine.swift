@@ -422,15 +422,20 @@ final class ClearAheadEngine {
         ) {
             if prioritizer.shouldAnnounce(selected, now: evaluationTime) {
                 feedback.deliver(selected, configuration: currentConfiguration)
+            } else {
+                feedback.track(selected, configuration: currentConfiguration)
             }
             if !hasVisibleEvent || evaluationTime - lastTopEventEmission >= 0.25 {
                 emitSessionEvent(name: "topEvent", body: selected.dictionary)
                 lastTopEventEmission = evaluationTime
             }
             hasVisibleEvent = true
-        } else if !prioritizer.hasActiveEvent, hasVisibleEvent {
-            emitSessionEvent(name: "eventCleared", body: [:], requireActive: false)
-            hasVisibleEvent = false
+        } else {
+            feedback.clearTracking()
+            if !prioritizer.hasActiveEvent, hasVisibleEvent {
+                emitSessionEvent(name: "eventCleared", body: [:], requireActive: false)
+                hasVisibleEvent = false
+            }
         }
 
         latestProcessingLatencyMs = (ProcessInfo.processInfo.systemUptime - frameStartTime) * 1_000

@@ -196,10 +196,16 @@ export function SettingsScreen({
           <ToggleRow
             label="Directional audio"
             description={
-              'Pitch shows distance and pulse speed shows urgency. On speakers: falling pitch means left, steady means ahead, rising means right. Headphones add stereo direction.'
+              'Closer hazards sound higher, louder and faster. Each kind has its own sound: a soft tone for people, a tick for obstacles, a low buzz for vehicles, a knock for furniture, a thump for low obstacles. Two pulses mean caution, three rough pulses mean stop. Headphones place the sound where the hazard is, and the pitch rises as it approaches. On speakers: falling pitch means left, steady means ahead, rising means right.'
             }
             value={preferences.audioEnabled}
             onValueChange={value => onChange({ audioEnabled: value })}
+          />
+          <ToggleRow
+            label="Repeat audio while a hazard remains"
+            description="The cue keeps sounding and changes as the hazard moves. Turn off to hear one cue when a hazard appears or gets worse."
+            value={preferences.continuousAudio}
+            onValueChange={value => onChange({ continuousAudio: value })}
           />
           <ToggleRow
             label="Speech"
