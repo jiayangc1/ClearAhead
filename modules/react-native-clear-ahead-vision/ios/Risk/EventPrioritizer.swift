@@ -34,6 +34,17 @@ final class EventPrioritizer {
             guard candidate.collisionRisk != .none, candidate.confidence >= minimumConfidence else {
                 return nil
             }
+            if candidate.id == "depth:path", let box = candidate.box,
+               events.contains(where: { named in
+                   guard named.id != candidate.id, named.collisionRisk >= candidate.collisionRisk,
+                         named.confidence >= minimumConfidence, let namedBox = named.box else { return false }
+                   let intersection = box.intersection(namedBox)
+                   guard !intersection.isNull else { return false }
+                   let smallerArea = min(box.width * box.height, namedBox.width * namedBox.height)
+                   return intersection.width * intersection.height / max(smallerArea, 0.001) >= 0.6
+               }) {
+                return nil
+            }
 
             let proximityScore: Double
             if let distance = candidate.approximateDistanceMeters {
@@ -108,7 +119,7 @@ final class EventPrioritizer {
         let becameApproaching = event.motionState == .approaching && lastAnnouncedMotionState != .approaching
         let moreUrgent = event.urgency >= lastAnnouncedUrgency + 0.2
         guard newHazard || higherRisk || closer || becameApproaching || moreUrgent else { return false }
-        guard event.collisionRisk == .imminent || now - lastEmissionTime >= 0.32 else { return false }
+        guard higherRisk || now - lastEmissionTime >= (event.collisionRisk == .imminent ? 0.5 : 1.2) else { return false }
         lastAnnouncedId = event.id
         lastAnnouncedRisk = event.collisionRisk
         lastAnnouncedProximity = event.proximity

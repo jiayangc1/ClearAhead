@@ -62,6 +62,16 @@ test('speech defaults to high-value categories only', () => {
   ]);
 });
 
+test('bounding box verbosity migrates older settings and reaches native configuration', () => {
+  assert.equal(normalizePreferences({}).boundingBoxVerbosity, 'standard');
+  assert.equal(normalizePreferences({ boundingBoxVerbosity: 'invalid' }).boundingBoxVerbosity, 'standard');
+  for (const boundingBoxVerbosity of ['verbose', 'standard', 'less']) {
+    const preferences = normalizePreferences({ boundingBoxVerbosity });
+    assert.equal(preferences.boundingBoxVerbosity, boundingBoxVerbosity);
+    assert.equal(toFeedbackConfiguration(preferences).boundingBoxVerbosity, boundingBoxVerbosity);
+  }
+});
+
 test('stored preferences are validated and clamped before use', () => {
   const preferences = normalizePreferences({
     onboardingComplete: 'yes',

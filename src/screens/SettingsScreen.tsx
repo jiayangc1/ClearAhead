@@ -145,7 +145,7 @@ export function SettingsScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <BrandLogo width={64} />
+        <BrandLogo width={40} />
         <Text accessibilityRole="header" style={styles.title}>
           Settings
         </Text>
@@ -386,6 +386,20 @@ export function SettingsScreen({
             value={preferences.depthMapEnabled}
             onValueChange={value => onChange({ depthMapEnabled: value })}
           />
+          <Text style={styles.advancedSubheading}>Bounding box verbosity</Text>
+          {([
+            ['verbose', 'Verbose', 'All detected objects with confidence scores.'],
+            ['standard', 'Standard', 'Confident people, vehicles, and obstacles in your path.'],
+            ['less', 'Less', 'Only objects with a confirmed collision risk.'],
+          ] as const).map(([value, label, description]) => (
+            <CameraChoice
+              key={value}
+              label={label}
+              description={description}
+              selected={preferences.boundingBoxVerbosity === value}
+              onPress={() => onChange({ boundingBoxVerbosity: value })}
+            />
+          ))}
           <Text style={styles.advancedSubheading}>Camera field of view</Text>
           <Text style={styles.cameraHelp}>
             Available fields of view depend on this device. Automatic prefers
@@ -664,52 +678,52 @@ function cameraMagnification(
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.night },
-  header: { paddingHorizontal: 20, paddingTop: 28, paddingBottom: 24 },
+  header: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12 },
   title: {
     color: colors.text,
-    fontSize: 36,
-    lineHeight: 41,
+    fontSize: 28,
+    lineHeight: 32,
     fontWeight: '800',
-    letterSpacing: -1.2,
-    marginTop: 10,
+    letterSpacing: -0.6,
+    marginTop: 4,
   },
-  subtitle: { color: colors.muted, fontSize: 16, lineHeight: 23, marginTop: 8 },
-  content: { paddingHorizontal: 20, paddingBottom: 32, gap: 18 },
+  subtitle: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
+  content: { paddingHorizontal: 12, paddingBottom: 20, gap: 8 },
   section: {},
   sectionHeader: {
-    minHeight: 56,
-    paddingHorizontal: 16,
+    minHeight: 44,
+    paddingHorizontal: 12,
     borderRadius: 10,
     backgroundColor: colors.surfaceRaised,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  sectionTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
+  sectionTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
   sectionBody: {
     backgroundColor: colors.surface,
     borderRadius: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     overflow: 'hidden',
   },
   sectionBodySpacing: { paddingTop: 8 },
   sectionHelp: {
     color: colors.muted,
-    fontSize: 15,
-    lineHeight: 21,
-    paddingTop: 18,
+    fontSize: 13,
+    lineHeight: 18,
+    paddingTop: 10,
     paddingBottom: 8,
   },
   processingChoice: {
-    minHeight: 92,
-    paddingVertical: 14,
+    minHeight: 48,
+    paddingVertical: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.line,
   },
   processingChoiceSelected: {
     borderLeftWidth: 4,
     borderLeftColor: colors.cyan,
-    paddingLeft: 12,
+    paddingLeft: 8,
   },
   selectedRailGlow: {
     position: 'absolute',
@@ -725,12 +739,12 @@ const styles = StyleSheet.create({
   },
   processingDescription: {
     color: colors.muted,
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 18,
     marginTop: 4,
   },
   mountingChoice: {
-    minHeight: 64,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -738,7 +752,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
   },
   modelChoice: {
-    minHeight: 62,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -755,28 +769,28 @@ const styles = StyleSheet.create({
   readOnlyCopy: { flex: 1 },
   advancedSubheading: {
     color: colors.text,
-    fontSize: 19,
+    fontSize: 16,
     fontWeight: '800',
-    paddingTop: 20,
+    paddingTop: 12,
   },
   cameraHelp: {
     color: colors.muted,
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 18,
     paddingVertical: 8,
   },
   cameraChoice: {
-    minHeight: 82,
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 10,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.line,
   },
-  licenseLink: { minHeight: 54, justifyContent: 'center' },
-  licenseLinkText: { color: colors.cyan, fontSize: 16, fontWeight: '800' },
-  mountingLabel: { color: colors.text, fontSize: 18, fontWeight: '700' },
-  mountingValue: { color: colors.cyan, fontSize: 15, fontWeight: '700' },
-  safetyNote: { color: colors.muted, fontSize: 15, lineHeight: 22 },
+  licenseLink: { minHeight: 44, justifyContent: 'center' },
+  licenseLinkText: { color: colors.cyan, fontSize: 14, fontWeight: '800' },
+  mountingLabel: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  mountingValue: { color: colors.cyan, fontSize: 13, fontWeight: '700' },
+  safetyNote: { color: colors.muted, fontSize: 13, lineHeight: 22 },
 });

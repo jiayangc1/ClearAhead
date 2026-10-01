@@ -128,24 +128,4 @@ final class ClearAheadModule: RCTEventEmitter {
         resolve(nil)
     }
 
-    @objc(startDemo:resolver:rejecter:)
-    func startDemo(
-        _ scenario: String,
-        resolver resolve: RCTPromiseResolveBlock,
-        rejecter reject: RCTPromiseRejectBlock
-    ) {
-        invalidateSessionRequests()
-        ClearAheadEngine.shared.startDemo(scenario: scenario)
-        resolve(nil)
-    }
-
-    @objc(stopDemo:rejecter:)
-    func stopDemo(
-        _ resolve: RCTPromiseResolveBlock,
-        rejecter reject: RCTPromiseRejectBlock
-    ) {
-        invalidateSessionRequests()
-        ClearAheadEngine.shared.stopDemo()
-        resolve(nil)
-    }
 }

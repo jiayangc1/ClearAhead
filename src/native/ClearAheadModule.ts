@@ -4,7 +4,6 @@ import {
   type EmitterSubscription,
 } from 'react-native';
 import type {
-  DemoScenario,
   FeedbackConfiguration,
   PipelineMetrics,
   ModelDownloadProgressPayload,
@@ -22,8 +21,6 @@ interface ClearAheadNativeModule {
   updateConfiguration(configuration: FeedbackConfiguration): Promise<void>;
   prepareModels(modelVariant: ModelVariant): Promise<void>;
   cancelModelPreparation(): Promise<void>;
-  startDemo(scenario: DemoScenario): Promise<void>;
-  stopDemo(): Promise<void>;
   addListener(eventName: string): void;
   removeListeners(count: number): void;
 }
@@ -58,9 +55,6 @@ export const ClearAheadModule = {
   prepareModels: (modelVariant: ModelVariant) =>
     nativeModule?.prepareModels(modelVariant) ?? unavailable(),
   cancelModelPreparation: () => nativeModule?.cancelModelPreparation() ?? unavailable(),
-  startDemo: (scenario: DemoScenario) =>
-    nativeModule?.startDemo(scenario) ?? unavailable(),
-  stopDemo: () => nativeModule?.stopDemo() ?? unavailable(),
   onStatus(
     listener: (payload: SessionStatusPayload) => void,
   ): EmitterSubscription | undefined {

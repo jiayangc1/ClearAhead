@@ -35,10 +35,10 @@ final class SessionHealthTests: XCTestCase {
         var quality = SessionQualityState()
         quality.thermalLimited = true
         quality.imageQuality = "low-light"
-        quality.transient["overloaded"] = 12
+        quality.transient["moving-too-fast"] = 12
         XCTAssertEqual(quality.effective(at: 10).quality, "thermal-limited")
         quality.thermalLimited = false
-        XCTAssertEqual(quality.effective(at: 10).quality, "overloaded")
+        XCTAssertEqual(quality.effective(at: 10).quality, "moving-too-fast")
         XCTAssertEqual(quality.effective(at: 13).quality, "low-light")
         quality = SessionQualityState()
         XCTAssertEqual(quality.effective(at: 14).quality, "good")

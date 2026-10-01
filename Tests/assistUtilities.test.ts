@@ -49,3 +49,29 @@ test('announcements ignore metric churn but allow hazard change and risk escalat
   );
   assert.equal(gate.event({ ...event, collisionRisk: 'imminent' }, 12), false);
 });
+
+test('brief hazard dropouts and quality changes do not interrupt warnings', () => {
+  const gate = new AnnouncementGate();
+  const event: SpatialEvent = {
+    id: 'depth:path', kind: 'obstacle', direction: 'center', proximity: 'near',
+    approachSpeed: 0.5, motionState: 'approaching', collisionRisk: 'caution',
+    trajectoryConfidence: 0.9, confidence: 0.9, urgency: 0.8, timestamp: 10,
+  };
+  assert.equal(gate.event(event, 10), true);
+  assert.equal(gate.message('Low light', 10.2), false);
+  gate.clear(10.4);
+  assert.equal(gate.event(event, 10.7), false);
+  assert.equal(gate.event({ ...event, id: 'person:1' }, 10.8), false);
+  assert.equal(gate.event({ ...event, collisionRisk: 'imminent' }, 10.9), true);
+  gate.clear(11);
+  assert.equal(gate.event(event, 14.1), true);
+});
+
+test('quality announcements have a shared cooldown and a longer duplicate cooldown', () => {
+  const gate = new AnnouncementGate();
+  assert.equal(gate.message('Low light', 10), true);
+  assert.equal(gate.message('Camera covered', 11), false);
+  assert.equal(gate.message('Low light', 15), false);
+  assert.equal(gate.message('Camera covered', 15), true);
+  assert.equal(gate.message('Pipeline failed', 15.1, true), true);
+});

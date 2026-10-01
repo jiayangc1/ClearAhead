@@ -278,6 +278,43 @@ final class EventPrioritizerTests: XCTestCase {
         }
     }
 
+    func testQualityAndEqualPrioritySpeechCannotInterruptHazards() {
+        XCTAssertFalse(Feedback.shouldInterruptSpeech(currentPriority: 1, incomingPriority: 0.5, mayInterrupt: false))
+        XCTAssertFalse(Feedback.shouldInterruptSpeech(currentPriority: 2, incomingPriority: 2, mayInterrupt: true))
+        XCTAssertTrue(Feedback.shouldInterruptSpeech(currentPriority: 1, incomingPriority: 2, mayInterrupt: true))
+        XCTAssertFalse(Feedback.shouldInterruptSpeech(currentPriority: 0.5, incomingPriority: 1, mayInterrupt: false))
+    }
+
+    func testPlaybackDoesNotUseBluetoothInputOptions() {
+        XCTAssertFalse(Feedback.playbackOptions.contains(.allowBluetoothA2DP))
+        XCTAssertTrue(Feedback.playbackOptions.contains(.mixWithOthers))
+    }
+
+    func testNamedCollisionReplacesOverlappingGenericObstacle() {
+        let prioritizer = EventPrioritizer()
+        let box = CGRect(x: 0.35, y: 0.2, width: 0.3, height: 0.5)
+        let generic = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.5, collisionRisk: .caution, box: box)
+        let named = makeEvent(id: "person:center", distance: 1.5, collisionRisk: .caution, box: box)
+        XCTAssertEqual(prioritizer.select(from: [generic, named], configuration: configuration, now: 10)?.id, named.id)
+        let imminent = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.5, collisionRisk: .imminent, box: box)
+        XCTAssertEqual(prioritizer.select(from: [imminent, named], configuration: configuration, now: 10.1)?.id, imminent.id)
+    }
+
+    func testHazardSwitchesWaitButRiskEscalationDoesNot() {
+        let prioritizer = EventPrioritizer()
+        XCTAssertTrue(prioritizer.shouldAnnounce(makeEvent(id: "one", collisionRisk: .caution), now: 10))
+        XCTAssertFalse(prioritizer.shouldAnnounce(makeEvent(id: "two", collisionRisk: .caution), now: 10.4))
+        XCTAssertTrue(prioritizer.shouldAnnounce(makeEvent(id: "two", collisionRisk: .imminent), now: 10.5))
+    }
+
+    func testBoundingBoxVerbosityValidatesNativeInput() {
+        XCTAssertEqual(FeedbackConfiguration(dictionary: [:]).boundingBoxVerbosity, "standard")
+        XCTAssertEqual(FeedbackConfiguration(dictionary: ["boundingBoxVerbosity": "invalid"]).boundingBoxVerbosity, "standard")
+        for value in ["verbose", "standard", "less"] {
+            XCTAssertEqual(FeedbackConfiguration(dictionary: ["boundingBoxVerbosity": value]).boundingBoxVerbosity, value)
+        }
+    }
+
     private func makeEvent(
         id: String = "person:center",
         kind: EventKind = .person,

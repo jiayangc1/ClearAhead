@@ -20,7 +20,6 @@ export function OnboardingScreen({
   canRequestCameraPermission,
   requestCameraPermission,
   onMountingModeChange,
-  onTestFeedback,
   onComplete,
 }: {
   mountingMode: MountingMode;
@@ -28,19 +27,9 @@ export function OnboardingScreen({
   canRequestCameraPermission: boolean;
   requestCameraPermission: () => Promise<boolean>;
   onMountingModeChange: (mode: MountingMode) => void;
-  onTestFeedback: () => Promise<void>;
   onComplete: () => void;
 }) {
   const [step, setStep] = useState(0);
-  const [isTestingFeedback, setIsTestingFeedback] = useState(false);
-  const [feedbackError, setFeedbackError] = useState<string>();
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
   const scrollRef = useRef<React.ElementRef<typeof ScrollView>>(null);
   const titleRef = useRef<React.ElementRef<typeof Text>>(null);
 
@@ -54,28 +43,6 @@ export function OnboardingScreen({
     });
     return () => cancelAnimationFrame(frame);
   }, [step]);
-
-  const testFeedback = () => {
-    setIsTestingFeedback(true);
-    setFeedbackError(undefined);
-    onTestFeedback()
-      .catch(error => {
-        if (!mounted.current) {
-          return;
-        }
-        const message =
-          error instanceof Error
-            ? error.message
-            : 'Feedback test failed. Please try again.';
-        setFeedbackError(message);
-        AccessibilityInfo.announceForAccessibility(message);
-      })
-      .finally(() => {
-        if (mounted.current) {
-          setIsTestingFeedback(false);
-        }
-      });
-  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -197,29 +164,6 @@ export function OnboardingScreen({
                 <Text accessibilityRole="alert" style={styles.permissionHelp}>
                   Camera access is blocked. Open iOS Settings, choose Clear
                   Ahead, then enable Camera.
-                </Text>
-              ) : null}
-              <SpringPressable
-                accessibilityRole="button"
-                accessibilityLabel="Test feedback cues"
-                accessibilityHint="Plays a short left and center person warning while you remain seated"
-                disabled={isTestingFeedback}
-                onPress={testFeedback}
-                pressedScale={0.96}
-                style={[
-                  styles.testButton,
-                  isTestingFeedback && styles.testButtonDisabled,
-                ]}
-              >
-                <Text style={styles.testButtonText}>
-                  {isTestingFeedback
-                    ? 'Playing feedback…'
-                    : 'Test feedback cues'}
-                </Text>
-              </SpringPressable>
-              {feedbackError ? (
-                <Text accessibilityRole="alert" style={styles.permissionHelp}>
-                  {feedbackError}
                 </Text>
               ) : null}
               <PrimaryButton
@@ -390,15 +334,4 @@ const styles = StyleSheet.create({
   },
   permissionValue: { color: colors.cyan, fontSize: 17, fontWeight: '800' },
   permissionHelp: { color: colors.amber, fontSize: 17, lineHeight: 24 },
-  testButton: {
-    minHeight: 56,
-    borderRadius: 17,
-    borderWidth: 2,
-    borderColor: colors.cyan,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-  },
-  testButtonText: { color: colors.cyan, fontSize: 17, fontWeight: '800' },
-  testButtonDisabled: { opacity: 0.5 },
 });

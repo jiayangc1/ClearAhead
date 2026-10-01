@@ -41,8 +41,6 @@ final class ClearAheadEngine {
     private let motionManager = CMMotionManager()
     private var configuration = FeedbackConfiguration()
     private var sessionActive = false
-    private var demoTimer: DispatchSourceTimer?
-    private var demoGeneration = 0
 
     private let logger = Logger(subsystem: "com.clearahead.vision", category: "inference")
     private var objectModelResult = ModelLoadResult(model: nil, resource: nil, error: "Model not prepared")
@@ -52,6 +50,8 @@ final class ClearAheadEngine {
     private var modelPreparationRequest: ModelDownloadRequest?
     private var objectModel: VNCoreMLModel? { objectModelResult.model }
     private var depthModel: VNCoreMLModel? { depthModelResult.model }
+    private var objectRequest: VNCoreMLRequest?
+    private var depthRequest: VNCoreMLRequest?
     private var objectInferenceError: String?
     private var depthInferenceError: String?
     private var objectEvents: [SpatialEvent] = []
@@ -60,11 +60,15 @@ final class ClearAheadEngine {
     private var latestDepthMapTime: TimeInterval = 0
     private var previousPathObstacle: PathObstacleObservation?
     private var previousPathTime: TimeInterval = 0
+    private var pathConfirmationStartedAt: TimeInterval = 0
     private var pathClosingSpeed = 0.0
     private var pathObservationCount = 0
     private var latestRotationRate = 0.0
     private var lastObjectInference: TimeInterval = 0
     private var lastDepthInference: TimeInterval = 0
+    private var lastDetectionEmission: TimeInterval = 0
+    private var averageObjectDuration: TimeInterval = 0
+    private var averageDepthDuration: TimeInterval = 0
     private var lastQualityCheck: TimeInterval = 0
     private var lastMetricsEmission: TimeInterval = 0
     private var frameCount = 0
@@ -165,6 +169,10 @@ final class ClearAheadEngine {
                     if stillCurrent {
                         self.objectModelResult = detector
                         self.depthModelResult = depth
+                        self.objectRequest = detector.model.map { VNCoreMLRequest(model: $0) }
+                        self.depthRequest = depth.model.map { VNCoreMLRequest(model: $0) }
+                        self.objectRequest?.imageCropAndScaleOption = .scaleFill
+                        self.depthRequest?.imageCropAndScaleOption = .scaleFill
                         self.preparedModelKey = detector.error == nil && (depth.error == nil || allowDetectorOnly)
                             ? requestedKey
                             : nil
@@ -199,7 +207,6 @@ final class ClearAheadEngine {
         precondition(Thread.isMainThread)
         frameLock.lock()
         defer { frameLock.unlock() }
-        cancelDemoTimer()
         stateLock.lock()
         self.configuration = configuration
         sessionActive = true
@@ -228,6 +235,7 @@ final class ClearAheadEngine {
         depthInferenceError = nil
         previousPathObstacle = nil
         previousPathTime = 0
+        pathConfirmationStartedAt = 0
         pathClosingSpeed = 0
         pathObservationCount = 0
         hasVisibleEvent = false
@@ -244,6 +252,9 @@ final class ClearAheadEngine {
         stateLock.unlock()
         lastObjectInference = 0
         lastDepthInference = 0
+        lastDetectionEmission = 0
+        averageObjectDuration = 0
+        averageDepthDuration = 0
         lastQualityCheck = 0
         lastDepthPreviewTime = 0
         latestProcessingLatencyMs = 0
@@ -266,7 +277,6 @@ final class ClearAheadEngine {
         sessionGeneration += 1
         depthPreviewGeneration += 1
         stateLock.unlock()
-        cancelDemoTimer()
         watchdog?.cancel()
         watchdog = nil
         feedback.stop()
@@ -291,6 +301,9 @@ final class ClearAheadEngine {
 
     func update(configuration: FeedbackConfiguration) {
         stateLock.lock()
+        if self.configuration.depthMapEnabled != configuration.depthMapEnabled {
+            depthPreviewGeneration += 1
+        }
         self.configuration = configuration
         stateLock.unlock()
     }
@@ -299,7 +312,7 @@ final class ClearAheadEngine {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         stateLock.lock()
-        if sessionActive && demoTimer == nil { health.receivedFrame(at: ProcessInfo.processInfo.systemUptime) }
+        if sessionActive { health.receivedFrame(at: ProcessInfo.processInfo.systemUptime) }
         stateLock.unlock()
 
         guard frameLock.try() else {
@@ -310,7 +323,7 @@ final class ClearAheadEngine {
         }
         defer { frameLock.unlock() }
         stateLock.lock()
-        let isSessionActive = sessionActive && demoTimer == nil
+        let isSessionActive = sessionActive
         let currentConfiguration = configuration
         let processingGeneration = sessionGeneration
         stateLock.unlock()
@@ -321,34 +334,51 @@ final class ClearAheadEngine {
         let thermalState = ProcessInfo.processInfo.thermalState
         let thermallyLimited = thermalState == .serious || thermalState == .critical
         let usesResponsiveProcessing = currentConfiguration.processingMode == "responsive"
-        let objectInterval = thermallyLimited ? 0.22 : 0.11
-        let depthInterval = thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.35 : 0.18)
+        // Leave processing headroom instead of immediately starting another costly pair.
+        // Model inputs and all safety checks retain their full resolution.
+        let objectInterval = max(thermallyLimited ? 0.22 : 0.11, min(averageObjectDuration * 1.15, 0.35))
+        let depthInterval = max(thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.35 : 0.18),
+                                min((averageObjectDuration + averageDepthDuration) * 1.2, 0.5))
 
         if frameStartTime - lastQualityCheck >= 0.65 {
             evaluateImageQuality(pixelBuffer: pixelBuffer)
             lastQualityCheck = frameStartTime
         }
 
-        let shouldDetectObjects = objectModel != nil && frameStartTime - lastObjectInference >= objectInterval
         let shouldEstimateDepth = depthModel != nil && frameStartTime - lastDepthInference >= depthInterval
+        let shouldDetectObjects = objectModel != nil
+            && (shouldEstimateDepth || frameStartTime - lastObjectInference >= objectInterval)
+        guard shouldEstimateDepth || shouldDetectObjects else {
+            emitMetricsIfNeeded(now: frameStartTime)
+            return
+        }
         // A due depth observation and detector observation use this same frame.
         // Never sample an older map using a newer bounding box.
         if shouldEstimateDepth {
+            let started = ProcessInfo.processInfo.systemUptime
             depthEvents = estimateDepthEvents(
                 pixelBuffer: pixelBuffer,
                 now: frameStartTime,
                 configuration: currentConfiguration
             )
             lastDepthInference = frameStartTime
+            averageDepthDuration += ((ProcessInfo.processInfo.systemUptime - started) - averageDepthDuration) * 0.2
             depthInferenceCount += 1
         }
+        // Stop can invalidate a session while depth inference is running.
+        stateLock.lock()
+        let mayContinue = sessionActive && sessionGeneration == processingGeneration
+        stateLock.unlock()
+        guard mayContinue else { return }
         if shouldDetectObjects {
+            let started = ProcessInfo.processInfo.systemUptime
             objectEvents = detectObjects(
                 pixelBuffer: pixelBuffer,
                 now: frameStartTime,
                 configuration: currentConfiguration
             )
             lastObjectInference = frameStartTime
+            averageObjectDuration += ((ProcessInfo.processInfo.systemUptime - started) - averageObjectDuration) * 0.2
             objectInferenceCount += 1
         }
 
@@ -386,87 +416,9 @@ final class ClearAheadEngine {
 
     func reportDroppedFrame(reason: String) {
         stateLock.lock()
-        guard sessionActive && demoTimer == nil else { stateLock.unlock(); return }
+        guard sessionActive else { stateLock.unlock(); return }
         droppedFrameCount += 1
-        let shouldWarn = droppedFrameCount >= 6
         stateLock.unlock()
-        if shouldWarn {
-            markTransientQuality(
-                "overloaded",
-                message: "Processing is behind. Hold the phone steady.",
-                duration: 1.5
-            )
-        }
-    }
-
-    func startDemo(scenario: String) {
-        cancelModelPreparation()
-        frameLock.lock()
-        defer { frameLock.unlock() }
-        cancelDemoTimer()
-        stateLock.lock()
-        sessionActive = true
-        modelPreparationGeneration += 1
-        sessionGeneration += 1
-        depthPreviewGeneration += 1
-        let currentConfiguration = configuration
-        demoGeneration += 1
-        let currentDemoGeneration = demoGeneration
-        stateLock.unlock()
-        resetSessionState()
-        watchdog?.cancel()
-        watchdog = nil
-        feedback.stop()
-        feedback.start()
-        motionManager.stopDeviceMotionUpdates()
-        emitQuality("good", message: "Safe demo running")
-        emitSessionEvent(name: "sessionStatus", body: [
-            "state": "running",
-            "message": "Safe demo running",
-        ])
-
-        let sequence = demoSequence(for: scenario)
-        var index = 0
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
-        timer.schedule(deadline: .now() + 0.4, repeating: 1.05)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            frameLock.lock()
-            defer { frameLock.unlock() }
-            stateLock.lock()
-            let shouldDeliver = sessionActive && demoGeneration == currentDemoGeneration
-            stateLock.unlock()
-            guard shouldDeliver else { return }
-            let event = sequence[index % sequence.count].withTimestamp(ProcessInfo.processInfo.systemUptime)
-            index += 1
-            feedback.deliver(event, configuration: currentConfiguration)
-            emitSessionEvent(name: "topEvent", body: event.dictionary)
-            emitSessionEvent(name: "performanceMetrics", body: [
-                "cameraFps": 0,
-                "detectorFps": 0,
-                "depthFps": 0,
-                "droppedFrames": 0,
-                "processingLatencyMs": 0,
-                "thermalState": "nominal",
-            ])
-        }
-        stateLock.lock()
-        demoTimer = timer
-        stateLock.unlock()
-        timer.resume()
-    }
-
-    func stopDemo() {
-        stop(message: "Demo stopped")
-    }
-
-    private func cancelDemoTimer() {
-        stateLock.lock()
-        demoGeneration += 1
-        let timer = demoTimer
-        demoTimer = nil
-        stateLock.unlock()
-        timer?.cancel()
     }
 
     private func detectObjects(
@@ -474,9 +426,7 @@ final class ClearAheadEngine {
         now: TimeInterval,
         configuration: FeedbackConfiguration
     ) -> [SpatialEvent] {
-        guard let objectModel else { return [] }
-        let request = VNCoreMLRequest(model: objectModel)
-        request.imageCropAndScaleOption = .scaleFill
+        guard let request = objectRequest else { return [] }
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
         do {
             try handler.perform([request])
@@ -500,28 +450,10 @@ final class ClearAheadEngine {
         objectInferenceError = nil
         recordInference(detector: true, succeeded: true)
         let modelDetections = modelOutputs.flatMap { ModelOutput.detections(from: $0) }
-        if configuration.showBoundingBoxes {
-            let visibleDetections = modelDetections
-            .filter { $0.confidence >= 0.25 }
-            .sorted { $0.confidence > $1.confidence }
-            .prefix(20)
-            emitSessionEvent(name: "detectionsUpdated", body: visibleDetections.compactMap { detection -> [String: Any]? in
-                guard let label = cocoLabel(for: detection.classIdentifier) else { return nil }
-                return [
-                    "label": label,
-                    "confidence": detection.confidence,
-                    "box": [
-                        "x": detection.box.minX,
-                        "y": 1 - detection.box.maxY,
-                        "width": detection.box.width,
-                        "height": detection.box.height,
-                    ],
-                ]
-            })
-        }
         let detections = modelDetections.compactMap { detection -> ObjectDetection? in
-            guard let label = cocoLabel(for: detection.classIdentifier),
-                  let kind = eventKind(forCOCOClass: detection.classIdentifier) else { return nil }
+            guard detection.confidence >= 0.25,
+                  let label = cocoLabel(for: detection.classIdentifier),
+                  let kind = detection.kind else { return nil }
             return ObjectDetection(
                 kind: kind,
                 label: label,
@@ -530,12 +462,40 @@ final class ClearAheadEngine {
                 confidence: detection.confidence
             )
         }
-        return collisionTracker.update(
+        let events = collisionTracker.update(
             detections: detections,
             now: now,
             configuration: configuration,
             rotationRate: currentRotationRate()
         )
+        if configuration.showBoundingBoxes, now - lastDetectionEmission >= 0.2 {
+            emitDetections(modelDetections, events: events, configuration: configuration)
+            lastDetectionEmission = now
+        }
+        return events
+    }
+
+    private func emitDetections(_ detections: [YOLODetection], events: [SpatialEvent], configuration: FeedbackConfiguration) {
+        let visible: [YOLODetection]
+        if configuration.boundingBoxVerbosity == "less" {
+            // These events already passed tracking and collision constraints.
+            emitSessionEvent(name: "detectionsUpdated", body: events.filter {
+                $0.collisionRisk != .none && $0.confidence >= 0.6
+            }.prefix(4).compactMap { event -> [String: Any]? in
+                guard let box = event.box else { return nil }
+                return ["label": event.label ?? event.kind.rawValue, "confidence": event.confidence,
+                        "box": ["x": box.minX, "y": 1 - box.maxY, "width": box.width, "height": box.height]]
+            })
+            return
+        }
+        visible = Array(detections.filter { $0.shouldDisplay(verbosity: configuration.boundingBoxVerbosity) }
+            .sorted { $0.confidence > $1.confidence }.prefix(configuration.boundingBoxVerbosity == "verbose" ? 20 : 8))
+        emitSessionEvent(name: "detectionsUpdated", body: visible.compactMap { detection -> [String: Any]? in
+            guard let label = cocoLabel(for: detection.classIdentifier) else { return nil }
+            return ["label": label, "confidence": detection.confidence,
+                    "box": ["x": detection.box.minX, "y": 1 - detection.box.maxY,
+                            "width": detection.box.width, "height": detection.box.height]]
+        })
     }
 
     private func estimateDepthEvents(
@@ -543,9 +503,7 @@ final class ClearAheadEngine {
         now: TimeInterval,
         configuration: FeedbackConfiguration
     ) -> [SpatialEvent] {
-        guard let depthModel else { return [] }
-        let request = VNCoreMLRequest(model: depthModel)
-        request.imageCropAndScaleOption = .scaleFill
+        guard let request = depthRequest else { return [] }
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
         do {
             try handler.perform([request])
@@ -572,7 +530,8 @@ final class ClearAheadEngine {
         let event = pathObstacleEvent(from: depthMap, now: now, configuration: configuration)
         if configuration.depthMapEnabled {
             stateLock.lock()
-            let shouldQueue = !depthPreviewPending && now - lastDepthPreviewTime >= 1
+            let shouldQueue = sessionActive && self.configuration.depthMapEnabled
+                && !depthPreviewPending && now - lastDepthPreviewTime >= 0.2
             let generation = depthPreviewGeneration
             if shouldQueue { depthPreviewPending = true }
             stateLock.unlock()
@@ -580,9 +539,15 @@ final class ClearAheadEngine {
                 lastDepthPreviewTime = now
                 depthMapQueue.async { [weak self] in
                     guard let self else { return }
-                    let dataURL = depthMap.heatmapDataURL()
                     self.stateLock.lock()
-                    let shouldEmit = self.sessionActive && self.depthPreviewGeneration == generation
+                    let shouldRender = self.sessionActive && self.configuration.depthMapEnabled
+                        && self.depthPreviewGeneration == generation
+                    self.stateLock.unlock()
+                    let dataURL = shouldRender
+                        ? depthMap.heatmapDataURL(farDistance: configuration.warningDistanceMeters) : nil
+                    self.stateLock.lock()
+                    let shouldEmit = self.sessionActive && self.configuration.depthMapEnabled
+                        && self.depthPreviewGeneration == generation
                     self.depthPreviewPending = false
                     self.stateLock.unlock()
                     if shouldEmit, let dataURL {
@@ -598,6 +563,9 @@ final class ClearAheadEngine {
         depthInferenceError = message
         latestDepthMap = nil
         latestDepthMapTime = 0
+        previousPathObstacle = nil
+        pathObservationCount = 0
+        pathClosingSpeed = 0
         recordInference(detector: false, succeeded: false)
     }
 
@@ -623,10 +591,11 @@ final class ClearAheadEngine {
             pathObservationCount = 0
             return nil
         }
-        let stable = currentRotationRate() < 0.9
+        let stable = currentRotationRate() < 0.6 && !cameraTooClose
         if let previous = previousPathObstacle,
            now - previousPathTime < 0.8,
-           overlapFraction(previous.box, observation.box) >= 0.3,
+           overlapFraction(previous.box, observation.box) >= 0.5,
+           abs(previous.distanceMeters - observation.distanceMeters) <= max(0.45, previous.distanceMeters * 0.25),
            stable {
             let elapsed = max(now - previousPathTime, 0.04)
             let observedSpeed = (previous.distanceMeters - observation.distanceMeters) / elapsed
@@ -635,22 +604,15 @@ final class ClearAheadEngine {
         } else {
             pathClosingSpeed = 0
             pathObservationCount = 1
+            pathConfirmationStartedAt = now
         }
         previousPathObstacle = observation
         previousPathTime = now
         let approachSpeed = stable && pathObservationCount >= 2 ? max(0, pathClosingSpeed) : 0
-        let timeToCollision = approachSpeed > 0.2 ? observation.distanceMeters / approachSpeed : nil
-        let risk: CollisionRisk
-        if let timeToCollision, pathObservationCount >= 3, timeToCollision <= 1.5 {
-            risk = .imminent
-        } else if let timeToCollision, pathObservationCount >= 3, timeToCollision <= 3 {
-            risk = .caution
-        } else if stable, pathObservationCount >= 3, observation.distanceMeters <= 1 {
-            // Too slow to measure a closing speed, but the path is blocked within a step.
-            risk = .caution
-        } else {
-            risk = .none
-        }
+        let timeToCollision = approachSpeed >= 0.35 ? observation.distanceMeters / approachSpeed : nil
+        let risk = observation.collisionRisk(observations: pathObservationCount,
+                                             duration: now - pathConfirmationStartedAt,
+                                             closingSpeed: approachSpeed, stable: stable)
         let confidence = min(0.6 + observation.coverage * 0.5, 0.95)
         return SpatialEvent(
             id: "depth:path",
@@ -662,7 +624,7 @@ final class ClearAheadEngine {
             motionState: approachSpeed > 0.15 ? .approaching : .stationary,
             collisionRisk: risk,
             timeToCollisionSeconds: timeToCollision,
-            trajectoryConfidence: confidence * min(Double(pathObservationCount) / 3, 1),
+            trajectoryConfidence: confidence * min(Double(pathObservationCount) / 4, 1),
             confidence: confidence,
             urgency: 0,
             timestamp: now,
@@ -681,7 +643,7 @@ final class ClearAheadEngine {
     private func updateCloseCameraState(from depthMap: DepthMap) {
         let centerSamples = depthMap.samples(in: CGRect(x: 0.08, y: 0.08, width: 0.84, height: 0.84), step: 4)
         guard centerSamples.count > 20 else { return }
-        let closeRangeCoverage = Double(centerSamples.filter { $0 <= 0.35 }.count) / Double(centerSamples.count)
+        let closeRangeCoverage = Double(centerSamples.reduce(0) { $0 + ($1 <= 0.35 ? 1 : 0) }) / Double(centerSamples.count)
         if closeRangeCoverage >= 0.45 {
             closeDepthFrames += 1
             clearDepthFrames = 0
@@ -793,19 +755,11 @@ final class ClearAheadEngine {
         let available = type == .ended && options.contains(.shouldResume)
         stateLock.lock()
         let active = sessionActive
-        let demo = demoTimer != nil
         health.audioInterrupted = !available
         stateLock.unlock()
         guard active else { return }
         feedback.setAudioAvailable(available)
-        if demo {
-            emitSessionEvent(name: "sessionStatus", body: [
-                "state": available ? "running" : "degraded",
-                "code": "audio-interrupted",
-                "severity": available ? "info" : "warning",
-                "message": available ? "Demo audio restored" : "Demo audio interrupted. Haptic cues remain active.",
-            ])
-        } else { emitPipelineStatus() }
+        emitPipelineStatus()
     }
 
     private func emitQuality(_ quality: String, message: String) {
@@ -1022,17 +976,7 @@ final class ClearAheadEngine {
         for url in inactive.dropFirst(2) { try? FileManager.default.removeItem(at: url) }
     }
 
-    private func eventKind(forCOCOClass identifier: Int) -> EventKind? {
-        switch identifier {
-        case 0: return .person
-        case 1, 2, 3, 5, 6, 7: return .vehicle
-        case 13, 56, 57, 59, 60, 61: return .furniture
-        default: return nil
-        }
-    }
-
-    private func cocoLabel(for identifier: Int) -> String? {
-        let labels = [
+    private static let cocoLabels = [
             "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
             "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
             "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
@@ -1041,8 +985,10 @@ final class ClearAheadEngine {
             "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed",
             "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
             "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
-        ]
-        return labels.indices.contains(identifier) ? labels[identifier] : nil
+    ]
+
+    private func cocoLabel(for identifier: Int) -> String? {
+        Self.cocoLabels.indices.contains(identifier) ? Self.cocoLabels[identifier] : nil
     }
 
     private func recentDepthMeasurement(inVisionBox box: CGRect, now: TimeInterval) -> DepthMeasurement? {
@@ -1067,25 +1013,4 @@ final class ClearAheadEngine {
         }
     }
 
-    private func demoSequence(for scenario: String) -> [SpatialEvent] {
-        let now = ProcessInfo.processInfo.systemUptime
-        switch scenario {
-        case "approaching-vehicle":
-            return [
-                SpatialEvent(id: "demo-vehicle-right", kind: .vehicle, direction: .right, proximity: .medium, approximateDistanceMeters: 4.8, approachSpeed: 1.2, confidence: 0.92, urgency: 0.72, timestamp: now, box: CGRect(x: 0.68, y: 0.32, width: 0.24, height: 0.35)),
-                SpatialEvent(id: "demo-vehicle-center", kind: .vehicle, direction: .center, proximity: .near, approximateDistanceMeters: 1.8, approachSpeed: 1.8, motionState: .approaching, collisionRisk: .imminent, timeToCollisionSeconds: 1, trajectoryConfidence: 0.93, confidence: 0.95, urgency: 0.96, timestamp: now, box: CGRect(x: 0.34, y: 0.22, width: 0.34, height: 0.5)),
-            ]
-        case "hallway":
-            return [
-                SpatialEvent(id: "demo-obstacle-left", kind: .obstacle, direction: .left, proximity: .medium, approximateDistanceMeters: nil, approachSpeed: 0, confidence: 0.81, urgency: 0.58, timestamp: now, box: CGRect(x: 0.04, y: 0.35, width: 0.28, height: 0.55)),
-                SpatialEvent(id: "demo-furniture-center", kind: .furniture, direction: .center, proximity: .near, approximateDistanceMeters: 1.4, approachSpeed: 0.3, motionState: .approaching, collisionRisk: .caution, timeToCollisionSeconds: 2.6, trajectoryConfidence: 0.8, confidence: 0.88, urgency: 0.84, timestamp: now, box: CGRect(x: 0.36, y: 0.42, width: 0.3, height: 0.42)),
-            ]
-        default:
-            return [
-                SpatialEvent(id: "demo-person-left", kind: .person, direction: .left, proximity: .medium, approximateDistanceMeters: 3.6, approachSpeed: 0.6, confidence: 0.94, urgency: 0.64, timestamp: now, box: CGRect(x: 0.08, y: 0.2, width: 0.25, height: 0.58)),
-                SpatialEvent(id: "demo-person-center", kind: .person, direction: .center, proximity: .near, approximateDistanceMeters: 1.6, approachSpeed: 1.1, motionState: .approaching, collisionRisk: .caution, timeToCollisionSeconds: 2.1, trajectoryConfidence: 0.91, confidence: 0.96, urgency: 0.91, timestamp: now, box: CGRect(x: 0.38, y: 0.12, width: 0.28, height: 0.72)),
-                SpatialEvent(id: "demo-person-right", kind: .person, direction: .right, proximity: .medium, approximateDistanceMeters: 3.1, approachSpeed: 0.2, confidence: 0.9, urgency: 0.57, timestamp: now, box: CGRect(x: 0.7, y: 0.24, width: 0.22, height: 0.52)),
-            ]
-        }
-    }
 }

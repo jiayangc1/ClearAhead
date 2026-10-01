@@ -29,38 +29,3 @@ export class SessionController {
     await this.stopNative();
   }
 }
-
-export async function runFeedbackTest(
-  session: SessionController,
-  signal: AbortSignal,
-  duration = 2200,
-): Promise<void> {
-  let stopped = false;
-  const stop = () => {
-    stopped = true;
-    session.stop().catch(() => undefined);
-  };
-  signal.addEventListener('abort', stop);
-  try {
-    if (signal.aborted || !(await session.start()) || signal.aborted) {
-      return;
-    }
-    await new Promise<void>(resolve => {
-      const finish = () => {
-        clearTimeout(timer);
-        signal.removeEventListener('abort', finish);
-        resolve();
-      };
-      const timer = setTimeout(finish, duration);
-      signal.addEventListener('abort', finish);
-      if (signal.aborted) {
-        finish();
-      }
-    });
-  } finally {
-    signal.removeEventListener('abort', stop);
-    if (!stopped) {
-      await session.stop();
-    }
-  }
-}
