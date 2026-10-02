@@ -7,8 +7,8 @@ final class EventPrioritizerTests: XCTestCase {
     func testUnknownDistanceKeepsFeedback() {
         let prioritizer = EventPrioritizer()
         let event = SpatialEvent(id: "distant-person", kind: .person, direction: .center, proximity: .unknown,
-                                 approximateDistanceMeters: nil, approachSpeed: 0, confidence: 0.95,
-                                 urgency: 0, timestamp: 10, box: nil)
+                                 approximateDistanceMeters: nil, approachSpeed: 0, collisionRisk: .caution,
+                                 confidence: 0.95, urgency: 0, timestamp: 10, box: nil)
         let selected = prioritizer.select(from: [event], configuration: configuration, now: 10)
         XCTAssertNotNil(selected)
         XCTAssertTrue(prioritizer.shouldAnnounce(selected, now: 10))
