@@ -4,6 +4,7 @@ import CoreMotion
 import CryptoKit
 import Foundation
 import OSLog
+import UIKit
 import Vision
 
 private struct ModelLoadResult {
@@ -220,6 +221,7 @@ final class ClearAheadEngine {
         motionManager.stopDeviceMotionUpdates()
         startMotionMonitoring()
         startWatchdog()
+        setKeepsScreenAwake(true)
         emitThermalQuality()
         emitPipelineStatus()
     }
@@ -283,6 +285,7 @@ final class ClearAheadEngine {
         watchdog = nil
         feedback.stop()
         motionManager.stopDeviceMotionUpdates()
+        setKeepsScreenAwake(false)
         // In-flight Core ML work cannot be cancelled. Invalidate it immediately
         // rather than blocking main while waiting for inference to finish.
         if frameLock.try() {
@@ -300,6 +303,18 @@ final class ClearAheadEngine {
             "state": "idle",
             "message": message,
         ], requireActive: false)
+    }
+
+    // Auto-lock would cut the camera and every cue mid-walk, so hold the screen
+    // on for the length of the session only.
+    private func setKeepsScreenAwake(_ awake: Bool) {
+        if Thread.isMainThread {
+            UIApplication.shared.isIdleTimerDisabled = awake
+        } else {
+            DispatchQueue.main.async {
+                UIApplication.shared.isIdleTimerDisabled = awake
+            }
+        }
     }
 
     func update(configuration: FeedbackConfiguration) {
