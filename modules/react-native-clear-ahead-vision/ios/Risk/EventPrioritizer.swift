@@ -102,7 +102,9 @@ final class EventPrioritizer {
            let retainedCandidate = rankedEvents.first(where: {
                $0.id == retainedEvent.id && $0.collisionRisk == retainedEvent.collisionRisk
            }),
+           retainedCandidate.collisionRisk == highestPriorityEvent.collisionRisk,
            retainedCandidate.urgency > highestPriorityEvent.urgency - 0.08 {
+            // Urgency saturates at 1, so it cannot be trusted to rank across risk tiers.
             // Retain the selection, not last frame's stale distance, box, or timestamp.
             highestPriorityEvent = retainedCandidate
         }
