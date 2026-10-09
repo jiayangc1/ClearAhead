@@ -5,6 +5,7 @@ import CryptoKit
 import Foundation
 import OSLog
 import Vision
+import simd
 
 private struct ModelLoadResult {
     let model: VNCoreMLModel?
@@ -38,6 +39,14 @@ final class ClearAheadEngine {
     private let prioritizer = EventPrioritizer()
     private let feedback = Feedback()
     private let collisionTracker = CollisionTracker()
+    private let sceneSelector = SceneSelector()
+    private var groundNormalizer = GroundNormalizer()
+    private var cameraGeometry: CameraGeometry?
+    private var latestGravity: SIMD3<Double>?
+    private var latestCameraAttitude: simd_quatd?
+    private var latestMotionTime: TimeInterval = 0
+    private var frameGravity: SIMD3<Double>?
+    private var frameAttitude: simd_quatd?
     private var groundHazardTracker = GroundHazardTracker()
     private var throttle = AdaptiveThrottle()
     private let motionManager = CMMotionManager()
@@ -143,7 +152,20 @@ final class ClearAheadEngine {
                 let current = self.modelPreparationGeneration == preparationGeneration
                 self.stateLock.unlock()
                 guard current else { throw CocoaError(.userCancelled) }
+                let detectorBytes = ModelManager.packageBytes(pair.detector)
+                let totalBytes = detectorBytes + (pair.depth.map(ModelManager.packageBytes) ?? 0)
                 let detector = self.loadModel(at: pair.detector)
+                if detector.error == nil {
+                    ClearAheadModule.emit(name: "modelDownloadProgress", body: [
+                        "modelVariant": configuration.modelVariant,
+                        "progress": 0.95 * Double(detectorBytes) / Double(max(totalBytes, 1)),
+                        "message": "Detector loaded; loading depth…",
+                    ], isCurrent: {
+                        self.stateLock.lock()
+                        defer { self.stateLock.unlock() }
+                        return self.modelPreparationGeneration == preparationGeneration
+                    })
+                }
                 let depth = pair.depth.map { self.loadModel(at: $0, isDepth: true) }
                     ?? ModelLoadResult(model: nil, resource: nil, error: "Depth model unavailable")
                 if let error = detector.error ?? (pair.depth == nil && allowDetectorOnly ? nil : depth.error) {
@@ -228,6 +250,8 @@ final class ClearAheadEngine {
     private func resetSessionState() {
         prioritizer.reset()
         collisionTracker.reset()
+        sceneSelector.reset()
+        groundNormalizer = GroundNormalizer()
         groundHazardTracker.reset()
         throttle = AdaptiveThrottle()
         objectEvents = []
@@ -249,6 +273,8 @@ final class ClearAheadEngine {
         health = SessionHealth(startedAt: ProcessInfo.processInfo.systemUptime)
         qualityState = SessionQualityState()
         latestRotationRate = 0
+        latestGravity = nil
+        latestCameraAttitude = nil
         lastPipelineStatus = nil
         lastQuality = ""
         stateLock.unlock()
@@ -295,6 +321,8 @@ final class ClearAheadEngine {
             hasVisibleEvent = false
             frameLock.unlock()
         }
+        emitSessionEvent(name: "sceneUpdated", body: ["state": "unavailable", "sources": [Any](),
+                                                   "distanceStatus": "unavailable", "spatialCapability": "unavailable"], requireActive: false)
         emitSessionEvent(name: "eventCleared", body: [:], requireActive: false)
         emitSessionEvent(name: "sessionStatus", body: [
             "state": "idle",
@@ -332,7 +360,13 @@ final class ClearAheadEngine {
         stateLock.unlock()
         guard isSessionActive else { return }
 
+        cameraGeometry = Self.geometry(sampleBuffer: sampleBuffer, pixelBuffer: pixelBuffer)
+
         let frameStartTime = ProcessInfo.processInfo.systemUptime
+        stateLock.lock()
+        frameGravity = frameStartTime - latestMotionTime < 0.4 ? latestGravity : nil
+        frameAttitude = frameStartTime - latestMotionTime < 0.4 ? latestCameraAttitude : nil
+        stateLock.unlock()
         frameCount += 1
         let thermalState = ProcessInfo.processInfo.thermalState
         let thermallyLimited = thermalState == .serious || thermalState == .critical
@@ -406,9 +440,42 @@ final class ClearAheadEngine {
         emitPipelineStatus()
         guard stillActive, !stalled else { return }
 
+        // Build geometry and semantic masks only from the matched depth/detector frame.
+        guard shouldEstimateDepth || latestDepthMap == nil else {
+            emitMetricsIfNeeded(now: frameStartTime)
+            return
+        }
         let evaluationTime = ProcessInfo.processInfo.systemUptime
-        let freshEvents = (objectEvents + depthEvents)
-            .filter { evaluationTime - $0.timestamp < 0.7 }
+        stateLock.lock()
+        let gravity = frameGravity
+        let attitude = frameAttitude
+        let imageUsable = qualityState.imageQuality == "good" && !cameraTooClose
+        stateLock.unlock()
+        var available = latestDepthMap != nil && evaluationTime - latestDepthMapTime < 0.65 && imageUsable
+        let sources: [SceneSource]
+        if available, let map = latestDepthMap {
+            sources = sceneSelector.select(SceneBuilder.build(
+                map: map, objects: objectEvents.filter { abs($0.timestamp - latestDepthMapTime) < 0.001 },
+                hazards: depthEvents, geometry: cameraGeometry, gravity: gravity, ground: groundNormalizer,
+                configuration: currentConfiguration, now: evaluationTime
+            ), now: evaluationTime, range: currentConfiguration.warningDistanceMeters)
+            if sources.isEmpty, map.values.contains(where: { $0.isFinite && $0 <= currentConfiguration.warningDistanceMeters }),
+               groundNormalizer.plane == nil { available = false }
+        } else {
+            sceneSelector.reset()
+            sources = []
+        }
+        feedback.updateScene(sources, configuration: currentConfiguration, camera: attitude,
+                             earCalibrated: currentConfiguration.earHeightMeters >= 0.4
+                                && currentConfiguration.cameraHeightMeters >= 0.4 && groundNormalizer.plane != nil)
+        emitSessionEvent(name: "sceneUpdated", body: [
+            "state": available ? (sources.isEmpty ? "clear" : "available") : "unavailable",
+            "sources": sources.map(\.dictionary),
+            "distanceStatus": groundNormalizer.status,
+            "spatialCapability": feedback.spatialCapability,
+            "imageAspectRatio": Double(CVPixelBufferGetHeight(pixelBuffer)) / Double(CVPixelBufferGetWidth(pixelBuffer)),
+        ])
+        let freshEvents = sources.map(\.event)
         if let selected = prioritizer.select(
             from: freshEvents,
             configuration: currentConfiguration,
@@ -416,8 +483,6 @@ final class ClearAheadEngine {
         ) {
             if prioritizer.shouldAnnounce(selected, now: evaluationTime) {
                 feedback.deliver(selected, configuration: currentConfiguration)
-            } else {
-                feedback.track(selected, configuration: currentConfiguration)
             }
             if !hasVisibleEvent || evaluationTime - lastTopEventEmission >= 0.25 {
                 emitSessionEvent(name: "topEvent", body: selected.dictionary)
@@ -425,7 +490,6 @@ final class ClearAheadEngine {
             }
             hasVisibleEvent = true
         } else {
-            feedback.clearTracking()
             if !prioritizer.hasActiveEvent, hasVisibleEvent {
                 emitSessionEvent(name: "eventCleared", body: [:], requireActive: false)
                 hasVisibleEvent = false
@@ -542,12 +606,18 @@ final class ClearAheadEngine {
             recordDepthInferenceFailure("Depth model returned no depth array")
             return []
         }
-        guard let depthMap = DepthMap(array: depthValues) else {
+        guard let rawMap = DepthMap(array: depthValues),
+              Double(rawMap.values.filter { $0.isFinite && $0 > 0.15 && $0 < 100 }.count)
+                / Double(rawMap.values.count) >= 0.65 else {
             recordDepthInferenceFailure("Depth model returned an invalid depth array")
             return []
         }
         depthInferenceError = nil
         recordInference(detector: false, succeeded: true)
+        groundNormalizer.update(map: rawMap, geometry: cameraGeometry, gravity: frameGravity,
+                                cameraHeight: configuration.cameraHeightMeters, stable: currentRotationRate() < 0.9)
+        let depthMap = DepthMap(width: rawMap.width, height: rawMap.height,
+                               values: rawMap.values.map { $0 * groundNormalizer.scale })
         latestDepthMap = depthMap
         latestDepthMapTime = now
         updateCloseCameraState(from: depthMap)
@@ -747,11 +817,15 @@ final class ClearAheadEngine {
         stateLock.unlock()
         motionManager.deviceMotionUpdateInterval = 0.1
         motionManager.startDeviceMotionUpdates(to: OperationQueue()) { [weak self] motion, _ in
-            guard let self, let rate = motion?.rotationRate else { return }
+            guard let self, let motion else { return }
+            let rate = motion.rotationRate
             let magnitude = sqrt(rate.x * rate.x + rate.y * rate.y + rate.z * rate.z)
             stateLock.lock()
             guard sessionActive && sessionGeneration == generation else { stateLock.unlock(); return }
             latestRotationRate = magnitude
+            latestGravity = SIMD3(motion.gravity.x, motion.gravity.y, motion.gravity.z)
+            latestCameraAttitude = SpatialAudio.attitude(motion.attitude)
+            latestMotionTime = ProcessInfo.processInfo.systemUptime
             stateLock.unlock()
             if magnitude > 3.2 {
                 markTransientQuality(
@@ -816,12 +890,13 @@ final class ClearAheadEngine {
         stateLock.lock()
         let generation = sessionGeneration
         stateLock.unlock()
+        let needsFreshScene = name == "sceneUpdated" && ((body as? [String: Any])?["state"] as? String) != "unavailable"
         ClearAheadModule.emit(name: name, body: body, isCurrent: { [weak self] in
             guard let self else { return false }
             stateLock.lock()
             defer { stateLock.unlock() }
             return (!requireActive || sessionActive) && sessionGeneration == generation
-                && (name != "topEvent" || !health.stalled)
+                && ((name != "topEvent" && !needsFreshScene) || !health.stalled)
         })
     }
 
@@ -856,6 +931,8 @@ final class ClearAheadEngine {
             if stalled && !wasStalled {
                 feedback.stop()
                 emitSessionEvent(name: "eventCleared", body: [:])
+                emitSessionEvent(name: "sceneUpdated", body: ["state": "unavailable", "sources": [Any](),
+                                                           "distanceStatus": "unavailable", "spatialCapability": "unavailable"])
                 emitSessionEvent(name: "detectionsUpdated", body: [Any]())
                 emitSessionEvent(name: "depthMapUpdated", body: ["dataUrl": NSNull()])
                 if frameLock.try() {
@@ -1030,6 +1107,19 @@ final class ClearAheadEngine {
         stateLock.lock()
         defer { stateLock.unlock() }
         return latestRotationRate
+    }
+
+    private static func geometry(sampleBuffer: CMSampleBuffer, pixelBuffer: CVPixelBuffer) -> CameraGeometry? {
+        guard let data = CMGetAttachment(sampleBuffer, key: kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix,
+                                         attachmentModeOut: nil) as? Data,
+              data.count >= MemoryLayout<simd_float3x3>.size else { return nil }
+        let matrix = data.withUnsafeBytes { $0.loadUnaligned(as: simd_float3x3.self) }
+        let width = Double(CVPixelBufferGetWidth(pixelBuffer))
+        let height = Double(CVPixelBufferGetHeight(pixelBuffer))
+        // Vision rotates the landscape buffer clockwise into the portrait depth/box coordinate system.
+        let geometry = CameraGeometry(fx: Double(matrix[1][1]) / height, fy: Double(matrix[0][0]) / width,
+                                      cx: 1 - Double(matrix[2][1]) / height, cy: Double(matrix[2][0]) / width)
+        return geometry.valid ? geometry : nil
     }
 
     private func thermalStateName(_ state: ProcessInfo.ThermalState) -> String {

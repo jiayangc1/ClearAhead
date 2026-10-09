@@ -35,18 +35,18 @@ struct SessionHealth {
     func status(detectorLoaded: Bool, depthLoaded: Bool) -> PipelineStatus {
         let degradedState = lastFrameReceived == nil ? "starting" : "degraded"
         if stalled {
-            return PipelineStatus(state: "degraded", code: "camera-stalled", message: "Vision stalled. No current hazard information.", severity: "warning")
+            return PipelineStatus(state: "degraded", code: "camera-stalled", message: "Vision stalled. Live scene unavailable.", severity: "warning")
         }
         let objectUnavailable = !detectorLoaded || objectFailures >= 3
         let depthUnavailable = !depthLoaded || depthFailures >= 3
         if objectUnavailable && depthUnavailable {
-            return PipelineStatus(state: degradedState, code: "pipeline-unavailable", message: "Object detection and depth unavailable. Hazard cues are unreliable.", severity: "error")
+            return PipelineStatus(state: degradedState, code: "pipeline-unavailable", message: "Object detection and depth unavailable. Live scene unavailable.", severity: "error")
         }
         if objectUnavailable {
-            return PipelineStatus(state: degradedState, code: "object-unavailable", message: "Object detector unavailable. Only depth obstacle cues remain active.", severity: "warning")
+            return PipelineStatus(state: degradedState, code: "object-unavailable", message: "Object detector unavailable. Unnamed depth surfaces remain active.", severity: "warning")
         }
         if depthUnavailable {
-            return PipelineStatus(state: degradedState, code: "depth-unavailable", message: "Depth unavailable. Object distances are unknown.", severity: "warning")
+            return PipelineStatus(state: degradedState, code: "depth-unavailable", message: "Depth unavailable. Live scene unavailable.", severity: "warning")
         }
         if lastFrameReceived == nil {
             return PipelineStatus(state: "starting", code: "models-ready", message: "Models ready. Waiting for camera frames.", severity: "info")

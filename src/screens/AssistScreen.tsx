@@ -25,11 +25,12 @@ import {
 import { ClearAheadVision } from 'react-native-clear-ahead-vision';
 import { PrimaryButton } from '../components/Controls';
 import { SoundField } from '../components/SoundField';
+import { LoadingBar } from '../components/LoadingBar';
 import { colors, toFeedbackConfiguration } from '../config';
 import { ClearAheadModule } from '../native/ClearAheadModule';
 import type {
   AppPreferences,
-  ObjectDetectionOverlay,
+  ScenePayload,
   PipelineMetrics,
   SessionQuality,
   SessionState,
@@ -55,7 +56,8 @@ export function AssistScreen({
   const [quality, setQuality] = useState<SessionQuality>('good');
   const [event, setEvent] = useState<SpatialEvent>();
   const [metrics, setMetrics] = useState<PipelineMetrics>();
-  const [detections, setDetections] = useState<ObjectDetectionOverlay[]>([]);
+  const [scene, setScene] = useState<ScenePayload>();
+  const [loadProgress, setLoadProgress] = useState(0);
   const [depthMapDataUrl, setDepthMapDataUrl] = useState<string>();
   const latestMetrics = useRef<PipelineMetrics | undefined>(undefined);
   const [isForeground, setIsForeground] = useState(
@@ -112,13 +114,14 @@ export function AssistScreen({
     pixelFormat: 'yuv',
     dropFramesWhileBusy: true,
     enablePreviewSizedOutputBuffers: true,
+    enableCameraMatrixDelivery: true,
     onFrame: processFrame,
     onFrameDropped(reason) {
       ClearAheadVision.reportDroppedFrame(reason);
     },
   });
   const cameraConstraints = useMemo(
-    () => [{ fps: preferences.processingMode === 'responsive' ? 15 : 30 }],
+    () => [{ fps: preferences.processingMode === 'responsive' ? 15 : 30 }, { videoStabilizationMode: 'off' as const }],
     [preferences.processingMode],
   );
   const cameraOutputs = useMemo(() => [frameOutput], [frameOutput]);
@@ -168,9 +171,7 @@ export function AssistScreen({
         setMetrics(payload);
         latestMetrics.current = payload;
       }),
-      ...(preferences.showBoundingBoxes
-        ? [ClearAheadModule.onDetections(setDetections)]
-        : []),
+      ClearAheadModule.onScene(setScene),
       ...(preferences.depthMapEnabled
         ? [
             ClearAheadModule.onDepthMap(payload =>
@@ -178,9 +179,10 @@ export function AssistScreen({
             ),
           ]
         : []),
-      ClearAheadModule.onModelDownload(payload =>
-        setStatusMessage(payload.message),
-      ),
+      ClearAheadModule.onModelDownload(payload => {
+        setStatusMessage(payload.message);
+        setLoadProgress(current => Math.max(current, payload.progress));
+      }),
     ];
 
     const configuration = toFeedbackConfiguration(preferences);
@@ -220,7 +222,7 @@ export function AssistScreen({
         cameraInterrupted.current = false;
         controller.stop().catch(() => undefined);
         setEvent(undefined);
-        setDetections([]);
+        setScene(undefined);
         setDepthMapDataUrl(undefined);
         announcements.current.clear();
         setSessionState('paused');
@@ -255,8 +257,8 @@ export function AssistScreen({
   }, [cameraDevice, onMetrics, preferences]);
 
   const eventDescription = useMemo(
-    () => (event ? describeEvent(event) : 'Field clear'),
-    [event],
+    () => (event ? describeEvent(event) : scene?.state === 'clear' ? 'No nearby sources in the camera view' : 'Scene unavailable'),
+    [event, scene],
   );
   const statusHasWarning =
     sessionState === 'error' ||
@@ -296,7 +298,7 @@ export function AssistScreen({
             setStatusMessage(error.message);
             sessionController.current?.stop().catch(() => undefined);
             setEvent(undefined);
-            setDetections([]);
+            setScene(undefined);
             setDepthMapDataUrl(undefined);
           }}
           onInterruptionStarted={() => {
@@ -308,7 +310,7 @@ export function AssistScreen({
             setSessionState('paused');
             setStatusMessage('Camera interrupted');
             setEvent(undefined);
-            setDetections([]);
+            setScene(undefined);
             setDepthMapDataUrl(undefined);
             announcements.current.clear();
           }}
@@ -346,8 +348,7 @@ export function AssistScreen({
         )
       ) : null}
       <SoundField
-        event={event}
-        detections={detections}
+        scene={scene}
         showBoundingBoxes={preferences.showBoundingBoxes}
         boundingBoxVerbosity={preferences.boundingBoxVerbosity}
       />
@@ -371,6 +372,12 @@ export function AssistScreen({
               </Text>
             ) : null}
           </View>
+
+          {sessionState === 'starting' ? <LoadingBar progress={loadProgress} message={statusMessage} /> : null}
+          <Text style={styles.fpsText}>
+            {scene?.spatialCapability ?? 'Spatial audio initializing'}
+            {' · '}{scene?.distanceStatus.replaceAll('-', ' ') ?? 'Distance unavailable'}
+          </Text>
 
           {preferences.showFps ? (
             <View
@@ -432,7 +439,7 @@ export function AssistScreen({
                     ? 'POSSIBLE COLLISION'
                     : event
                     ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
-                    : 'FIELD CLEAR'}
+                    : scene?.state === 'clear' ? 'SCENE CLEAR' : 'SCENE UNAVAILABLE'}
                 </Text>
                 {!event ? <View style={styles.clearMark} /> : null}
               </View>
@@ -443,10 +450,13 @@ export function AssistScreen({
                   ? 'Caution'
                   : event
                   ? event.label ?? event.kind.replace('-', ' ')
-                  : 'Listening'}
+                  : scene?.state === 'clear' ? 'Listening' : 'Waiting for scene'}
               </Text>
               {event ? (
                 <Text style={styles.eventDescription}>{eventDescription}</Text>
+              ) : null}
+              {scene?.state === 'available' ? (
+                <Text style={styles.eventDescription}>{scene.sources.length} visible sources · Camera view only</Text>
               ) : null}
             </View>
           </View>

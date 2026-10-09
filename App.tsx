@@ -10,6 +10,9 @@ import {
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useCameraPermission } from 'react-native-vision-camera';
 import { BrandLogo } from './src/components/BrandLogo';
+import { LoadingBar } from './src/components/LoadingBar';
+import { PrimaryButton } from './src/components/Controls';
+import { ClearAheadModule } from './src/native/ClearAheadModule';
 import {
   colors,
   hasFeedbackChannel,
@@ -33,6 +36,32 @@ export default function App() {
   const cameraPermission = useCameraPermission();
   const [route, setRoute] = useState<Route>({ name: 'home' });
   const [lastMetrics, setLastMetrics] = useState<PipelineMetrics>();
+  const [modelsReady, setModelsReady] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadMessage, setLoadMessage] = useState('Loading settings');
+  const [loadError, setLoadError] = useState<string>();
+  useEffect(() => {
+    if (!isHydrated) return;
+    let active = true;
+    setModelsReady(false);
+    setLoadError(undefined);
+    setLoadProgress(0.01);
+    setLoadMessage('Preparing on-device models');
+    const subscription = ClearAheadModule.onModelDownload(payload => {
+      if (active && payload.modelVariant === preferences.modelVariant) {
+        setLoadProgress(current => Math.max(current, 0.01 + payload.progress * 0.99));
+        setLoadMessage(payload.message);
+      }
+    });
+    ClearAheadModule.prepareModels(preferences.modelVariant)
+      .then(() => { if (active) { setLoadProgress(1); setModelsReady(true); } })
+      .catch(error => { if (active) setLoadError(error instanceof Error ? error.message : 'Models could not load'); });
+    return () => {
+      active = false;
+      subscription?.remove();
+      ClearAheadModule.cancelModelPreparation().catch(() => undefined);
+    };
+  }, [isHydrated, preferences.modelVariant]);
   const canStartAssist =
     cameraPermission.hasPermission && hasFeedbackChannel(preferences);
   const reduceMotion = useReducedMotion();
@@ -78,11 +107,16 @@ export default function App() {
     [reduceMotion, route.name, routeProgress],
   );
 
-  if (!isHydrated) {
+  if (!isHydrated || !modelsReady) {
     return (
       <View style={styles.loading} accessibilityLabel="Loading Clear Ahead">
         <BrandLogo width={112} accessible={false} />
-        <Text style={styles.loadingText}>Loading Clear Ahead</Text>
+        <Text style={styles.loadingText}>{loadError ?? 'Loading Clear Ahead'}</Text>
+        <LoadingBar progress={loadProgress} message={loadMessage} />
+        {loadError ? <PrimaryButton label={preferences.onboardingComplete ? 'Open settings' : 'Continue setup'} onPress={() => {
+          setModelsReady(true);
+          setRoute({ name: 'settings' });
+        }} /> : null}
       </View>
     );
   }

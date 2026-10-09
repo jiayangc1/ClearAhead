@@ -13,6 +13,7 @@ import type {
   QualityPayload,
   SessionStatusPayload,
   SpatialEvent,
+  ScenePayload,
 } from '../types';
 
 interface ClearAheadNativeModule {
@@ -64,6 +65,9 @@ export const ClearAheadModule = {
     listener: (payload: SpatialEvent) => void,
   ): EmitterSubscription | undefined {
     return subscribe('topEvent', listener);
+  },
+  onScene(listener: (payload: ScenePayload) => void): EmitterSubscription | undefined {
+    return subscribe('sceneUpdated', listener);
   },
   onEventCleared(listener: () => void): EmitterSubscription | undefined {
     return subscribe('eventCleared', listener);
