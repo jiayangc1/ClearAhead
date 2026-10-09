@@ -3,6 +3,16 @@ import ZIPFoundation
 @testable import ClearAheadVision
 
 final class ModelDownloadTests: XCTestCase {
+    func testStartupWeightsUsePackageBytesIncludingNestedWeights() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let weights = root.appendingPathComponent("Data/weights")
+        try FileManager.default.createDirectory(at: weights, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data(repeating: 1, count: 100).write(to: root.appendingPathComponent("Manifest.json"))
+        try Data(repeating: 2, count: 900).write(to: weights.appendingPathComponent("weights.bin"))
+        XCTAssertEqual(ModelManager.packageBytes(root), 1000)
+    }
+
     func testCellularOrExpensiveConnectionsRequireConsent() {
         XCTAssertTrue(ModelManager.requiresConsent(cellular: true, expensive: false, constrained: false))
         XCTAssertTrue(ModelManager.requiresConsent(cellular: false, expensive: true, constrained: false))

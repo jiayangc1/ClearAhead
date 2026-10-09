@@ -10,6 +10,8 @@ import {
 test('default configuration has at least one nonvisual feedback channel', () => {
   assert.equal(DEFAULT_PREFERENCES.hapticsEnabled, true);
   assert.equal(DEFAULT_PREFERENCES.audioEnabled, true);
+  assert.equal(DEFAULT_PREFERENCES.speechEnabled, true);
+  assert.equal(normalizePreferences({ speechEnabled: false }).speechEnabled, false);
   assert.equal(DEFAULT_PREFERENCES.cameraDeviceId, 'standard');
 });
 
@@ -63,6 +65,19 @@ test('speech defaults to high-value categories only', () => {
     'obstacle',
     'furniture',
   ]);
+});
+
+test('height calibration stays unset until measured and reaches native configuration', () => {
+  assert.equal(DEFAULT_PREFERENCES.cameraHeightMeters, 0);
+  assert.equal(DEFAULT_PREFERENCES.earHeightMeters, 0);
+  const configuration = toFeedbackConfiguration(normalizePreferences({ cameraHeightMeters: 1.2, earHeightMeters: 1.7,
+    cameraForwardOffsetMeters: 0.25, cameraRightOffsetMeters: -0.1 }));
+  assert.equal(configuration.cameraHeightMeters, 1.2);
+  assert.equal(configuration.earHeightMeters, 1.7);
+  assert.equal(configuration.cameraForwardOffsetMeters, 0.25);
+  assert.equal(configuration.cameraRightOffsetMeters, -0.1);
+  assert.equal(normalizePreferences({ cameraHeightMeters: NaN }).cameraHeightMeters, 0);
+  assert.equal(normalizePreferences({ earHeightMeters: 100 }).earHeightMeters, 2.5);
 });
 
 test('bounding box verbosity migrates older settings and reaches native configuration', () => {

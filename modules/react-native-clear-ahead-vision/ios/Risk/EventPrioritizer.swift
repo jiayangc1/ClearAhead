@@ -30,10 +30,13 @@ final class EventPrioritizer {
     ) -> SpatialEvent? {
         let minimumConfidence = 0.42 + (1 - configuration.sensitivity) * 0.24
         let rankedEvents = events.compactMap { candidate -> SpatialEvent? in
-            // Something merely being nearby is not a hazard; stay silent until a collision is predicted.
-            guard candidate.collisionRisk != .none, candidate.confidence >= minimumConfidence else {
+            // Scene tones use every selected source; this priority remains for speech and the status card.
+            guard candidate.confidence >= minimumConfidence else {
                 return nil
             }
+            if candidate.collisionRisk == .none,
+               let distance = candidate.approximateDistanceMeters,
+               distance > configuration.warningDistanceMeters { return nil }
             if candidate.id == "depth:path", let box = candidate.box,
                events.contains(where: { named in
                    guard named.id != candidate.id, named.collisionRisk >= candidate.collisionRisk,

@@ -50,6 +50,13 @@ struct DepthMap: Sendable {
     let height: Int
     let values: [Double]
 
+    init(width: Int, height: Int, values: [Double]) {
+        precondition(width > 1 && height > 1 && values.count == width * height)
+        self.width = width
+        self.height = height
+        self.values = values
+    }
+
     // Hazard analysis samples coarse grids, so parsing keeps at most
     // maxDimension values per side instead of the model's full output.
     init?(array: MLMultiArray, maxDimension: Int = 160) {
