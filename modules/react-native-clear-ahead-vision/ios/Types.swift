@@ -137,6 +137,9 @@ struct SpatialEvent {
         if let timeToCollisionSeconds {
             payload["timeToCollisionSeconds"] = timeToCollisionSeconds
         }
+        if isRemembered {
+            payload["outOfView"] = true
+        }
         if let box {
             payload["box"] = [
                 "x": box.minX,
@@ -147,6 +150,9 @@ struct SpatialEvent {
         }
         return payload
     }
+
+    /// A hazard that left the view and is carried forward by `HazardMemory`.
+    var isRemembered: Bool { id.hasPrefix(HazardMemory.identifierPrefix) }
 
     /// Stereo position of the hazard. A known box pans continuously with where
     /// the hazard sits in view; otherwise the coarse direction decides.
@@ -177,8 +183,15 @@ struct FeedbackConfiguration {
     var showBoundingBoxes = true
     var boundingBoxVerbosity = "standard"
     var spokenCategories: Set<String> = ["person", "vehicle", "obstacle", "furniture"]
+    var speechDetail = "hazards"
 
     init() {}
+
+    /// Low things on the ground are detected less confidently than people or
+    /// furniture, and missing one costs more than a spare cue.
+    func minimumConfidence(for kind: EventKind) -> Double {
+        0.42 + (1 - sensitivity) * 0.24 - (kind == .obstacle ? 0.08 : 0)
+    }
 
     init(dictionary: [String: Any]) {
         hapticsEnabled = dictionary["hapticsEnabled"] as? Bool ?? true
@@ -215,6 +228,7 @@ struct FeedbackConfiguration {
             let supportedCategories = Set(EventKind.allCases.map(\.rawValue))
             spokenCategories = Set(requestedCategories.filter(supportedCategories.contains))
         }
+        speechDetail = dictionary["speechDetail"] as? String == "everything" ? "everything" : "hazards"
     }
 
     private static func height(_ value: Double?) -> Double {

@@ -114,17 +114,14 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         return available && generation.accepts(token)
     }
 
-    func deliver(_ event: SpatialEvent, configuration: FeedbackConfiguration) {
+    func speak(_ utterance: SpeechGate.Utterance, configuration: FeedbackConfiguration) {
         deliveryLock.lock()
         defer { deliveryLock.unlock() }
-        guard generation.accepts(generation.current) else { return }
-        if Self.shouldSpeak(event, configuration: configuration, voiceOverRunning: UIAccessibility.isVoiceOverRunning) {
-            if event.collisionRisk != .none {
-                speakCollision(event)
-            } else if configuration.spokenCategories.contains(event.kind.rawValue) {
-                speak(event)
-            }
-        }
+        guard generation.accepts(generation.current),
+              Self.shouldSpeak(utterance.event, configuration: configuration,
+                               voiceOverRunning: UIAccessibility.isVoiceOverRunning) else { return }
+        requestSpeech(text: utterance.text, key: utterance.key, priority: utterance.priority,
+                      mayInterrupt: utterance.interrupts, cooldown: utterance.cooldown)
     }
 
     func updateScene(_ sources: [SceneSource], configuration: FeedbackConfiguration,
@@ -157,7 +154,8 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
 
     func speakWarning(_ message: String, configuration: FeedbackConfiguration) {
         guard configuration.speechEnabled, !UIAccessibility.isVoiceOverRunning else { return }
-        requestSpeech(text: message, key: "warning:\(message)", priority: 0.5, mayInterrupt: false)
+        // Camera conditions come and go while walking; each is worth saying once in a while.
+        requestSpeech(text: message, key: "warning:\(message)", priority: 0.5, mayInterrupt: false, cooldown: 45)
     }
 
     private func prepareHaptics() {
@@ -268,39 +266,14 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         }.joined(separator: ",") + ":\(session.sampleRate)"
     }
 
-    private func speak(_ event: SpatialEvent) {
-        let label = event.label ?? event.kind.rawValue
-        let distance = event.approximateDistanceMeters.map { String(format: "about %.1f meters", $0) }
-            ?? event.proximity.rawValue
-        let clock = event.direction == .left ? "10 o'clock" : event.direction == .right ? "2 o'clock" : "12 o'clock"
-        let motion = event.motionState == .approaching ? ", approaching" : ""
-        requestSpeech(
-            text: "\(label), \(distance), \(clock)\(motion)",
-            key: "event:\(event.id):\(event.proximity.rawValue):\(event.motionState.rawValue)",
-            priority: event.urgency,
-            mayInterrupt: false
-        )
-    }
-
-    private func speakCollision(_ event: SpatialEvent) {
-        let label = event.label ?? event.kind.rawValue
-        let direction = event.direction == .center ? "ahead" : "to the \(event.direction.rawValue)"
-        let instruction = event.collisionRisk == .imminent ? "Stop." : "Caution."
-        requestSpeech(
-            text: "\(instruction) \(label) \(direction).",
-            key: "collision:\(event.id):\(event.collisionRisk.rawValue)",
-            priority: event.collisionRisk == .imminent ? 2 : 1,
-            mayInterrupt: event.collisionRisk == .imminent
-        )
-    }
-
-    private func requestSpeech(text: String, key: String, priority: Double, mayInterrupt: Bool) {
+    private func requestSpeech(text: String, key: String, priority: Double, mayInterrupt: Bool,
+                               cooldown: TimeInterval) {
         let token = generation.current
         DispatchQueue.main.async { [weak self] in
             guard let self, acceptsAudio(token), !UIAccessibility.isVoiceOverRunning else { return }
             let now = ProcessInfo.processInfo.systemUptime
             guard key != activeSpeech?.key, key != pendingSpeech?.key,
-                  now - (lastSpeechTimes[key] ?? -Double.infinity) >= (priority >= 2 ? 4 : 6) else { return }
+                  now - (lastSpeechTimes[key] ?? -Double.infinity) >= cooldown else { return }
             let speech = PendingSpeech(generation: token, text: text, key: key, priority: priority, createdAt: now)
             if let current = activeSpeech,
                Self.shouldInterruptSpeech(currentPriority: current.priority, incomingPriority: priority, mayInterrupt: mayInterrupt) {
@@ -323,7 +296,7 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         guard acceptsAudio(speech.generation), !UIAccessibility.isVoiceOverRunning else { return }
         guard audioQueue.sync(execute: { activateAudioSession() }) else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        lastSpeechTimes = lastSpeechTimes.filter { now - $0.value < 10 }
+        lastSpeechTimes = lastSpeechTimes.filter { now - $0.value < 60 }
         lastSpeechTimes[speech.key] = now
         activeSpeech = speech
         let utterance = AVSpeechUtterance(string: speech.text)
@@ -347,7 +320,8 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
             audioQueue.async { [weak self] in self?.sceneAudio.duck(false) }
             guard let pendingSpeech else { return }
             self.pendingSpeech = nil
-            if acceptsAudio(pendingSpeech.generation), ProcessInfo.processInfo.systemUptime - pendingSpeech.createdAt <= 3 {
+            // Something that waited behind another sentence is soon out of date.
+            if acceptsAudio(pendingSpeech.generation), ProcessInfo.processInfo.systemUptime - pendingSpeech.createdAt <= 1.5 {
                 startSpeech(pendingSpeech)
             }
         }

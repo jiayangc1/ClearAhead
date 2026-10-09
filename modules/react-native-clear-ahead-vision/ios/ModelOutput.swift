@@ -17,6 +17,9 @@ struct YOLODetection {
         // Low things that sit on the ground and trip people: hydrant, cat, dog,
         // backpack, handbag, suitcase, sports ball, skateboard, potted plant.
         case 10, 15, 16, 24, 26, 28, 32, 36, 58: return .obstacle
+        // Small clutter matters only underfoot: umbrella, bottle, cup, bowl,
+        // book, vase, teddy bear. The same bottle up on a table is not in the way.
+        case 25, 39, 41, 45, 73, 75, 77: return box.maxY <= 0.5 ? .obstacle : nil
         default: return nil
         }
     }
@@ -299,7 +302,9 @@ struct DepthMap: Sendable {
             for column in 0..<columns {
                 let distance = distances[row * columns + column]
                 guard distance.isFinite, distance <= maximumDistance else { continue }
-                raised[row * columns + column] = floor[row] - distance >= max(0.25, floor[row] * 0.18)
+                // Seen from standing height, a 20 cm object sits only about
+                // 15% nearer than the floor behind it.
+                raised[row * columns + column] = floor[row] - distance >= max(0.2, floor[row] * 0.13)
             }
         }
 

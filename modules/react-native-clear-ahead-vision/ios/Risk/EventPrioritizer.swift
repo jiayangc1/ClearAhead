@@ -28,10 +28,9 @@ final class EventPrioritizer {
         configuration: FeedbackConfiguration,
         now: TimeInterval
     ) -> SpatialEvent? {
-        let minimumConfidence = 0.42 + (1 - configuration.sensitivity) * 0.24
         let rankedEvents = events.compactMap { candidate -> SpatialEvent? in
             // Scene tones use every selected source; this priority remains for speech and the status card.
-            guard candidate.confidence >= minimumConfidence else {
+            guard candidate.confidence >= configuration.minimumConfidence(for: candidate.kind) else {
                 return nil
             }
             if candidate.collisionRisk == .none,
@@ -40,7 +39,7 @@ final class EventPrioritizer {
             if candidate.id == "depth:path", let box = candidate.box,
                events.contains(where: { named in
                    guard named.id != candidate.id, named.collisionRisk >= candidate.collisionRisk,
-                         named.confidence >= minimumConfidence, let namedBox = named.box else { return false }
+                         named.confidence >= configuration.minimumConfidence(for: named.kind), let namedBox = named.box else { return false }
                    let intersection = box.intersection(namedBox)
                    guard !intersection.isNull else { return false }
                    let smallerArea = min(box.width * box.height, namedBox.width * namedBox.height)
@@ -141,5 +140,112 @@ final class EventPrioritizer {
         case .medium: return 2
         case .near: return 3
         }
+    }
+}
+
+/// Decides what is worth saying aloud. It keys on what the listener hears,
+/// the name of the thing, rather than on track ids: ids change whenever
+/// tracking hiccups, and each new id used to be announced again.
+final class SpeechGate {
+    struct Utterance {
+        let event: SpatialEvent
+        let text: String
+        let key: String
+        let priority: Double
+        let interrupts: Bool
+        let cooldown: TimeInterval
+    }
+
+    private struct Spoken {
+        let time: TimeInterval
+        let risk: CollisionRisk
+        let direction: Direction
+        let distance: Double?
+    }
+
+    private var spoken: [String: Spoken] = [:]
+    private var lastSpoken = -Double.infinity
+
+    func reset() {
+        spoken.removeAll()
+        lastSpoken = -.infinity
+    }
+
+    /// The most pressing event that has something new to say, if any.
+    func next(from events: [SpatialEvent], configuration: FeedbackConfiguration, now: TimeInterval) -> Utterance? {
+        spoken = spoken.filter { now - $0.value.time < 60 }
+        let ranked = events.sorted { lhs, rhs in
+            if lhs.collisionRisk != rhs.collisionRisk { return lhs.collisionRisk > rhs.collisionRisk }
+            return (lhs.approximateDistanceMeters ?? 100) < (rhs.approximateDistanceMeters ?? 100)
+        }
+        guard let event = ranked.first(where: { isNews($0, configuration: configuration, now: now) }) else {
+            return nil
+        }
+        let name = Self.name(event)
+        spoken[name] = Spoken(time: now, risk: event.collisionRisk, direction: event.direction,
+                              distance: event.approximateDistanceMeters)
+        lastSpoken = now
+        return Utterance(
+            event: event,
+            text: Self.text(for: event),
+            key: "\(name)|\(event.collisionRisk.rawValue)",
+            priority: event.collisionRisk == .imminent ? 2 : event.collisionRisk == .caution ? 1 : 0.3,
+            interrupts: event.collisionRisk == .imminent,
+            cooldown: event.collisionRisk == .imminent ? 3 : 5
+        )
+    }
+
+    private func isNews(_ event: SpatialEvent, configuration: FeedbackConfiguration, now: TimeInterval) -> Bool {
+        let previous = spoken[Self.name(event)]
+        let since = previous.map { now - $0.time } ?? .infinity
+        switch event.collisionRisk {
+        case .imminent:
+            // A stop is never held back, and repeats only while it still applies.
+            return (previous?.risk ?? .none) < .imminent || since >= 4
+        case .caution:
+            guard now - lastSpoken >= 1.5 else { return false }
+            return (previous?.risk ?? .none) < .caution || since >= 10
+        case .none:
+            guard configuration.spokenCategories.contains(event.kind.rawValue), now - lastSpoken >= 3,
+                  let distance = event.approximateDistanceMeters else { return false }
+            // By default only what stands in the way is named; scenery to the
+            // sides is left to the tones.
+            if configuration.speechDetail != "everything" {
+                guard event.direction == .center,
+                      distance <= min(configuration.warningDistanceMeters, 3) else { return false }
+            }
+            guard let previous else { return true }
+            if since >= 30 { return true }
+            let muchCloser = previous.distance.map { distance <= $0 * 0.6 } ?? false
+            return since >= 8 && (event.direction != previous.direction || muchCloser)
+        }
+    }
+
+    private static func name(_ event: SpatialEvent) -> String {
+        let label = event.label ?? event.kind.rawValue
+        return label == "surface" ? "obstacle" : label
+    }
+
+    static func text(for event: SpatialEvent) -> String {
+        let name = name(event)
+        let subject = name.prefix(1).uppercased() + name.dropFirst()
+        let place = event.direction == .center ? "ahead" : "on your \(event.direction.rawValue)"
+        if event.isRemembered {
+            return event.collisionRisk == .imminent
+                ? "Stop. \(subject) at your feet."
+                : "Careful. \(subject) \(place), out of view."
+        }
+        let distance = event.approximateDistanceMeters.map { ", \(spokenDistance($0))" } ?? ""
+        switch event.collisionRisk {
+        case .imminent: return "Stop. \(subject) \(place)."
+        case .caution: return "Careful. \(subject) \(place)\(distance)."
+        case .none: return "\(subject) \(place)\(distance)."
+        }
+    }
+
+    static func spokenDistance(_ meters: Double) -> String {
+        if meters < 0.75 { return "very close" }
+        let rounded = Int(meters.rounded())
+        return rounded == 1 ? "1 meter" : "\(rounded) meters"
     }
 }

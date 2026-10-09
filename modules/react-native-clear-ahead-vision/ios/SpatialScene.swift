@@ -128,6 +128,15 @@ struct SceneSource {
     let visibility: Double
     let isSurface: Bool
 
+    /// A remembered hazard has no pixels. It is placed on the ground ahead so
+    /// its tone and vibration carry on after it leaves the view.
+    static func remembered(_ event: SpatialEvent, cameraHeight: Double) -> SceneSource {
+        let distance = max(event.approximateDistanceMeters ?? 1, 0.3)
+        let drop = cameraHeight >= 0.4 ? cameraHeight : HazardMemory.assumedCameraHeight
+        return SceneSource(event: event, position: SIMD3(Double(event.pan) * 0.3, -drop, -distance),
+                           contours: [], visibility: 1, isSurface: false)
+    }
+
     var dictionary: [String: Any] {
         var payload = event.dictionary
         payload["visibility"] = visibility
@@ -151,8 +160,9 @@ enum SceneBuilder {
         let count = columns * rows
         var depths = [Double](repeating: .nan, count: count)
         var labels = [Int](repeating: -1, count: count)
-        let minimumConfidence = 0.42 + (1 - configuration.sensitivity) * 0.24
-        let named = visibleObjects(objects.filter { $0.confidence >= minimumConfidence }, map: map)
+        let named = visibleObjects(objects.filter {
+            $0.confidence >= configuration.minimumConfidence(for: $0.kind)
+        }, map: map)
         for index in 0..<count {
             let x = (Double(index % columns) + 0.5) / Double(columns)
             let y = (Double(index / columns) + 0.5) / Double(rows)

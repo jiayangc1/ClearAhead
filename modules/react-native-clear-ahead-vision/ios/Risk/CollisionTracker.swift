@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 struct DepthMeasurement {
     let distanceMeters: Double
@@ -195,7 +196,8 @@ final class CollisionTracker {
             motionState = .stationary
         }
 
-        let minimumConfidence = 0.75 - configuration.sensitivity * 0.15
+        // Things on the ground are seen from above and score lower than people or furniture.
+        let minimumConfidence = (track.kind == .obstacle ? 0.6 : 0.75) - configuration.sensitivity * 0.15
         var detectedRisk: CollisionRisk = .none
         if cameraStable,
            track.observations >= 3,
@@ -332,7 +334,10 @@ final class CollisionTracker {
 /// Turns per-frame ground hazard observations into a cautioned event once the
 /// same low obstacle has persisted. A trip hazard needs no closing speed.
 struct GroundHazardTracker {
-    static let warningRangeMeters = 2.5
+    /// Found and tracked from here, so a hazard is already confirmed when it
+    /// comes within warning range a second or two later.
+    static let detectionRangeMeters = 4.0
+    static let warningRangeMeters = 3.0
 
     private var previous: PathObstacleObservation?
     private var previousTime: TimeInterval = 0
@@ -367,6 +372,7 @@ struct GroundHazardTracker {
         // Persistence is measured in time too: three frames alone can span
         // well under half a second.
         let confirmed = cameraStable && observations >= 3 && now - firstSeen >= 0.5
+            && observation.distanceMeters <= Self.warningRangeMeters
         return SpatialEvent(
             id: "depth:ground-\(identifier)",
             kind: .obstacle,
@@ -382,5 +388,144 @@ struct GroundHazardTracker {
             timestamp: now,
             box: observation.box
         )
+    }
+}
+
+/// Keeps warning about something low after it slides out of the bottom of the
+/// view. A phone held upright cannot see the ground within about two meters,
+/// so an obstacle the walker is closing on disappears just before it matters.
+struct HazardMemory {
+    static let identifierPrefix = "memory:"
+    static let maximumRemembered = 2
+    /// Used to turn a slanted depth reading into distance along the ground
+    /// until the camera height has been measured.
+    static let assumedCameraHeight = 1.2
+
+    private struct Entry {
+        let id: String
+        var label: String
+        var kind: EventKind
+        var box: CGRect
+        var distance: Double
+        var closingSpeed = 0.0
+        var observations = 1
+        let firstSeen: TimeInterval
+        var lastSeen: TimeInterval
+        var heading: SIMD2<Double>?
+        var travelled = 0.0
+        var walkedSeconds = 0.0
+        var lastAdvance: TimeInterval
+    }
+
+    private var entries: [Entry] = []
+
+    mutating func reset() { entries = [] }
+
+    /// `events` are this frame's tracked objects and ground hazards. Returns
+    /// the hazards that are out of view but still ahead, nearest first.
+    mutating func update(
+        events: [SpatialEvent],
+        now: TimeInterval,
+        walking: Bool,
+        heading: SIMD2<Double>?,
+        cameraHeight: Double
+    ) -> [SpatialEvent] {
+        let height = cameraHeight >= 0.4 ? cameraHeight : Self.assumedCameraHeight
+        let visible = events.filter(Self.tracks)
+        let visibleIDs = Set(visible.map(\.id))
+        for event in visible {
+            guard let box = event.box, let range = event.approximateDistanceMeters else { continue }
+            // Furniture is measured partway up; things on the ground are measured at the ground.
+            let drop = event.kind == .furniture ? height / 2 : height
+            let distance = (max(range * range - drop * drop, 0.09)).squareRoot()
+            if let index = entries.firstIndex(where: { $0.id == event.id }) {
+                var entry = entries[index]
+                let elapsed = now - entry.lastSeen
+                if elapsed >= 0.05, elapsed <= 0.8 {
+                    let observed = (entry.distance - distance) / elapsed
+                    entry.closingSpeed += (observed - entry.closingSpeed) * min(0.5, 1 - exp(-elapsed / 0.5))
+                }
+                entry.label = event.label ?? entry.label
+                entry.box = box
+                entry.distance = distance
+                entry.observations += 1
+                entry.lastSeen = now
+                entry.lastAdvance = now
+                entry.heading = heading ?? entry.heading
+                entry.travelled = 0
+                entry.walkedSeconds = 0
+                entries[index] = entry
+            } else {
+                // The same thing back in view under a new id replaces its memory.
+                entries.removeAll { lost in
+                    !visibleIDs.contains(lost.id) && lost.kind == event.kind
+                        && abs(Double(lost.box.midX - box.midX)) < 0.3
+                        && abs(lost.distance - lost.travelled - distance) < 1
+                }
+                entries.append(Entry(id: event.id, label: event.label ?? event.kind.rawValue, kind: event.kind,
+                                     box: box, distance: distance, firstSeen: now, lastSeen: now,
+                                     heading: heading, lastAdvance: now))
+            }
+        }
+
+        var remembered: [SpatialEvent] = []
+        entries = entries.compactMap { current in
+            guard !visibleIDs.contains(current.id) else { return current }
+            var entry = current
+            let lostFor = now - entry.lastSeen
+            // Worth remembering only if it was seen long enough to be real and
+            // left through the bottom edge of the walking corridor.
+            let leftUnderfoot = entry.observations >= 3 && entry.lastSeen - entry.firstSeen >= 0.4
+                && entry.box.minY <= 0.2 && (0.28...0.72).contains(Double(entry.box.midX))
+                && entry.distance <= 3.5
+            guard leftUnderfoot else { return lostFor < 0.8 ? entry : nil }
+
+            let elapsed = min(max(now - entry.lastAdvance, 0), 0.5)
+            entry.lastAdvance = now
+            // The speed measured while it was visible, held to a walking pace.
+            let speed = entry.closingSpeed >= 0.3 ? min(max(entry.closingSpeed, 0.5), 1.4) : 0.8
+            if walking {
+                entry.travelled += speed * elapsed
+                entry.walkedSeconds += elapsed
+            }
+            let remaining = entry.distance - entry.travelled
+            // Forgotten once stepped past, turned away from, or left standing too long.
+            if let before = entry.heading, let heading, simd_dot(before, heading) < cos(40 * .pi / 180) { return nil }
+            guard remaining > -0.4, entry.walkedSeconds < 6, lostFor < 20 else { return nil }
+            // A brief detector dropout is not yet a hazard out of view.
+            guard lostFor >= 0.3 else { return entry }
+
+            let underfoot = walking && remaining <= 1
+            remembered.append(SpatialEvent(
+                id: Self.identifierPrefix + entry.id,
+                kind: entry.kind,
+                label: entry.label,
+                direction: Direction.from(horizontalMidpoint: entry.box.midX),
+                proximity: .near,
+                approximateDistanceMeters: max((remaining * 10).rounded() / 10, 0.1),
+                approachSpeed: walking ? speed : 0,
+                motionState: walking ? .approaching : .stationary,
+                collisionRisk: underfoot ? .imminent : .caution,
+                timeToCollisionSeconds: walking ? max(remaining, 0) / speed : nil,
+                trajectoryConfidence: 0.6,
+                confidence: 0.7,
+                urgency: underfoot ? 1 : 0.7,
+                timestamp: now,
+                box: CGRect(x: entry.box.minX, y: 0, width: entry.box.width, height: 0.04)
+            ))
+            return entry
+        }
+        return Array(remembered.sorted {
+            ($0.approximateDistanceMeters ?? 100) < ($1.approximateDistanceMeters ?? 100)
+        }.prefix(Self.maximumRemembered))
+    }
+
+    /// Low obstacles and furniture stay where they are; people and vehicles
+    /// move on, and the unnamed path obstacle is a wall, not something to step on.
+    private static func tracks(_ event: SpatialEvent) -> Bool {
+        guard event.kind == .obstacle || event.kind == .furniture,
+              event.id != "depth:path", !event.isRemembered, event.box != nil,
+              let distance = event.approximateDistanceMeters else { return false }
+        return distance <= 4.5
     }
 }

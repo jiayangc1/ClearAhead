@@ -42,7 +42,8 @@ final class ClearAheadEngine {
     private var qualityState = SessionQualityState()
     private var lastPipelineStatus: PipelineStatus?
     private let prioritizer = EventPrioritizer()
-    private let speechPrioritizer = EventPrioritizer()
+    private let speechGate = SpeechGate()
+    private var hazardMemory = HazardMemory()
     private let feedback = Feedback()
     private let collisionTracker = CollisionTracker()
     private let sceneSelector = SceneSelector()
@@ -51,6 +52,7 @@ final class ClearAheadEngine {
     private var latestGravity: SIMD3<Double>?
     private var latestCameraAttitude: simd_quatd?
     private var latestMotionTime: TimeInterval = 0
+    private var walkingEffort = 0.0
     private var frameGravity: SIMD3<Double>?
     private var frameAttitude: simd_quatd?
     private var groundHazardTracker = GroundHazardTracker()
@@ -258,7 +260,8 @@ final class ClearAheadEngine {
     // Called with frameLock held; device/model resources are session-independent.
     private func resetSessionState() {
         prioritizer.reset()
-        speechPrioritizer.reset()
+        speechGate.reset()
+        hazardMemory.reset()
         collisionTracker.reset()
         sceneSelector.reset()
         groundNormalizer = GroundNormalizer()
@@ -285,6 +288,7 @@ final class ClearAheadEngine {
         health = SessionHealth(startedAt: ProcessInfo.processInfo.systemUptime)
         qualityState = SessionQualityState()
         latestRotationRate = 0
+        walkingEffort = 0
         latestGravity = nil
         latestCameraAttitude = nil
         lastPipelineStatus = nil
@@ -327,7 +331,8 @@ final class ClearAheadEngine {
         // rather than blocking main while waiting for inference to finish.
         if frameLock.try() {
             prioritizer.reset()
-            speechPrioritizer.reset()
+            speechGate.reset()
+            hazardMemory.reset()
             collisionTracker.reset()
             groundHazardTracker.reset()
             objectEvents = []
@@ -483,12 +488,13 @@ final class ClearAheadEngine {
         stateLock.lock()
         let gravity = frameGravity
         let attitude = frameAttitude
+        let walking = walkingEffort > 0.06 && evaluationTime - latestMotionTime < 0.4
         let imageUsable = depthUsesLidar
             ? qualityState.imageQuality != "camera-covered"
             : qualityState.imageQuality == "good" && !cameraTooClose
         stateLock.unlock()
         var available = latestDepthMap != nil && evaluationTime - latestDepthMapTime < 0.65 && imageUsable
-        let sources: [SceneSource]
+        var sources: [SceneSource]
         if available, let map = latestDepthMap {
             sources = sceneSelector.select(SceneBuilder.build(
                 map: map, objects: objectEvents.filter { abs($0.timestamp - latestDepthMapTime) < 0.001 },
@@ -502,6 +508,19 @@ final class ClearAheadEngine {
         } else {
             sceneSelector.reset()
             sources = []
+        }
+        // Something low that just left the bottom of the view is still ahead.
+        // It keeps its place among the sources until it has been stepped past.
+        let remembered = hazardMemory.update(
+            events: objectEvents.filter { abs($0.timestamp - latestDepthMapTime) < 0.001 } + depthEvents,
+            now: evaluationTime, walking: walking, heading: Self.heading(attitude),
+            cameraHeight: currentConfiguration.cameraHeightMeters
+        )
+        if !remembered.isEmpty {
+            sources = Array((remembered.map {
+                SceneSource.remembered($0, cameraHeight: currentConfiguration.cameraHeightMeters)
+            } + sources).prefix(SceneSelector.maximumSources))
+            available = true
         }
         feedback.updateScene(sources, configuration: currentConfiguration, camera: attitude,
                              earCalibrated: currentConfiguration.earHeightMeters >= 0.4
@@ -517,17 +536,11 @@ final class ClearAheadEngine {
         // Unnamed surfaces keep their tones and outlines, but speech names one
         // only when it is on a collision course. A surface that is merely close
         // carries caution without a time to collision, so it stays silent.
-        // Ranking speech separately lets a named object be announced while a
-        // nearer wall holds the status card.
-        let spokenEvents = sources.filter {
+        let speakable = sources.filter {
             !$0.isSurface || ($0.event.collisionRisk != .none && $0.event.timeToCollisionSeconds != nil)
         }.map(\.event)
-        if let spoken = speechPrioritizer.select(
-            from: spokenEvents,
-            configuration: currentConfiguration,
-            now: evaluationTime
-        ), speechPrioritizer.shouldAnnounce(spoken, now: evaluationTime) {
-            feedback.deliver(spoken, configuration: currentConfiguration)
+        if let utterance = speechGate.next(from: speakable, configuration: currentConfiguration, now: evaluationTime) {
+            feedback.speak(utterance, configuration: currentConfiguration)
         }
         if let selected = prioritizer.select(
             from: freshEvents,
@@ -706,7 +719,7 @@ final class ClearAheadEngine {
         }
         let groundEvent = groundHazardTracker.update(
             depthMap.groundHazard(
-                within: min(configuration.warningDistanceMeters, GroundHazardTracker.warningRangeMeters)
+                within: min(configuration.warningDistanceMeters, GroundHazardTracker.detectionRangeMeters)
             ),
             now: now,
             cameraStable: currentRotationRate() < 0.9
@@ -902,6 +915,9 @@ final class ClearAheadEngine {
             stateLock.lock()
             guard sessionActive && sessionGeneration == generation else { stateLock.unlock(); return }
             latestRotationRate = magnitude
+            // Arm swing and footfalls shake the phone; standing still does not.
+            let push = motion.userAcceleration
+            walkingEffort += (sqrt(push.x * push.x + push.y * push.y + push.z * push.z) - walkingEffort) * 0.2
             latestGravity = SIMD3(motion.gravity.x, motion.gravity.y, motion.gravity.z)
             latestCameraAttitude = SpatialAudio.attitude(motion.attitude)
             latestMotionTime = ProcessInfo.processInfo.systemUptime
@@ -1023,7 +1039,8 @@ final class ClearAheadEngine {
                     pathObservationCount = 0
                     pathClosingSpeed = 0
                     prioritizer.reset()
-                    speechPrioritizer.reset()
+                    speechGate.reset()
+                    hazardMemory.reset()
                     collisionTracker.reset()
                     groundHazardTracker.reset()
                     hasVisibleEvent = false
@@ -1033,7 +1050,8 @@ final class ClearAheadEngine {
                 feedback.start(audioAvailable: audioAvailable)
                 if frameLock.try() {
                     prioritizer.reset()
-                    speechPrioritizer.reset()
+                    speechGate.reset()
+                    hazardMemory.reset()
                     collisionTracker.reset()
                     hasVisibleEvent = false
                     frameLock.unlock()
@@ -1202,6 +1220,15 @@ final class ClearAheadEngine {
         let geometry = CameraGeometry(fx: Double(matrix[1][1]) / height, fy: Double(matrix[0][0]) / width,
                                       cx: 1 - Double(matrix[2][1]) / height, cy: Double(matrix[2][0]) / width)
         return geometry.valid ? geometry : nil
+    }
+
+    /// Compass-free direction the camera faces, flattened to the ground plane.
+    /// Nil while the phone points nearly straight up or down.
+    private static func heading(_ attitude: simd_quatd?) -> SIMD2<Double>? {
+        guard let attitude else { return nil }
+        let forward = attitude.act(SIMD3<Double>(0, 0, -1))
+        let level = SIMD2(forward.x, forward.y)
+        return simd_length(level) > 0.3 ? simd_normalize(level) : nil
     }
 
     private func thermalStateName(_ state: ProcessInfo.ThermalState) -> String {
