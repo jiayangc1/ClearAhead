@@ -338,6 +338,7 @@ struct GroundHazardTracker {
     /// comes within warning range a second or two later.
     static let detectionRangeMeters = 4.0
     static let warningRangeMeters = 3.0
+    static let label = "low obstacle"
 
     private var previous: PathObstacleObservation?
     private var previousTime: TimeInterval = 0
@@ -376,7 +377,7 @@ struct GroundHazardTracker {
         return SpatialEvent(
             id: "depth:ground-\(identifier)",
             kind: .obstacle,
-            label: "low obstacle",
+            label: Self.label,
             direction: Direction.from(horizontalMidpoint: observation.box.midX),
             proximity: Proximity.from(distance: observation.distanceMeters),
             approximateDistanceMeters: (observation.distanceMeters * 10).rounded() / 10,

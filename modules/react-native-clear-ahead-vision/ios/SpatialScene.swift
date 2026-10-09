@@ -128,13 +128,29 @@ struct SceneSource {
     let visibility: Double
     let isSurface: Bool
 
-    /// A remembered hazard has no pixels. It is placed on the ground ahead so
-    /// its tone and vibration carry on after it leaves the view.
-    static func remembered(_ event: SpatialEvent, cameraHeight: Double) -> SceneSource {
+    /// A hazard with no depth region of its own: one remembered after it left
+    /// the view, or a ground hazard no region matched. It is placed on the
+    /// ground ahead so its tone and vibration still reach the walker.
+    static func onGround(_ event: SpatialEvent, cameraHeight: Double) -> SceneSource {
         let distance = max(event.approximateDistanceMeters ?? 1, 0.3)
         let drop = cameraHeight >= 0.4 ? cameraHeight : HazardMemory.assumedCameraHeight
+        var outline: [[CGPoint]] = []
+        if !event.isRemembered, let box = event.box {
+            outline = [[CGPoint(x: box.minX, y: 1 - box.maxY), CGPoint(x: box.maxX, y: 1 - box.maxY),
+                        CGPoint(x: box.maxX, y: 1 - box.minY), CGPoint(x: box.minX, y: 1 - box.minY)]]
+        }
         return SceneSource(event: event, position: SIMD3(Double(event.pan) * 0.3, -drop, -distance),
-                           contours: [], visibility: 1, isSurface: false)
+                           contours: outline, visibility: 1, isSurface: false)
+    }
+
+    /// Unnamed surfaces keep their tones and outlines, but speech names one
+    /// only when it is on a collision course or is a confirmed ground hazard.
+    /// A wall that is merely close carries caution without a time to
+    /// collision, so it stays silent.
+    var isSpeakable: Bool {
+        guard isSurface else { return true }
+        return event.collisionRisk != .none
+            && (event.timeToCollisionSeconds != nil || event.label == GroundHazardTracker.label)
     }
 
     var dictionary: [String: Any] {
@@ -247,7 +263,7 @@ enum SceneBuilder {
             let listenerDistance = position.map { simd_length($0) } ?? distance
             guard listenerDistance <= configuration.warningDistanceMeters || risk != .none else { continue }
             let event = SpatialEvent(id: namedEvent?.id ?? "surface", kind: namedEvent?.kind ?? .obstacle,
-                                     label: namedEvent?.label ?? "surface", direction: .from(horizontalMidpoint: CGFloat(nearX)),
+                                     label: namedEvent?.label ?? hazard?.label ?? "surface", direction: .from(horizontalMidpoint: CGFloat(nearX)),
                                      proximity: .from(distance: listenerDistance), approximateDistanceMeters: listenerDistance,
                                      approachSpeed: hazard?.approachSpeed ?? 0, motionState: hazard?.motionState ?? .stationary,
                                      collisionRisk: risk, timeToCollisionSeconds: hazard?.timeToCollisionSeconds,

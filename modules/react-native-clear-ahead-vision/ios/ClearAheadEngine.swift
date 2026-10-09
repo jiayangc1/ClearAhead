@@ -516,10 +516,17 @@ final class ClearAheadEngine {
             now: evaluationTime, walking: walking, heading: Self.heading(attitude),
             cameraHeight: currentConfiguration.cameraHeightMeters
         )
-        if !remembered.isEmpty {
-            sources = Array((remembered.map {
-                SceneSource.remembered($0, cameraHeight: currentConfiguration.cameraHeightMeters)
-            } + sources).prefix(SceneSelector.maximumSources))
+        // A confirmed ground hazard is reported even when the floor around it
+        // swallowed its depth region and no source came to carry it.
+        let unmatched = depthEvents.filter { hazard in
+            hazard.label == GroundHazardTracker.label && hazard.collisionRisk != .none
+                && !sources.contains { $0.event.label == hazard.label && $0.event.collisionRisk != .none }
+        }
+        let added = (remembered + unmatched).map {
+            SceneSource.onGround($0, cameraHeight: currentConfiguration.cameraHeightMeters)
+        }
+        if !added.isEmpty {
+            sources = Array((added + sources).prefix(SceneSelector.maximumSources))
             available = true
         }
         feedback.updateScene(sources, configuration: currentConfiguration, camera: attitude,
@@ -533,12 +540,7 @@ final class ClearAheadEngine {
             "imageAspectRatio": Double(CVPixelBufferGetHeight(pixelBuffer)) / Double(CVPixelBufferGetWidth(pixelBuffer)),
         ])
         let freshEvents = sources.map(\.event)
-        // Unnamed surfaces keep their tones and outlines, but speech names one
-        // only when it is on a collision course. A surface that is merely close
-        // carries caution without a time to collision, so it stays silent.
-        let speakable = sources.filter {
-            !$0.isSurface || ($0.event.collisionRisk != .none && $0.event.timeToCollisionSeconds != nil)
-        }.map(\.event)
+        let speakable = sources.filter(\.isSpeakable).map(\.event)
         if let utterance = speechGate.next(from: speakable, configuration: currentConfiguration, now: evaluationTime) {
             feedback.speak(utterance, configuration: currentConfiguration)
         }
