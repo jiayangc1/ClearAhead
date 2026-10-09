@@ -56,6 +56,8 @@ final class ClearAheadEngine {
     private var frameGravity: SIMD3<Double>?
     private var frameAttitude: simd_quatd?
     private var groundHazardTracker = GroundHazardTracker()
+    private var pathCueTracker = PathCueTracker()
+    private var lastHazardSpeech: TimeInterval = 0
     private var throttle = AdaptiveThrottle()
     private let motionManager = CMMotionManager()
     private var configuration = FeedbackConfiguration()
@@ -266,6 +268,8 @@ final class ClearAheadEngine {
         sceneSelector.reset()
         groundNormalizer = GroundNormalizer()
         groundHazardTracker.reset()
+        pathCueTracker.reset()
+        lastHazardSpeech = 0
         throttle = AdaptiveThrottle()
         objectEvents = []
         depthEvents = []
@@ -335,6 +339,7 @@ final class ClearAheadEngine {
             hazardMemory.reset()
             collisionTracker.reset()
             groundHazardTracker.reset()
+            pathCueTracker.reset()
             objectEvents = []
             depthEvents = []
             latestDepthMap = nil
@@ -492,6 +497,8 @@ final class ClearAheadEngine {
         let imageUsable = depthUsesLidar
             ? qualityState.imageQuality != "camera-covered"
             : qualityState.imageQuality == "good" && !cameraTooClose
+        // The path is read from how the picture looks, LiDAR or not.
+        let imageClear = qualityState.imageQuality == "good" && !cameraTooClose
         stateLock.unlock()
         var available = latestDepthMap != nil && evaluationTime - latestDepthMapTime < 0.65 && imageUsable
         var sources: [SceneSource]
@@ -543,6 +550,21 @@ final class ClearAheadEngine {
         let speakable = sources.filter(\.isSpeakable).map(\.event)
         if let utterance = speechGate.next(from: speakable, configuration: currentConfiguration, now: evaluationTime) {
             feedback.speak(utterance, configuration: currentConfiguration)
+            lastHazardSpeech = evaluationTime
+        }
+        // Where the path goes matters less than what is in the way, so it
+        // waits for a gap. Frames that cannot be trusted still reach the
+        // tracker, as nothing, so a half-confirmed reading does not survive them.
+        if shouldEstimateDepth {
+            var shape: PathShape?
+            if imageClear, currentRotationRate() < 0.9, let map = latestDepthMap {
+                shape = WalkablePath.shape(pixelBuffer: pixelBuffer, depthMap: map,
+                                           maximumDistance: currentConfiguration.warningDistanceMeters)
+            }
+            if let cue = pathCueTracker.update(shape, now: evaluationTime), evaluationTime - lastHazardSpeech >= 2.5 {
+                feedback.speakPathCue(cue.text, configuration: currentConfiguration)
+                pathCueTracker.spoke(cue, now: evaluationTime)
+            }
         }
         if let selected = prioritizer.select(
             from: freshEvents,
@@ -1047,6 +1069,7 @@ final class ClearAheadEngine {
                     hazardMemory.reset()
                     collisionTracker.reset()
                     groundHazardTracker.reset()
+                    pathCueTracker.reset()
                     hasVisibleEvent = false
                     frameLock.unlock()
                 }

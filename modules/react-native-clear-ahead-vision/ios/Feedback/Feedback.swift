@@ -158,6 +158,12 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         requestSpeech(text: message, key: "warning:\(message)", priority: 0.5, mayInterrupt: false, cooldown: 45)
     }
 
+    func speakPathCue(_ message: String, configuration: FeedbackConfiguration) {
+        guard configuration.speechEnabled, !UIAccessibility.isVoiceOverRunning else { return }
+        // Below every hazard, so a warning already waiting is never displaced.
+        requestSpeech(text: message, key: "path:\(message)", priority: 0.2, mayInterrupt: false, cooldown: 8)
+    }
+
     private func prepareHaptics() {
         guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
         do {
