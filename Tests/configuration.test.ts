@@ -21,6 +21,13 @@ test('stored official model variants remain selectable', () => {
   }
 });
 
+test('LiDAR defaults on, migrates old settings, and preserves opt-out', () => {
+  assert.equal(DEFAULT_PREFERENCES.lidarEnabled, true);
+  assert.equal(normalizePreferences({}).lidarEnabled, true);
+  assert.equal(normalizePreferences({ lidarEnabled: 'no' }).lidarEnabled, true);
+  assert.equal(toFeedbackConfiguration(normalizePreferences({ lidarEnabled: false })).lidarEnabled, false);
+});
+
 test('legacy automatic widest setting migrates to standard wide', () => {
   assert.equal(
     normalizePreferences({ cameraDeviceId: 'widest' }).cameraDeviceId,

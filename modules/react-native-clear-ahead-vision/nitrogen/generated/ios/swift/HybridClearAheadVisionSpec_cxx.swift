@@ -141,6 +141,25 @@ open class HybridClearAheadVisionSpec_cxx {
   }
   
   @inline(__always)
+  public final func connectDepthOutputs(frameOutput: bridge.std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_, depthOutput: bridge.std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_) -> bridge.Result_void_ {
+    do {
+      try self.__implementation.connectDepthOutputs(frameOutput: { () -> any HybridCameraFrameOutputSpec in
+        let __unsafePointer = bridge.get_std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_(frameOutput)
+        let __instance = HybridCameraFrameOutputSpec_cxx.fromUnsafe(__unsafePointer)
+        return __instance.getHybridCameraFrameOutputSpec()
+      }(), depthOutput: { () -> any HybridCameraDepthFrameOutputSpec in
+        let __unsafePointer = bridge.get_std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_(depthOutput)
+        let __instance = HybridCameraDepthFrameOutputSpec_cxx.fromUnsafe(__unsafePointer)
+        return __instance.getHybridCameraDepthFrameOutputSpec()
+      }())
+      return bridge.create_Result_void_()
+    } catch (let __error) {
+      let __exceptionPtr = __error.toCpp()
+      return bridge.create_Result_void_(__exceptionPtr)
+    }
+  }
+  
+  @inline(__always)
   public final func reportDroppedFrame(reason: std.string) -> bridge.Result_void_ {
     do {
       try self.__implementation.reportDroppedFrame(reason: String(reason))

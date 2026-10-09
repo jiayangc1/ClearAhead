@@ -8,6 +8,12 @@
 #pragma once
 
 // Forward declarations of C++ defined types
+// Forward declaration of `HybridCameraDepthFrameOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraDepthFrameOutputSpec; }
+// Forward declaration of `HybridCameraFrameOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraFrameOutputSpec; }
+// Forward declaration of `HybridCameraOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraOutputSpec; }
 // Forward declaration of `HybridClearAheadVisionSpec` to properly resolve imports.
 namespace margelo::nitro::clearaheadvision { class HybridClearAheadVisionSpec; }
 // Forward declaration of `HybridFrameSpec` to properly resolve imports.
@@ -16,6 +22,9 @@ namespace margelo::nitro::camera { class HybridFrameSpec; }
 // Include C++ defined types
 #include "HybridClearAheadVisionSpec.hpp"
 #include <NitroModules/Result.hpp>
+#include <VisionCamera/HybridCameraDepthFrameOutputSpec.hpp>
+#include <VisionCamera/HybridCameraFrameOutputSpec.hpp>
+#include <VisionCamera/HybridCameraOutputSpec.hpp>
 #include <VisionCamera/HybridFrameSpec.hpp>
 #include <exception>
 #include <memory>
@@ -31,6 +40,12 @@ namespace margelo::nitro::camera { class HybridFrameSpec; }
 #include <NitroModules/DateToChronoDate.hpp>
 
 // Forward declarations of Swift defined types
+// Forward declaration of `HybridCameraDepthFrameOutputSpec_cxx` to properly resolve imports.
+namespace VisionCamera { class HybridCameraDepthFrameOutputSpec_cxx; }
+// Forward declaration of `HybridCameraFrameOutputSpec_cxx` to properly resolve imports.
+namespace VisionCamera { class HybridCameraFrameOutputSpec_cxx; }
+// Forward declaration of `HybridCameraOutputSpec_cxx` to properly resolve imports.
+namespace VisionCamera { class HybridCameraOutputSpec_cxx; }
 // Forward declaration of `HybridClearAheadVisionSpec_cxx` to properly resolve imports.
 namespace ClearAheadVision { class HybridClearAheadVisionSpec_cxx; }
 // Forward declaration of `HybridFrameSpec_cxx` to properly resolve imports.

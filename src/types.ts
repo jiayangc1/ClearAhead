@@ -98,6 +98,7 @@ export interface FeedbackConfiguration {
   processingMode: ProcessingMode;
   modelVariant: ModelVariant;
   depthMapEnabled: boolean;
+  lidarEnabled: boolean;
   showBoundingBoxes: boolean;
   boundingBoxVerbosity: BoundingBoxVerbosity;
   spokenCategories: EventKind[];
@@ -117,6 +118,9 @@ export interface ObjectDetectionOverlay {
 
 export interface DepthMapPayload {
   dataUrl: string | null;
+  nearMeters?: number;
+  farMeters?: number;
+  distanceStatus?: string;
 }
 
 export interface ModelDownloadProgressPayload {

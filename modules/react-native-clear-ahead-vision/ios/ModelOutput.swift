@@ -1,4 +1,5 @@
 import CoreGraphics
+import AVFoundation
 import CoreML
 import Foundation
 import UIKit
@@ -49,6 +50,56 @@ struct DepthMap: Sendable {
     let width: Int
     let height: Int
     let values: [Double]
+
+    var hasUsableCoverage: Bool {
+        Double(values.filter { $0.isFinite && $0 > 0.15 && $0 < 100 }.count) / Double(values.count) >= 0.65
+    }
+
+    init?(lidar: AVDepthData, maxDimension: Int = 160) {
+        guard lidar.depthDataAccuracy == .absolute, lidar.depthDataQuality == .high else { return nil }
+        // Match Vision's clockwise portrait rotation; LiDAR and color share the same field of view.
+        let buffer = lidar.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
+            .applyingExifOrientation(.right).depthDataMap
+        guard CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let sourceWidth = CVPixelBufferGetWidth(buffer)
+        let sourceHeight = CVPixelBufferGetHeight(buffer)
+        guard sourceWidth > 1, sourceHeight > 1 else { return nil }
+        let step = max(1, (max(sourceWidth, sourceHeight) + max(maxDimension, 2) - 1) / max(maxDimension, 2))
+        let width = (sourceWidth + step - 1) / step
+        let height = (sourceHeight + step - 1) / step
+        let stride = CVPixelBufferGetBytesPerRow(buffer) / MemoryLayout<Float>.stride
+        let pointer = base.assumingMemoryBound(to: Float.self)
+        var values = [Double](repeating: .nan, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width {
+                let value = Double(pointer[row * step * stride + column * step])
+                // shortcut: LiDAR is used only through 5 m; extend after device range validation.
+                if value.isFinite, value > 0.15, value <= 5 { values[row * width + column] = value }
+            }
+        }
+        guard values.contains(where: { $0.isFinite }) else { return nil }
+        self.init(width: width, height: height, values: values)
+    }
+
+    func mergingCloseDepth(_ lidar: DepthMap?) -> DepthMap {
+        guard let lidar else { return self }
+        var merged = values
+        for row in 0..<height {
+            for column in 0..<width {
+                let x = min(lidar.width - 1, Int((Double(column) + 0.5) / Double(width) * Double(lidar.width)))
+                let y = min(lidar.height - 1, Int((Double(row) + 0.5) / Double(height) * Double(lidar.height)))
+                let measurement = lidar.values[y * lidar.width + x]
+                let index = row * width + column
+                if measurement.isFinite, measurement > 0.15, measurement <= 5,
+                   measurement <= 2 || !merged[index].isFinite {
+                    merged[index] = measurement
+                }
+            }
+        }
+        return DepthMap(width: width, height: height, values: merged)
+    }
 
     init(width: Int, height: Int, values: [Double]) {
         precondition(width > 1 && height > 1 && values.count == width * height)
@@ -313,7 +364,7 @@ struct DepthMap: Sendable {
         return sorted[index]
     }
 
-    func heatmapDataURL(maxDimension: Int = 128, farDistance: Double = 6) -> String? {
+    func heatmapDataURL(maxDimension: Int = 128, farDistance: Double = 6, imageAspect: Double? = nil) -> String? {
         // Fixed metric colors do not flicker as scene percentiles change. Convert only preview pixels.
         let near = 0.25
         let scale = max(farDistance - near, 0.001)
@@ -351,8 +402,29 @@ struct DepthMap: Sendable {
                 decode: nil,
                 shouldInterpolate: true,
                 intent: .defaultIntent
-              ),
-              let png = UIImage(cgImage: image).pngData() else { return nil }
+              ) else { return nil }
+        let aspect = imageAspect ?? Double(width) / Double(height)
+        guard aspect.isFinite, aspect > 0 else { return nil }
+        let size = CGSize(width: 480 * aspect, height: 480)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let preview = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
+            for y in [0.2, 0.5, 0.8] {
+                for x in [0.2, 0.5, 0.8] {
+                    let samples = self.samples(in: CGRect(x: x - 0.04, y: y - 0.04, width: 0.08, height: 0.08), step: 1)
+                    let distance: Double? = samples.count >= 4 ? Self.percentile(samples, fraction: 0.35) : nil
+                    let label = distance.map { String(format: "~%.1f m", $0) } ?? "Unknown"
+                    let text = NSAttributedString(string: label, attributes: [
+                        .font: UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold),
+                        .foregroundColor: UIColor.white, .backgroundColor: UIColor.black.withAlphaComponent(0.7),
+                    ])
+                    text.draw(at: CGPoint(x: x * size.width - text.size().width / 2,
+                                          y: y * size.height - text.size().height / 2))
+                }
+            }
+        }
+        guard let png = preview.pngData() else { return nil }
         return "data:image/png;base64,\(png.base64EncodedString())"
     }
 }

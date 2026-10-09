@@ -32,6 +32,10 @@ final class ClearAheadEngine {
     private var depthPreviewPending = false
     private var lastDepthPreviewTime: TimeInterval = 0
     private var sessionGeneration = 0
+    private var lidarCapture: LidarCapture?
+    private var lidarGeneration = 0
+    private var depthUsesLidar = false
+    private var distanceStatus = "metric-estimate"
     private var watchdog: DispatchSourceTimer?
     private var health = SessionHealth(startedAt: 0)
     private var qualityState = SessionQualityState()
@@ -168,7 +172,7 @@ final class ClearAheadEngine {
                 }
                 let depth = pair.depth.map { self.loadModel(at: $0, isDepth: true) }
                     ?? ModelLoadResult(model: nil, resource: nil, error: "Depth model unavailable")
-                if let error = detector.error ?? (pair.depth == nil && allowDetectorOnly ? nil : depth.error) {
+                if let error = detector.error ?? (allowDetectorOnly ? nil : depth.error) {
                     self.trimCompiledCache()
                     throw NSError(domain: "ClearAheadModels", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: error])
@@ -258,6 +262,8 @@ final class ClearAheadEngine {
         depthEvents = []
         latestDepthMap = nil
         latestDepthMapTime = 0
+        depthUsesLidar = false
+        distanceStatus = "metric-estimate"
         objectInferenceError = nil
         depthInferenceError = nil
         previousPathObstacle = nil
@@ -301,6 +307,8 @@ final class ClearAheadEngine {
         cancelModelPreparation()
         stateLock.lock()
         sessionActive = false
+        lidarGeneration += 1
+        lidarCapture = nil
         modelPreparationGeneration += 1
         sessionGeneration += 1
         depthPreviewGeneration += 1
@@ -339,7 +347,17 @@ final class ClearAheadEngine {
         stateLock.unlock()
     }
 
-    func process(sampleBuffer: CMSampleBuffer) {
+    func connectDepthOutputs(video: AVCaptureVideoDataOutput, depth: AVCaptureDepthDataOutput) {
+        stateLock.lock()
+        lidarGeneration += 1
+        let token = lidarGeneration
+        lidarCapture = LidarCapture(video: video, depth: depth) { [weak self] color, measurement in
+            self?.process(sampleBuffer: color, lidarDepth: measurement, lidarToken: token)
+        }
+        stateLock.unlock()
+    }
+
+    func process(sampleBuffer: CMSampleBuffer, lidarDepth: AVDepthData? = nil, lidarToken: Int? = nil) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         stateLock.lock()
@@ -354,7 +372,7 @@ final class ClearAheadEngine {
         }
         defer { frameLock.unlock() }
         stateLock.lock()
-        let isSessionActive = sessionActive
+        let isSessionActive = sessionActive && (lidarToken == nil || lidarToken == lidarGeneration)
         let currentConfiguration = configuration
         let processingGeneration = sessionGeneration
         stateLock.unlock()
@@ -385,7 +403,8 @@ final class ClearAheadEngine {
             lastQualityCheck = frameStartTime
         }
 
-        let shouldEstimateDepth = depthModel != nil && frameStartTime - lastDepthInference >= depthInterval
+        let shouldEstimateDepth = (depthModel != nil || currentConfiguration.lidarEnabled && lidarToken != nil)
+            && frameStartTime - lastDepthInference >= depthInterval
         let shouldDetectObjects = objectModel != nil
             && (shouldEstimateDepth || frameStartTime - lastObjectInference >= objectInterval)
         guard shouldEstimateDepth || shouldDetectObjects else {
@@ -398,6 +417,7 @@ final class ClearAheadEngine {
             let started = ProcessInfo.processInfo.systemUptime
             depthEvents = estimateDepthEvents(
                 pixelBuffer: pixelBuffer,
+                lidarDepth: currentConfiguration.lidarEnabled ? lidarDepth : nil,
                 now: frameStartTime,
                 configuration: currentConfiguration
             )
@@ -449,7 +469,9 @@ final class ClearAheadEngine {
         stateLock.lock()
         let gravity = frameGravity
         let attitude = frameAttitude
-        let imageUsable = qualityState.imageQuality == "good" && !cameraTooClose
+        let imageUsable = depthUsesLidar
+            ? qualityState.imageQuality != "camera-covered"
+            : qualityState.imageQuality == "good" && !cameraTooClose
         stateLock.unlock()
         var available = latestDepthMap != nil && evaluationTime - latestDepthMapTime < 0.65 && imageUsable
         let sources: [SceneSource]
@@ -461,6 +483,8 @@ final class ClearAheadEngine {
             ), now: evaluationTime, range: currentConfiguration.warningDistanceMeters)
             if sources.isEmpty, map.values.contains(where: { $0.isFinite && $0 <= currentConfiguration.warningDistanceMeters }),
                groundNormalizer.plane == nil { available = false }
+            // An empty partial sensor map cannot establish that the view is clear.
+            if sources.isEmpty, !map.hasUsableCoverage { available = false }
         } else {
             sceneSelector.reset()
             sources = []
@@ -471,7 +495,7 @@ final class ClearAheadEngine {
         emitSessionEvent(name: "sceneUpdated", body: [
             "state": available ? (sources.isEmpty ? "clear" : "available") : "unavailable",
             "sources": sources.map(\.dictionary),
-            "distanceStatus": groundNormalizer.status,
+            "distanceStatus": distanceStatus,
             "spatialCapability": feedback.spatialCapability,
             "imageAspectRatio": Double(CVPixelBufferGetHeight(pixelBuffer)) / Double(CVPixelBufferGetWidth(pixelBuffer)),
         ])
@@ -588,36 +612,35 @@ final class ClearAheadEngine {
 
     private func estimateDepthEvents(
         pixelBuffer: CVPixelBuffer,
+        lidarDepth: AVDepthData?,
         now: TimeInterval,
         configuration: FeedbackConfiguration
     ) -> [SpatialEvent] {
-        guard let request = depthRequest else { return [] }
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
-        do {
-            try handler.perform([request])
-        } catch {
-            recordDepthInferenceFailure(String(describing: error))
-            logger.error("YOLO26 depth inference failed: \(String(describing: error), privacy: .public)")
+        let modelMap = estimateModelDepthMap(pixelBuffer: pixelBuffer)
+        let lidarMap = lidarDepth.flatMap { DepthMap(lidar: $0) }
+        guard let rawMap = modelMap ?? lidarMap else {
+            latestDepthMap = nil
+            latestDepthMapTime = 0
+            depthUsesLidar = false
+            distanceStatus = "unavailable"
+            previousPathObstacle = nil
+            pathObservationCount = 0
+            pathClosingSpeed = 0
+            recordInference(detector: false, succeeded: false)
+            emitSessionEvent(name: "depthMapUpdated", body: ["dataUrl": NSNull()])
             return []
         }
-        guard let depthOutput = (request.results as? [VNCoreMLFeatureValueObservation])?.first(where: {
-            $0.featureValue.multiArrayValue != nil
-        }), let depthValues = depthOutput.featureValue.multiArrayValue else {
-            recordDepthInferenceFailure("Depth model returned no depth array")
-            return []
-        }
-        guard let rawMap = DepthMap(array: depthValues),
-              Double(rawMap.values.filter { $0.isFinite && $0 > 0.15 && $0 < 100 }.count)
-                / Double(rawMap.values.count) >= 0.65 else {
-            recordDepthInferenceFailure("Depth model returned an invalid depth array")
-            return []
-        }
-        depthInferenceError = nil
         recordInference(detector: false, succeeded: true)
         groundNormalizer.update(map: rawMap, geometry: cameraGeometry, gravity: frameGravity,
-                                cameraHeight: configuration.cameraHeightMeters, stable: currentRotationRate() < 0.9)
-        let depthMap = DepthMap(width: rawMap.width, height: rawMap.height,
-                               values: rawMap.values.map { $0 * groundNormalizer.scale })
+                                cameraHeight: configuration.cameraHeightMeters, stable: currentRotationRate() < 0.9,
+                                metric: modelMap == nil)
+        let calibrated = DepthMap(width: rawMap.width, height: rawMap.height,
+                                  values: rawMap.values.map { $0 * groundNormalizer.scale })
+        let depthMap = modelMap != nil ? calibrated.mergingCloseDepth(lidarMap) : calibrated
+        depthUsesLidar = modelMap == nil || lidarMap?.values.contains { $0.isFinite && $0 <= 2 } == true
+        distanceStatus = modelMap == nil ? "lidar-measured" : groundNormalizer.status
+        if modelMap == nil, !rawMap.hasUsableCoverage { distanceStatus += "-partial-view" }
+        if modelMap != nil, depthUsesLidar { distanceStatus += "; lidar-close-measured" }
         latestDepthMap = depthMap
         latestDepthMapTime = now
         updateCloseCameraState(from: depthMap)
@@ -631,6 +654,8 @@ final class ClearAheadEngine {
             stateLock.unlock()
             if shouldQueue {
                 lastDepthPreviewTime = now
+                let status = distanceStatus
+                let imageAspect = Double(CVPixelBufferGetHeight(pixelBuffer)) / Double(CVPixelBufferGetWidth(pixelBuffer))
                 depthMapQueue.async { [weak self] in
                     guard let self else { return }
                     self.stateLock.lock()
@@ -638,14 +663,16 @@ final class ClearAheadEngine {
                         && self.depthPreviewGeneration == generation
                     self.stateLock.unlock()
                     let dataURL = shouldRender
-                        ? depthMap.heatmapDataURL(farDistance: configuration.warningDistanceMeters) : nil
+                        ? depthMap.heatmapDataURL(farDistance: configuration.warningDistanceMeters, imageAspect: imageAspect) : nil
                     self.stateLock.lock()
                     let shouldEmit = self.sessionActive && self.configuration.depthMapEnabled
                         && self.depthPreviewGeneration == generation
                     self.depthPreviewPending = false
                     self.stateLock.unlock()
                     if shouldEmit, let dataURL {
-                        self.emitSessionEvent(name: "depthMapUpdated", body: ["dataUrl": dataURL])
+                        self.emitSessionEvent(name: "depthMapUpdated", body: ["dataUrl": dataURL,
+                            "nearMeters": 0.25, "farMeters": configuration.warningDistanceMeters,
+                            "distanceStatus": status])
                     }
                 }
             }
@@ -660,14 +687,32 @@ final class ClearAheadEngine {
         return [event, groundEvent].compactMap { $0 }
     }
 
+    private func estimateModelDepthMap(pixelBuffer: CVPixelBuffer) -> DepthMap? {
+        guard let request = depthRequest else { return nil }
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            recordDepthInferenceFailure(String(describing: error))
+            logger.error("YOLO26 depth inference failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        guard let depthOutput = (request.results as? [VNCoreMLFeatureValueObservation])?.first(where: {
+            $0.featureValue.multiArrayValue != nil
+        }), let depthValues = depthOutput.featureValue.multiArrayValue else {
+            recordDepthInferenceFailure("Depth model returned no depth array")
+            return nil
+        }
+        guard let rawMap = DepthMap(array: depthValues), rawMap.hasUsableCoverage else {
+            recordDepthInferenceFailure("Depth model returned an invalid depth array")
+            return nil
+        }
+        depthInferenceError = nil
+        return rawMap
+    }
+
     private func recordDepthInferenceFailure(_ message: String) {
         depthInferenceError = message
-        latestDepthMap = nil
-        latestDepthMapTime = 0
-        previousPathObstacle = nil
-        pathObservationCount = 0
-        pathClosingSpeed = 0
-        recordInference(detector: false, succeeded: false)
     }
 
     private func recordObjectInferenceFailure(_ message: String) {
@@ -903,7 +948,8 @@ final class ClearAheadEngine {
     private func emitPipelineStatus() {
         stateLock.lock()
         guard sessionActive else { stateLock.unlock(); return }
-        let status = health.status(detectorLoaded: objectModel != nil, depthLoaded: depthModel != nil)
+        let status = health.status(detectorLoaded: objectModel != nil,
+                                   depthLoaded: depthModel != nil || configuration.lidarEnabled && lidarCapture != nil)
         guard status != lastPipelineStatus else { stateLock.unlock(); return }
         lastPipelineStatus = status
         let diagnostics = modelDiagnostics()

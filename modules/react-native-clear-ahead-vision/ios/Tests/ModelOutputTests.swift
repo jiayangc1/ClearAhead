@@ -4,6 +4,40 @@ import XCTest
 @testable import ClearAheadVision
 
 final class ModelOutputTests: XCTestCase {
+    func testLidarOverridesCloseDepthAndFillsHolesWithoutReplacingFarModelDepth() {
+        let model = DepthMap(width: 2, height: 2, values: [4, 4, .nan, 4])
+        let lidar = DepthMap(width: 2, height: 2, values: [0.5, 3, 3, .nan])
+        let merged = model.mergingCloseDepth(lidar)
+        XCTAssertEqual(merged.values, [0.5, 4, 3, 4])
+        XCTAssertTrue(merged.hasUsableCoverage)
+        XCTAssertFalse(DepthMap(width: 2, height: 2, values: [.nan, .nan, 1, 2]).hasUsableCoverage)
+        XCTAssertTrue(model.mergingCloseDepth(nil).values[2].isNaN)
+        let invalid = DepthMap(width: 2, height: 2, values: [0, -1, .infinity, 6])
+        let unchanged = model.mergingCloseDepth(invalid)
+        XCTAssertEqual(unchanged.values[0], 4)
+        XCTAssertEqual(unchanged.values[1], 4)
+        XCTAssertTrue(unchanged.values[2].isNaN)
+        XCTAssertEqual(unchanged.values[3], 4)
+    }
+
+    func testLidarResamplingKeepsNormalizedPositions() {
+        let model = DepthMap(width: 4, height: 4, values: Array(repeating: 4, count: 16))
+        let lidar = DepthMap(width: 2, height: 2, values: [0.5, 1, 1.5, 2])
+        XCTAssertEqual(model.mergingCloseDepth(lidar).values, [
+            0.5, 0.5, 1, 1, 0.5, 0.5, 1, 1,
+            1.5, 1.5, 2, 2, 1.5, 1.5, 2, 2,
+        ])
+    }
+
+    func testMetricPreviewPreservesCameraAspectAndRejectsInvalidAspect() throws {
+        let map = DepthMap(width: 8, height: 8, values: Array(repeating: 2.5, count: 64))
+        let url = try XCTUnwrap(map.heatmapDataURL(imageAspect: 0.5))
+        let data = try XCTUnwrap(Data(base64Encoded: String(url.split(separator: ",")[1])))
+        let image = try XCTUnwrap(UIImage(data: data))
+        XCTAssertEqual(image.size.width / image.size.height, 0.5, accuracy: 0.001)
+        XCTAssertNil(map.heatmapDataURL(imageAspect: .nan))
+    }
+
     func testDiscontinuousNearPixelsDoNotMergeIntoObstacle() throws {
         let array = try MLMultiArray(shape: [1, 1, 192, 256], dataType: .float32)
         for row in 0..<192 {

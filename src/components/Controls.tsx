@@ -19,7 +19,7 @@ export function PrimaryButton({label, hint, onPress, destructive = false, disabl
   );
 }
 
-export function ToggleRow({label, description, value, onValueChange}: {label: string; description: string; value: boolean; onValueChange: (value: boolean) => void}) {
+export function ToggleRow({label, description, value, onValueChange, disabled = false}: {label: string; description: string; value: boolean; onValueChange: (value: boolean) => void; disabled?: boolean}) {
   const reduceMotion = useReducedMotion();
   const emphasis = useRef(new Animated.Value(1)).current;
   const previousValue = useRef(value);
@@ -55,6 +55,7 @@ export function ToggleRow({label, description, value, onValueChange}: {label: st
       <Switch
         accessibilityLabel={label}
         accessibilityHint={description}
+        disabled={disabled}
         value={value}
         onValueChange={onValueChange}
         trackColor={{false: colors.line, true: colors.cyan}}

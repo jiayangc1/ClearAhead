@@ -35,9 +35,14 @@ struct GroundNormalizer {
     private var previousHeight: Double?
     private var consistentFits = 0
     private var referenceHeight = 0.0
+    private var metricDepth = false
 
     mutating func update(map: DepthMap, geometry: CameraGeometry?, gravity: SIMD3<Double>?,
-                         cameraHeight: Double, stable: Bool) {
+                         cameraHeight: Double, stable: Bool, metric: Bool = false) {
+        if metricDepth != metric {
+            self = GroundNormalizer()
+            metricDepth = metric
+        }
         if referenceHeight != cameraHeight {
             referenceHeight = cameraHeight
             consistentFits = 0
@@ -93,7 +98,7 @@ struct GroundNormalizer {
         plane = fit
         status = "ground-consistent-model-estimate"
         // A slope can explain a changed plane height; never use it to rescale the scene.
-        guard simd_dot(fit.normal, up) > cos(5 * .pi / 180), cameraHeight >= 0.4 else { return }
+        guard !metric, simd_dot(fit.normal, up) > cos(5 * .pi / 180), cameraHeight >= 0.4 else { return }
         let target = cameraHeight / fit.height
         guard target >= 0.65, target <= 1.5 else {
             status = "calibration-mismatch"

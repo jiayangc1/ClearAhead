@@ -40,6 +40,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   processingMode: 'responsive',
   modelVariant: 'n',
   depthMapEnabled: false,
+  lidarEnabled: true,
   showFps: true,
   showBoundingBoxes: true,
   boundingBoxVerbosity: 'standard',
@@ -164,6 +165,7 @@ export function normalizePreferences(value: unknown): AppPreferences {
       stored.depthMapEnabled,
       DEFAULT_PREFERENCES.depthMapEnabled,
     ),
+    lidarEnabled: boolean(stored.lidarEnabled, DEFAULT_PREFERENCES.lidarEnabled),
     showFps: boolean(stored.showFps, DEFAULT_PREFERENCES.showFps),
     showBoundingBoxes: boolean(
       stored.showBoundingBoxes,
@@ -205,6 +207,7 @@ export function toFeedbackConfiguration(
     processingMode: preferences.processingMode,
     modelVariant: preferences.modelVariant,
     depthMapEnabled: preferences.depthMapEnabled,
+    lidarEnabled: preferences.lidarEnabled,
     showBoundingBoxes: preferences.showBoundingBoxes,
     boundingBoxVerbosity: preferences.boundingBoxVerbosity,
     spokenCategories: preferences.spokenCategories,
