@@ -21,6 +21,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
+    // Auto-lock would silence the app mid-walk, so the screen stays on
+    // whenever Clear Ahead is in the foreground.
+    application.isIdleTimerDisabled = true
+
     window = UIWindow(frame: UIScreen.main.bounds)
 
     factory.startReactNative(

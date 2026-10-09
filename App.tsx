@@ -110,8 +110,12 @@ export default function App() {
   if (!isHydrated || !modelsReady) {
     return (
       <View style={styles.loading} accessibilityLabel="Loading Clear Ahead">
-        <BrandLogo width={112} accessible={false} />
-        <Text style={styles.loadingText}>{loadError ?? 'Loading Clear Ahead'}</Text>
+        <BrandLogo width={112} accessible={false} centered />
+        <View style={styles.loadingCopy}>
+          <Text style={styles.loadingName}>Clear Ahead</Text>
+          <Text style={styles.loadingCaption}>Sound and vibration for the path ahead</Text>
+        </View>
+        {loadError ? <Text accessibilityRole="alert" style={styles.loadingError}>{loadError}</Text> : null}
         <LoadingBar progress={loadProgress} message={loadMessage} />
         {loadError ? <PrimaryButton label={preferences.onboardingComplete ? 'Open settings' : 'Continue setup'} onPress={() => {
           setModelsReady(true);
@@ -210,7 +214,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.night,
-    gap: 24,
+    paddingHorizontal: 32,
+    paddingVertical: 48,
+    gap: 28,
   },
-  loadingText: { color: colors.muted, fontSize: 16, fontWeight: '700' },
+  loadingCopy: { alignItems: 'center', gap: 6 },
+  loadingName: {
+    color: colors.text,
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    textAlign: 'center',
+  },
+  loadingCaption: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  loadingError: {
+    color: colors.amber,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });

@@ -27,8 +27,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   hapticsEnabled: true,
   audioEnabled: true,
   speechEnabled: true,
-  hapticIntensity: 0.72,
-  audioVolume: 0.65,
+  hapticIntensity: 1,
+  audioVolume: 1,
   continuousAudio: true,
   sensitivity: 0.65,
   warningDistanceMeters: 6,
@@ -80,6 +80,12 @@ function finiteNumber(
     : fallback;
 }
 
+// Levels saved while the defaults were 72% and 65% were never chosen by hand:
+// the stepper cannot land on them from the current default of 100%.
+function feedbackLevel(value: unknown, previousDefault: number): number {
+  return finiteNumber(value === previousDefault ? undefined : value, 1, 0, 1);
+}
+
 function boolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
@@ -126,18 +132,8 @@ export function normalizePreferences(value: unknown): AppPreferences {
       stored.speechEnabled,
       DEFAULT_PREFERENCES.speechEnabled,
     ),
-    hapticIntensity: finiteNumber(
-      stored.hapticIntensity,
-      DEFAULT_PREFERENCES.hapticIntensity,
-      0,
-      1,
-    ),
-    audioVolume: finiteNumber(
-      stored.audioVolume,
-      DEFAULT_PREFERENCES.audioVolume,
-      0,
-      1,
-    ),
+    hapticIntensity: feedbackLevel(stored.hapticIntensity, 0.72),
+    audioVolume: feedbackLevel(stored.audioVolume, 0.65),
     continuousAudio: boolean(
       stored.continuousAudio,
       DEFAULT_PREFERENCES.continuousAudio,

@@ -59,7 +59,8 @@ export function ToggleRow({label, description, value, onValueChange, disabled = 
         value={value}
         onValueChange={onValueChange}
         trackColor={{false: colors.line, true: colors.cyan}}
-        thumbColor={value ? colors.night : colors.text}
+        ios_backgroundColor={colors.line}
+        thumbColor={colors.text}
       />
     </Animated.View>
   );

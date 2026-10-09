@@ -14,7 +14,7 @@ export function LoadingBar({ progress, message }: { progress: number; message: s
 }
 
 const styles = StyleSheet.create({
-  container: { width: '85%', alignSelf: 'center', gap: 8 },
+  container: { width: '100%', alignSelf: 'center', gap: 10, paddingVertical: 4 },
   track: { height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: colors.line },
   fill: { height: '100%', backgroundColor: colors.cyan },
   text: { color: colors.muted, fontSize: 13, textAlign: 'center' },
