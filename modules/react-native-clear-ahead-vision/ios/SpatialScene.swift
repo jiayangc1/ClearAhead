@@ -321,20 +321,36 @@ final class SceneSelector {
                 source.event = copy(source.event, id: "scene-\(nextID)")
                 nextID += 1
             }
-            let risk: Double = source.event.collisionRisk == .imminent ? 3.0 : source.event.collisionRisk == .caution ? 1.5 : 0
-            let distance: Double = source.event.approximateDistanceMeters ?? range
-            let nearness: Double = 1 - min(distance / range, 1)
-            let visibility: Double = source.visibility * 0.25
-            let confidence: Double = source.event.confidence * 0.1
-            let continuity: Double = used.contains(source.event.id) ? 0.18 : 0
-            ranked.append((source, risk + nearness + visibility + confidence + continuity))
+            ranked.append((source, score(source.event, visibility: source.visibility,
+                                         continued: used.contains(source.event.id), range: range)))
         }
-        ranked.sort { lhs, rhs in
-            lhs.score == rhs.score ? lhs.source.event.id < rhs.source.event.id : lhs.score > rhs.score
+        ranked.sort { (lhs: (source: SceneSource, score: Double), rhs: (source: SceneSource, score: Double)) -> Bool in
+            if lhs.score == rhs.score { return lhs.source.event.id < rhs.source.event.id }
+            return lhs.score > rhs.score
         }
         // Retain identity only while currently visible. Audio handles fade-out; no stale objects survive occlusion.
-        selected = ranked.prefix(Self.maximumSources).map { $0.source }
+        var kept: [SceneSource] = []
+        for entry in ranked.prefix(Self.maximumSources) { kept.append(entry.source) }
+        selected = kept
         return selected
+    }
+
+    // Each term is its own typed statement; a combined expression here has
+    // exceeded the Swift type-checker's time limit.
+    private func score(_ event: SpatialEvent, visibility: Double, continued: Bool, range: Double) -> Double {
+        var total: Double = 0
+        switch event.collisionRisk {
+        case .imminent: total += 3
+        case .caution: total += 1.5
+        case .none: break
+        }
+        let distance: Double = event.approximateDistanceMeters ?? range
+        let ratio: Double = distance / range
+        total += 1 - Swift.min(ratio, 1)
+        total += visibility * 0.25
+        total += event.confidence * 0.1
+        if continued { total += 0.18 }
+        return total
     }
 
     private func previousMatch(for source: SceneSource, excluding used: Set<String>) -> SceneSource? {
