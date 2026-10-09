@@ -333,7 +333,7 @@ export function SettingsScreen({
           />
           <ToggleRow
             label="Bounding boxes"
-            description="Draw visible depth contours and distance labels for selected objects and unnamed surfaces."
+            description="Outline and label objects and surfaces that pose a collision risk. Nothing is drawn while the way is clear."
             value={preferences.showBoundingBoxes}
             onValueChange={value => onChange({ showBoundingBoxes: value })}
           />
@@ -429,9 +429,9 @@ export function SettingsScreen({
           />
           <Text style={styles.advancedSubheading}>Bounding box verbosity</Text>
           {([
-            ['verbose', 'Verbose', 'Selected surfaces with distance and confidence.'],
-            ['standard', 'Standard', 'Selected visible sources throughout the camera view.'],
-            ['less', 'Less', 'Only sources with a confirmed collision risk.'],
+            ['verbose', 'Verbose', 'Every selected source, with distance and confidence.'],
+            ['standard', 'Standard', 'Only sources with a possible or likely collision.'],
+            ['less', 'Less', 'Only sources with a likely collision.'],
           ] as const).map(([value, label, description]) => (
             <CameraChoice
               key={value}

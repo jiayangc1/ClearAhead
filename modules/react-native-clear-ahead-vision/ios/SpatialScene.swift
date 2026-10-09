@@ -203,9 +203,20 @@ enum SceneBuilder {
                              width: Double(maxX - minX) / Double(columns), height: Double(maxY - minY) / Double(rows))
             let distance = DepthMap.percentile(cells.map { depths[$0] }, fraction: 0.35)
             let namedEvent = labels[start] >= 0 ? named[labels[start]] : nil
+            // A wall running alongside has a bounding box that reaches the middle
+            // of the view. Where its nearest part sits is where it actually is.
+            var nearColumnSum = 0.0
+            var nearCount = 0.0
+            for cell in cells where depths[cell] <= distance {
+                nearColumnSum += Double(cell % columns) + 0.5
+                nearCount += 1
+            }
+            let nearX: Double = nearCount > 0 ? nearColumnSum / nearCount / Double(columns) : Double(box.midX)
             let hazard = (hazards + [namedEvent].compactMap { $0 }).filter {
                 guard let hazardBox = $0.box else { return false }
-                return overlap(box, hazardBox) >= 0.45
+                // The nearest part must lie inside the hazard, not merely share a bounding box with it.
+                return nearX >= Double(hazardBox.minX) && nearX <= Double(hazardBox.maxX)
+                    && overlap(box, hazardBox) >= 0.45
                     && abs(($0.approximateDistanceMeters ?? 100) - distance) < max(0.4, distance * 0.2)
             }.max { $0.collisionRisk < $1.collisionRisk }
             let risk = hazard?.collisionRisk ?? .none
@@ -226,7 +237,7 @@ enum SceneBuilder {
             let listenerDistance = position.map { simd_length($0) } ?? distance
             guard listenerDistance <= configuration.warningDistanceMeters || risk != .none else { continue }
             let event = SpatialEvent(id: namedEvent?.id ?? "surface", kind: namedEvent?.kind ?? .obstacle,
-                                     label: namedEvent?.label ?? "surface", direction: .from(horizontalMidpoint: box.midX),
+                                     label: namedEvent?.label ?? "surface", direction: .from(horizontalMidpoint: CGFloat(nearX)),
                                      proximity: .from(distance: listenerDistance), approximateDistanceMeters: listenerDistance,
                                      approachSpeed: hazard?.approachSpeed ?? 0, motionState: hazard?.motionState ?? .stationary,
                                      collisionRisk: risk, timeToCollisionSeconds: hazard?.timeToCollisionSeconds,

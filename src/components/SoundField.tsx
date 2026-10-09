@@ -15,7 +15,9 @@ export const SoundField = React.memo(function SoundFieldView({
   const [viewAspect, setViewAspect] = useState(9 / 16);
   const imageAspect = scene?.imageAspectRatio ?? 9 / 16;
   const sources = showBoundingBoxes && scene?.state === 'available'
-    ? scene.sources.filter(source => boundingBoxVerbosity !== 'less' || source.collisionRisk !== 'none') : [];
+    // Nothing is drawn for ordinary scenery; only Verbose shows every source.
+    ? scene.sources.filter(source => boundingBoxVerbosity === 'verbose'
+      || (boundingBoxVerbosity === 'less' ? source.collisionRisk === 'imminent' : source.collisionRisk !== 'none')) : [];
   return (
     <View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
       style={styles.field} onLayout={({ nativeEvent: { layout } }) => {
