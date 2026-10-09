@@ -253,3 +253,81 @@ enum WalkablePath {
         return shape.endDistanceMeters == nil && shape.bend == nil ? nil : shape
     }
 }
+
+enum PathCue: Hashable {
+    case ends
+    case curvesLeft
+    case curvesRight
+
+    var text: String {
+        switch self {
+        case .ends: "Path ends ahead"
+        case .curvesLeft: "Path curves left"
+        case .curvesRight: "Path curves right"
+        }
+    }
+}
+
+/// Holds a path reading back until it has lasted, and keeps it from repeating.
+/// A shadow reads as the end of the path for a frame or two; a real end stays.
+struct PathCueTracker {
+    private struct Spoken {
+        var at: TimeInterval
+        var lastPresent: TimeInterval
+        var cleared = false
+    }
+
+    private var current: PathCue?
+    private var since: TimeInterval = 0
+    private var missed = false
+    private var distance: Double?
+    private var spoken: [PathCue: Spoken] = [:]
+
+    mutating func reset() { self = PathCueTracker() }
+
+    /// The cue that is ready to be said. It keeps coming back until `spoke`
+    /// is called, so one held behind a hazard warning is not lost.
+    mutating func update(_ shape: PathShape?, now: TimeInterval) -> PathCue? {
+        var reading: PathCue?
+        if shape?.endDistanceMeters != nil {
+            reading = .ends
+        } else if shape?.bend == .left {
+            reading = .curvesLeft
+        } else if shape?.bend == .right {
+            reading = .curvesRight
+        }
+        // Someone standing at the end of a path has already been told.
+        if let reading, var record = spoken[reading] {
+            if now - record.lastPresent >= 1.5 { record.cleared = true }
+            record.lastPresent = now
+            spoken[reading] = record
+        }
+
+        var steady = reading != nil && reading == current
+        if steady, let previous = distance, let measured = shape?.endDistanceMeters, abs(measured - previous) > 0.8 {
+            steady = false
+        }
+        if steady {
+            missed = false
+            distance = shape?.endDistanceMeters
+        } else if current != nil, !missed {
+            // One frame may disagree. Two start over.
+            missed = true
+            return nil
+        } else {
+            current = reading
+            since = now
+            missed = false
+            distance = shape?.endDistanceMeters
+            return nil
+        }
+
+        guard let current, now - since >= 0.5 else { return nil }
+        if let record = spoken[current], !record.cleared || now - record.at < 8 { return nil }
+        return current
+    }
+
+    mutating func spoke(_ cue: PathCue, now: TimeInterval) {
+        spoken[cue] = Spoken(at: now, lastPresent: now)
+    }
+}
