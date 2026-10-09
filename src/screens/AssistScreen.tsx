@@ -44,6 +44,10 @@ import { chooseRearCamera } from '../utils/cameraSelection';
 import { AnnouncementGate } from '../utils/announcements';
 import { SessionController } from '../utils/sessionController';
 
+// Capture at 30 fps in both modes; the native throttle decides how many of
+// those frames the models process.
+const cameraConstraints = [{ fps: 30 }, { videoStabilizationMode: 'off' as const }];
+
 export function AssistScreen({
   preferences,
   onMetrics,
@@ -125,10 +129,6 @@ export function AssistScreen({
       ClearAheadVision.reportDroppedFrame(reason);
     },
   });
-  const cameraConstraints = useMemo(
-    () => [{ fps: preferences.processingMode === 'responsive' ? 15 : 30 }, { videoStabilizationMode: 'off' as const }],
-    [preferences.processingMode],
-  );
   const depthOutput = useDepthOutput({
     targetResolution: CommonResolutions.VGA_16_9,
     enableFiltering: true,
@@ -170,7 +170,11 @@ export function AssistScreen({
       }),
       ClearAheadModule.onEvent(payload => {
         setEvent(payload);
-        if (announcements.current.event(payload, Date.now() / 1000)) {
+        // Unnamed surfaces stay on the card and in the tones; VoiceOver names
+        // one only when it is on a collision course.
+        const quietSurface =
+          payload.label === 'surface' && payload.collisionRisk === 'none';
+        if (!quietSurface && announcements.current.event(payload, Date.now() / 1000)) {
           AccessibilityInfo.announceForAccessibilityWithOptions(describeEvent(payload), {
             queue: payload.collisionRisk !== 'imminent' || announcedRisk.current === 'imminent',
           });

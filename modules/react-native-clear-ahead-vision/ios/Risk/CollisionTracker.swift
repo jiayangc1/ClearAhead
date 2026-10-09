@@ -337,6 +337,7 @@ struct GroundHazardTracker {
     private var previous: PathObstacleObservation?
     private var previousTime: TimeInterval = 0
     private var observations = 0
+    private var firstSeen: TimeInterval = 0
     private var identifier = 0
 
     mutating func reset() { self = GroundHazardTracker() }
@@ -358,11 +359,14 @@ struct GroundHazardTracker {
             if cameraStable { observations += 1 }
         } else {
             observations = 1
+            firstSeen = now
             identifier += 1
         }
         previous = observation
         previousTime = now
-        let confirmed = cameraStable && observations >= 3
+        // Persistence is measured in time too: three frames alone can span
+        // well under half a second.
+        let confirmed = cameraStable && observations >= 3 && now - firstSeen >= 0.5
         return SpatialEvent(
             id: "depth:ground-\(identifier)",
             kind: .obstacle,

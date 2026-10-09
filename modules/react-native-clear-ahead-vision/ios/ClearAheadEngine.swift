@@ -28,7 +28,7 @@ final class ClearAheadEngine {
 
     private let stateLock = NSLock()
     private let frameLock = NSLock()
-    private let depthMapQueue = DispatchQueue(label: "com.clearahead.depth-preview", qos: .utility)
+    private let depthMapQueue = DispatchQueue(label: "com.clearahead.depth-preview", qos: .default)
     private var depthPreviewGeneration = 0
     private var depthPreviewPending = false
     private var lastDepthPreviewTime: TimeInterval = 0
@@ -42,6 +42,7 @@ final class ClearAheadEngine {
     private var qualityState = SessionQualityState()
     private var lastPipelineStatus: PipelineStatus?
     private let prioritizer = EventPrioritizer()
+    private let speechPrioritizer = EventPrioritizer()
     private let feedback = Feedback()
     private let collisionTracker = CollisionTracker()
     private let sceneSelector = SceneSelector()
@@ -78,6 +79,7 @@ final class ClearAheadEngine {
     private var previousPathTime: TimeInterval = 0
     private var pathClosingSpeed = 0.0
     private var pathObservationCount = 0
+    private var pathTrackStart: TimeInterval = 0
     private var latestRotationRate = 0.0
     private var lastObjectInference: TimeInterval = 0
     private var lastDepthInference: TimeInterval = 0
@@ -96,6 +98,8 @@ final class ClearAheadEngine {
     private var cameraTooClose = false
     private var closeDepthFrames = 0
     private var clearDepthFrames = 0
+    private var closeDepthSince: TimeInterval = 0
+    private var clearDepthSince: TimeInterval = 0
     private var hasVisibleEvent = false
     private var lastTopEventEmission: TimeInterval = 0
 
@@ -254,6 +258,7 @@ final class ClearAheadEngine {
     // Called with frameLock held; device/model resources are session-independent.
     private func resetSessionState() {
         prioritizer.reset()
+        speechPrioritizer.reset()
         collisionTracker.reset()
         sceneSelector.reset()
         groundNormalizer = GroundNormalizer()
@@ -322,6 +327,7 @@ final class ClearAheadEngine {
         // rather than blocking main while waiting for inference to finish.
         if frameLock.try() {
             prioritizer.reset()
+            speechPrioritizer.reset()
             collisionTracker.reset()
             groundHazardTracker.reset()
             objectEvents = []
@@ -394,8 +400,11 @@ final class ClearAheadEngine {
         // Model inputs and all safety checks retain their full resolution.
         let baseObjectInterval = thermallyLimited ? 0.22 : 0.11
         let objectInterval = max(throttle.interval(base: baseObjectInterval), min(averageObjectDuration * 1.15, 0.35))
+        // Bases sit just under a whole number of 30 fps camera frames. They are
+        // only a ceiling on the rate: AdaptiveThrottle stretches them to what
+        // the device sustains.
         let depthInterval = max(
-            throttle.interval(base: thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.35 : 0.18)),
+            throttle.interval(base: thermallyLimited ? 0.5 : (usesResponsiveProcessing ? 0.12 : 0.09)),
             min((averageObjectDuration + averageDepthDuration) * 1.2, 0.5)
         )
 
@@ -412,11 +421,15 @@ final class ClearAheadEngine {
             emitMetricsIfNeeded(now: frameStartTime)
             return
         }
+        // Both models read this frame through one handler so Vision can reuse
+        // its converted image instead of preparing the frame twice.
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
         // A due depth observation and detector observation use this same frame.
         // Never sample an older map using a newer bounding box.
         if shouldEstimateDepth {
             let started = ProcessInfo.processInfo.systemUptime
             depthEvents = estimateDepthEvents(
+                handler: handler,
                 pixelBuffer: pixelBuffer,
                 lidarDepth: currentConfiguration.lidarEnabled ? lidarDepth : nil,
                 now: frameStartTime,
@@ -434,7 +447,7 @@ final class ClearAheadEngine {
         if shouldDetectObjects {
             let started = ProcessInfo.processInfo.systemUptime
             objectEvents = detectObjects(
-                pixelBuffer: pixelBuffer,
+                handler: handler,
                 now: frameStartTime,
                 configuration: currentConfiguration
             )
@@ -501,14 +514,22 @@ final class ClearAheadEngine {
             "imageAspectRatio": Double(CVPixelBufferGetHeight(pixelBuffer)) / Double(CVPixelBufferGetWidth(pixelBuffer)),
         ])
         let freshEvents = sources.map(\.event)
+        // Unnamed surfaces keep their tones and outlines, but speech names one
+        // only when it is on a collision course. Ranking speech separately lets
+        // a named object be announced while a nearer wall holds the status card.
+        let spokenEvents = sources.filter { !$0.isSurface || $0.event.collisionRisk != .none }.map(\.event)
+        if let spoken = speechPrioritizer.select(
+            from: spokenEvents,
+            configuration: currentConfiguration,
+            now: evaluationTime
+        ), speechPrioritizer.shouldAnnounce(spoken, now: evaluationTime) {
+            feedback.deliver(spoken, configuration: currentConfiguration)
+        }
         if let selected = prioritizer.select(
             from: freshEvents,
             configuration: currentConfiguration,
             now: evaluationTime
         ) {
-            if prioritizer.shouldAnnounce(selected, now: evaluationTime) {
-                feedback.deliver(selected, configuration: currentConfiguration)
-            }
             if !hasVisibleEvent || evaluationTime - lastTopEventEmission >= 0.25 {
                 emitSessionEvent(name: "topEvent", body: selected.dictionary)
                 lastTopEventEmission = evaluationTime
@@ -535,12 +556,11 @@ final class ClearAheadEngine {
     }
 
     private func detectObjects(
-        pixelBuffer: CVPixelBuffer,
+        handler: VNImageRequestHandler,
         now: TimeInterval,
         configuration: FeedbackConfiguration
     ) -> [SpatialEvent] {
         guard let request = objectRequest else { return [] }
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
         do {
             try handler.perform([request])
         } catch {
@@ -612,12 +632,13 @@ final class ClearAheadEngine {
     }
 
     private func estimateDepthEvents(
+        handler: VNImageRequestHandler,
         pixelBuffer: CVPixelBuffer,
         lidarDepth: AVDepthData?,
         now: TimeInterval,
         configuration: FeedbackConfiguration
     ) -> [SpatialEvent] {
-        let modelMap = estimateModelDepthMap(pixelBuffer: pixelBuffer)
+        let modelMap = estimateModelDepthMap(handler: handler)
         let lidarMap = lidarDepth.flatMap { DepthMap(lidar: $0) }
         guard let rawMap = modelMap ?? lidarMap else {
             latestDepthMap = nil
@@ -635,8 +656,9 @@ final class ClearAheadEngine {
         groundNormalizer.update(map: rawMap, geometry: cameraGeometry, gravity: frameGravity,
                                 cameraHeight: configuration.cameraHeightMeters, stable: currentRotationRate() < 0.9,
                                 metric: modelMap == nil)
-        let calibrated = DepthMap(width: rawMap.width, height: rawMap.height,
-                                  values: rawMap.values.map { $0 * groundNormalizer.scale })
+        let scale = groundNormalizer.scale
+        let calibrated = scale == 1 ? rawMap
+            : DepthMap(width: rawMap.width, height: rawMap.height, values: rawMap.values.map { $0 * scale })
         let depthMap = modelMap != nil ? calibrated.mergingCloseDepth(lidarMap) : calibrated
         depthUsesLidar = modelMap == nil || lidarMap?.values.contains { $0.isFinite && $0 <= 2 } == true
         distanceStatus = modelMap == nil ? "lidar-measured" : groundNormalizer.status
@@ -644,12 +666,12 @@ final class ClearAheadEngine {
         if modelMap != nil, depthUsesLidar { distanceStatus += "; lidar-close-measured" }
         latestDepthMap = depthMap
         latestDepthMapTime = now
-        updateCloseCameraState(from: depthMap)
+        updateCloseCameraState(from: depthMap, now: now)
         let event = pathObstacleEvent(from: depthMap, now: now, configuration: configuration)
         if configuration.depthMapEnabled {
             stateLock.lock()
             let shouldQueue = sessionActive && self.configuration.depthMapEnabled
-                && !depthPreviewPending && now - lastDepthPreviewTime >= 0.2
+                && !depthPreviewPending && now - lastDepthPreviewTime >= 0.09
             let generation = depthPreviewGeneration
             if shouldQueue { depthPreviewPending = true }
             stateLock.unlock()
@@ -688,9 +710,8 @@ final class ClearAheadEngine {
         return [event, groundEvent].compactMap { $0 }
     }
 
-    private func estimateModelDepthMap(pixelBuffer: CVPixelBuffer) -> DepthMap? {
+    private func estimateModelDepthMap(handler: VNImageRequestHandler) -> DepthMap? {
         guard let request = depthRequest else { return nil }
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
         do {
             try handler.perform([request])
         } catch {
@@ -745,17 +766,23 @@ final class ClearAheadEngine {
            stable {
             let elapsed = max(now - previousPathTime, 0.04)
             let observedSpeed = (previous.distanceMeters - observation.distanceMeters) / elapsed
-            pathClosingSpeed += (observedSpeed - pathClosingSpeed) * 0.4
+            // Smooth over elapsed time rather than per frame, so a faster depth
+            // rate does not turn depth noise into closing speed.
+            pathClosingSpeed += (observedSpeed - pathClosingSpeed) * min(0.4, 1 - exp(-elapsed / 0.5))
             pathObservationCount += 1
         } else {
             pathClosingSpeed = 0
             pathObservationCount = 1
+            pathTrackStart = now
         }
         previousPathObstacle = observation
         previousPathTime = now
-        let approachSpeed = stable && pathObservationCount >= 2 ? max(0, pathClosingSpeed) : 0
+        // Frames count as evidence only as fast as time passes; three frames
+        // can now arrive in a fraction of a second.
+        let evidence = min(pathObservationCount, 1 + Int((now - pathTrackStart) / 0.25))
+        let approachSpeed = stable && evidence >= 2 ? max(0, pathClosingSpeed) : 0
         let timeToCollision = approachSpeed > 0.2 ? observation.distanceMeters / approachSpeed : nil
-        let risk = observation.collisionRisk(observations: pathObservationCount,
+        let risk = observation.collisionRisk(observations: evidence,
                                              closingSpeed: approachSpeed, stable: stable)
         let confidence = min(0.6 + observation.coverage * 0.5, 0.95)
         return SpatialEvent(
@@ -768,7 +795,7 @@ final class ClearAheadEngine {
             motionState: approachSpeed > 0.15 ? .approaching : .stationary,
             collisionRisk: risk,
             timeToCollisionSeconds: timeToCollision,
-            trajectoryConfidence: confidence * min(Double(pathObservationCount) / 3, 1),
+            trajectoryConfidence: confidence * min(Double(evidence) / 3, 1),
             confidence: confidence,
             urgency: 0,
             timestamp: now,
@@ -784,24 +811,26 @@ final class ClearAheadEngine {
         return intersectionArea / max(unionArea, 0.001)
     }
 
-    private func updateCloseCameraState(from depthMap: DepthMap) {
+    private func updateCloseCameraState(from depthMap: DepthMap, now: TimeInterval) {
         let centerSamples = depthMap.samples(in: CGRect(x: 0.08, y: 0.08, width: 0.84, height: 0.84), step: 4)
         guard centerSamples.count > 20 else { return }
         let closeRangeCoverage = Double(centerSamples.reduce(0) { $0 + ($1 <= 0.35 ? 1 : 0) }) / Double(centerSamples.count)
         if closeRangeCoverage >= 0.45 {
+            if closeDepthFrames == 0 { closeDepthSince = now }
             closeDepthFrames += 1
             clearDepthFrames = 0
         } else if closeRangeCoverage < 0.25 {
+            if clearDepthFrames == 0 { clearDepthSince = now }
             clearDepthFrames += 1
             closeDepthFrames = 0
         }
-        if !cameraTooClose, closeDepthFrames >= 3 {
+        if !cameraTooClose, closeDepthFrames >= 3, now - closeDepthSince >= 0.4 {
             cameraTooClose = true
             stateLock.lock()
             qualityState.cameraTooClose = true
             stateLock.unlock()
             emitEffectiveQuality()
-        } else if cameraTooClose, clearDepthFrames >= 3 {
+        } else if cameraTooClose, clearDepthFrames >= 3, now - clearDepthSince >= 0.4 {
             cameraTooClose = false
             stateLock.lock()
             qualityState.cameraTooClose = false
@@ -990,6 +1019,7 @@ final class ClearAheadEngine {
                     pathObservationCount = 0
                     pathClosingSpeed = 0
                     prioritizer.reset()
+                    speechPrioritizer.reset()
                     collisionTracker.reset()
                     groundHazardTracker.reset()
                     hasVisibleEvent = false
@@ -999,6 +1029,7 @@ final class ClearAheadEngine {
                 feedback.start(audioAvailable: audioAvailable)
                 if frameLock.try() {
                     prioritizer.reset()
+                    speechPrioritizer.reset()
                     collisionTracker.reset()
                     hasVisibleEvent = false
                     frameLock.unlock()

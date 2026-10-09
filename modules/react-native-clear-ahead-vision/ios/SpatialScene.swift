@@ -80,13 +80,24 @@ struct GroundNormalizer {
             let height = -simd_dot(normal, a)
             guard height > 0.35, height < 2.5 else { continue }
             let candidate = GroundPlane(normal: normal, height: height, support: 0)
-            let inliers = points.filter { candidate.contains($0.point) }
-            guard inliers.count > bestCount,
-                  (inliers.map(\.x).max() ?? 0) - (inliers.map(\.x).min() ?? 0) > 0.5,
-                  (inliers.map(\.y).max() ?? 0) - (inliers.map(\.y).min() ?? 0) > 0.2 else { continue }
-            bestCount = inliers.count
+            // Count inliers and their extent in one pass without allocating,
+            // and stop once this trial can no longer beat the best one.
+            var inlierCount = 0
+            var minX = Double.infinity, maxX = -Double.infinity
+            var minY = Double.infinity, maxY = -Double.infinity
+            for (offset, entry) in points.enumerated() {
+                if inlierCount + points.count - offset <= bestCount { break }
+                guard candidate.contains(entry.point) else { continue }
+                inlierCount += 1
+                minX = min(minX, entry.x)
+                maxX = max(maxX, entry.x)
+                minY = min(minY, entry.y)
+                maxY = max(maxY, entry.y)
+            }
+            guard inlierCount > bestCount, maxX - minX > 0.5, maxY - minY > 0.2 else { continue }
+            bestCount = inlierCount
             best = GroundPlane(normal: normal, height: height,
-                               support: Double(inliers.count) / Double(points.count))
+                               support: Double(inlierCount) / Double(points.count))
         }
         guard let fit = best, fit.support >= 0.65 else { consistentFits = 0; return }
         if let previousHeight, abs(fit.height - previousHeight) > previousHeight * 0.12 {
@@ -160,11 +171,11 @@ enum SceneBuilder {
             labels[index] = matches.min { named[$0].box!.width * named[$0].box!.height
                 < named[$1].box!.width * named[$1].box!.height } ?? -1
         }
-        var visited = Set<Int>()
+        var visited = [Bool](repeating: false, count: count)
         var sources: [SceneSource] = []
-        for start in depths.indices where depths[start].isFinite && !visited.contains(start) {
+        for start in depths.indices where depths[start].isFinite && !visited[start] {
             var cells = [start]
-            visited.insert(start)
+            visited[start] = true
             var offset = 0
             while offset < cells.count {
                 let index = cells[offset]
@@ -173,18 +184,21 @@ enum SceneBuilder {
                 let column = index % columns
                 for neighbor in [row > 0 ? index - columns : -1, row + 1 < rows ? index + columns : -1,
                                  column > 0 ? index - 1 : -1, column + 1 < columns ? index + 1 : -1]
-                    where neighbor >= 0 && !visited.contains(neighbor) && depths[neighbor].isFinite {
+                    where neighbor >= 0 && !visited[neighbor] && depths[neighbor].isFinite {
                     guard labels[index] == labels[neighbor],
                           abs(depths[index] - depths[neighbor]) <= max(0.22, min(depths[index], depths[neighbor]) * 0.16) else { continue }
-                    visited.insert(neighbor)
+                    visited[neighbor] = true
                     cells.append(neighbor)
                 }
             }
             guard cells.count >= 5 else { continue }
-            let minX = cells.map { $0 % columns }.min()!
-            let maxX = cells.map { $0 % columns }.max()! + 1
-            let minY = cells.map { $0 / columns }.min()!
-            let maxY = cells.map { $0 / columns }.max()! + 1
+            var minX = columns, maxX = 0, minY = rows, maxY = 0
+            for cell in cells {
+                minX = min(minX, cell % columns)
+                maxX = max(maxX, cell % columns + 1)
+                minY = min(minY, cell / columns)
+                maxY = max(maxY, cell / columns + 1)
+            }
             let box = CGRect(x: Double(minX) / Double(columns), y: 1 - Double(maxY) / Double(rows),
                              width: Double(maxX - minX) / Double(columns), height: Double(maxY - minY) / Double(rows))
             let distance = DepthMap.percentile(cells.map { depths[$0] }, fraction: 0.35)

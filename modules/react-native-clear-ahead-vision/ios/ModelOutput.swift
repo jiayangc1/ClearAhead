@@ -52,7 +52,9 @@ struct DepthMap: Sendable {
     let values: [Double]
 
     var hasUsableCoverage: Bool {
-        Double(values.filter { $0.isFinite && $0 > 0.15 && $0 < 100 }.count) / Double(values.count) >= 0.65
+        var usable = 0
+        for value in values where value.isFinite && value > 0.15 && value < 100 { usable += 1 }
+        return Double(usable) / Double(values.count) >= 0.65
     }
 
     init?(lidar: AVDepthData, maxDimension: Int = 160) {
@@ -439,9 +441,24 @@ enum ModelOutput {
 
         let rowStride = array.strides[shape.count - 2].intValue
         let columnStride = array.strides[shape.count - 1].intValue
+        // Read the buffer directly; the subscript allocates an NSNumber per value.
+        let read: (Int) -> Double
+        switch array.dataType {
+        case .float16:
+            let pointer = array.dataPointer.assumingMemoryBound(to: Float16.self)
+            read = { Double(pointer[$0]) }
+        case .float32:
+            let pointer = array.dataPointer.assumingMemoryBound(to: Float.self)
+            read = { Double(pointer[$0]) }
+        case .double:
+            let pointer = array.dataPointer.assumingMemoryBound(to: Double.self)
+            read = { pointer[$0] }
+        default:
+            read = { array[$0].doubleValue }
+        }
         return (0..<rowCount).compactMap { row in
             func value(_ column: Int) -> Double {
-                array[row * rowStride + column * columnStride].doubleValue
+                read(row * rowStride + column * columnStride)
             }
             let confidence = value(4)
             let classValue = value(5)
