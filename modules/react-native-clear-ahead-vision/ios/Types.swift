@@ -1,5 +1,6 @@
 import Foundation
 import Vision
+import simd
 
 enum Direction: String, CaseIterable {
     case left
@@ -256,5 +257,109 @@ extension Proximity {
         if distance < 2 { return .near }
         if distance < 5 { return .medium }
         return .far
+    }
+}
+
+/// How the phone is mounted: upright, or turned on its side either way. Every
+/// reading downstream works in the upright picture, sky at the top; this turns
+/// the camera's buffer and the phone's own axes into that picture. The screen
+/// stays upright on the phone, so what is drawn is turned back to it.
+enum CameraMount: String {
+    /// Top edge up.
+    case upright
+    /// Top edge to the walker's left, as seen from behind the phone.
+    case sidewaysLeft
+    /// Top edge to the walker's right.
+    case sidewaysRight
+
+    /// How Vision turns the rear camera's landscape buffer upright.
+    var imageOrientation: CGImagePropertyOrientation {
+        switch self {
+        case .upright: .right
+        case .sidewaysLeft: .up
+        case .sidewaysRight: .down
+        }
+    }
+
+    /// Turns the phone's axes into the picture's: right +x, up +y, toward the walker +z.
+    var phoneToPicture: simd_quatd {
+        switch self {
+        case .upright: simd_quatd(angle: 0, axis: SIMD3(0, 0, 1))
+        case .sidewaysLeft: simd_quatd(angle: .pi / 2, axis: SIMD3(0, 0, 1))
+        case .sidewaysRight: simd_quatd(angle: -.pi / 2, axis: SIMD3(0, 0, 1))
+        }
+    }
+
+    /// Where a point of the upright picture lies in the camera buffer. Both are
+    /// normalized with the origin at the top left.
+    func bufferPoint(x: Double, y: Double) -> (x: Double, y: Double) {
+        switch self {
+        case .upright: (y, 1 - x)
+        case .sidewaysLeft: (x, y)
+        case .sidewaysRight: (1 - x, 1 - y)
+        }
+    }
+
+    /// Where a point of the upright picture shows on the screen.
+    func screenPoint(x: Double, y: Double) -> (x: Double, y: Double) {
+        switch self {
+        case .upright: (x, y)
+        case .sidewaysLeft: (1 - y, x)
+        case .sidewaysRight: (y, 1 - x)
+        }
+    }
+
+    /// A top-left-origin box of the picture as it shows on the screen.
+    func screenBox(_ box: CGRect) -> CGRect {
+        let first = screenPoint(x: Double(box.minX), y: Double(box.minY))
+        let second = screenPoint(x: Double(box.maxX), y: Double(box.maxY))
+        return CGRect(x: min(first.x, second.x), y: min(first.y, second.y),
+                      width: abs(second.x - first.x), height: abs(second.y - first.y))
+    }
+}
+
+/// Settles which way the phone is mounted from gravity in the phone's axes.
+/// The first reading is taken at once; after that a new mount must hold well
+/// past the halfway tilt for a moment, so a swinging arm does not flip it.
+struct MountDetector {
+    static let settleSeconds = 0.6
+    private(set) var mount: CameraMount?
+    private var candidate: CameraMount?
+    private var candidateSince: TimeInterval = 0
+
+    @discardableResult
+    mutating func update(gravity: SIMD3<Double>, now: TimeInterval) -> CameraMount? {
+        // Lying flat or pointing at the ground, the tilt says nothing about which edge is up.
+        guard (gravity.x * gravity.x + gravity.y * gravity.y).squareRoot() > 0.5 else {
+            candidate = nil
+            return mount
+        }
+        // 0 upright, -90 with the top edge to the left, 90 with it to the right.
+        let roll = atan2(gravity.x, -gravity.y) * 180 / .pi
+        let window = mount == nil ? 45.0 : 30.0
+        let reading: CameraMount?
+        if abs(roll) < window {
+            reading = .upright
+        } else if abs(roll + 90) < window {
+            reading = .sidewaysLeft
+        } else if abs(roll - 90) < window {
+            reading = .sidewaysRight
+        } else {
+            reading = nil
+        }
+        guard let reading, reading != mount else {
+            candidate = nil
+            return mount
+        }
+        if mount == nil {
+            mount = reading
+        } else if candidate != reading {
+            candidate = reading
+            candidateSince = now
+        } else if now - candidateSince >= Self.settleSeconds {
+            mount = reading
+            candidate = nil
+        }
+        return mount
     }
 }

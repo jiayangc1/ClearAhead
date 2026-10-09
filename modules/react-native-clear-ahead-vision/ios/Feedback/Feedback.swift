@@ -124,6 +124,15 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
                       mayInterrupt: utterance.interrupts, cooldown: utterance.cooldown)
     }
 
+    /// The camera turned against the headphones; look along it afresh.
+    func realignSceneAudio() {
+        let token = generation.current
+        audioQueue.async { [weak self] in
+            guard let self, acceptsAudio(token) else { return }
+            sceneAudio.realign()
+        }
+    }
+
     func updateScene(_ sources: [SceneSource], configuration: FeedbackConfiguration,
                      camera: simd_quatd?, earCalibrated: Bool) {
         let token = generation.current

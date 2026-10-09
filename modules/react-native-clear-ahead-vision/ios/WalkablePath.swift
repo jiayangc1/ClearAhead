@@ -39,13 +39,14 @@ enum WalkablePath {
         var center: Double { Double(left + right + 1) / 2 }
     }
 
-    static func shape(pixelBuffer: CVPixelBuffer, depthMap: DepthMap, maximumDistance: Double) -> PathShape? {
-        guard let cells = grid(from: pixelBuffer), let path = follow(cells) else { return nil }
+    static func shape(pixelBuffer: CVPixelBuffer, mount: CameraMount = .upright, depthMap: DepthMap,
+                      maximumDistance: Double) -> PathShape? {
+        guard let cells = grid(from: pixelBuffer, mount: mount), let path = follow(cells) else { return nil }
         return read(runs: path.runs, similar: path.similar, depthMap: depthMap, maximumDistance: maximumDistance)
     }
 
     /// Averages the frame into upright cells. Row `rows - 1` is at the feet.
-    static func grid(from pixelBuffer: CVPixelBuffer) -> [Cell]? {
+    static func grid(from pixelBuffer: CVPixelBuffer, mount: CameraMount = .upright) -> [Cell]? {
         let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
         guard format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
             || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { return nil }
@@ -57,28 +58,25 @@ enum WalkablePath {
         let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
         let chromaWidth = CVPixelBufferGetWidthOfPlane(pixelBuffer, 1)
         let chromaHeight = CVPixelBufferGetHeightOfPlane(pixelBuffer, 1)
-        guard width >= rows * 4, height >= columns * 4, chromaWidth > 1, chromaHeight > 1 else { return nil }
+        guard max(width, height) >= rows * 4, min(width, height) >= columns * 4,
+              chromaWidth > 1, chromaHeight > 1 else { return nil }
         let lumaStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
         let chromaStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1)
         let luma = lumaBase.assumingMemoryBound(to: UInt8.self)
         let chroma = chromaBase.assumingMemoryBound(to: UInt8.self)
-        let cellWidth = Double(width) / Double(rows)
-        let cellHeight = Double(height) / Double(columns)
         var cells = [Cell](repeating: Cell(), count: columns * rows)
         for row in firstRow..<rows {
             for column in 0..<columns {
-                // The buffer is landscape and shown turned clockwise: going
-                // down the upright image runs along the buffer's x, and going
-                // right runs up the buffer's y.
-                let originX = Double(row) * cellWidth
-                let originY = Double(columns - 1 - column) * cellHeight
                 var sum = 0.0
                 var squares = 0.0
                 var cb = 0.0
                 var cr = 0.0
                 for step in 0..<16 {
-                    let x = min(width - 1, Int(originX + (Double(step % 4) + 0.5) / 4 * cellWidth))
-                    let y = min(height - 1, Int(originY + (Double(step / 4) + 0.5) / 4 * cellHeight))
+                    // Sample the upright picture; the mount says where that lies in the buffer.
+                    let point = mount.bufferPoint(x: (Double(column) + (Double(step % 4) + 0.5) / 4) / Double(columns),
+                                                  y: (Double(row) + (Double(step / 4) + 0.5) / 4) / Double(rows))
+                    let x = min(width - 1, Int(point.x * Double(width)))
+                    let y = min(height - 1, Int(point.y * Double(height)))
                     let value = Double(luma[y * lumaStride + x])
                     sum += value
                     squares += value * value

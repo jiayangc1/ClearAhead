@@ -114,6 +114,7 @@ final class SpatialAudio {
     }
 
     func clear() { for voice in voices { voice.targetGain = 0 } }
+    func realign() { alignment = nil }
     func duck(_ active: Bool) { speechActive = active }
 
     func update(_ sources: [SceneSource], configuration: FeedbackConfiguration,

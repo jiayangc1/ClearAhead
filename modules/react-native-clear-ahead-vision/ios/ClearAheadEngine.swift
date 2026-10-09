@@ -49,8 +49,11 @@ final class ClearAheadEngine {
     private let sceneSelector = SceneSelector()
     private var groundNormalizer = GroundNormalizer()
     private var cameraGeometry: CameraGeometry?
+    /// Gravity and attitude in the phone's own axes; frames turn them into the picture's.
     private var latestGravity: SIMD3<Double>?
     private var latestCameraAttitude: simd_quatd?
+    private var mountDetector = MountDetector()
+    private var frameMount = CameraMount.upright
     private var latestMotionTime: TimeInterval = 0
     private var walkingEffort = 0.0
     private var frameGravity: SIMD3<Double>?
@@ -288,6 +291,7 @@ final class ClearAheadEngine {
         cameraTooClose = false
         closeDepthFrames = 0
         clearDepthFrames = 0
+        frameMount = .upright
         stateLock.lock()
         health = SessionHealth(startedAt: ProcessInfo.processInfo.systemUptime)
         qualityState = SessionQualityState()
@@ -295,6 +299,7 @@ final class ClearAheadEngine {
         walkingEffort = 0
         latestGravity = nil
         latestCameraAttitude = nil
+        mountDetector = MountDetector()
         lastPipelineStatus = nil
         lastQuality = ""
         stateLock.unlock()
@@ -395,13 +400,16 @@ final class ClearAheadEngine {
         stateLock.unlock()
         guard isSessionActive else { return }
 
-        cameraGeometry = Self.geometry(sampleBuffer: sampleBuffer, pixelBuffer: pixelBuffer)
-
         let frameStartTime = ProcessInfo.processInfo.systemUptime
         stateLock.lock()
-        frameGravity = frameStartTime - latestMotionTime < 0.4 ? latestGravity : nil
-        frameAttitude = frameStartTime - latestMotionTime < 0.4 ? latestCameraAttitude : nil
+        let mount = mountDetector.mount ?? .upright
+        let motionFresh = frameStartTime - latestMotionTime < 0.4
+        // Scene points are in the upright picture; the phone may be on its side.
+        frameGravity = motionFresh ? latestGravity.map { mount.phoneToPicture.act($0) } : nil
+        frameAttitude = motionFresh ? latestCameraAttitude.map { $0 * mount.phoneToPicture.inverse } : nil
         stateLock.unlock()
+        if mount != frameMount { remount(mount) }
+        cameraGeometry = Self.geometry(sampleBuffer: sampleBuffer, pixelBuffer: pixelBuffer, mount: mount)
         frameCount += 1
         let thermalState = ProcessInfo.processInfo.thermalState
         let thermallyLimited = thermalState == .serious || thermalState == .critical
@@ -433,7 +441,7 @@ final class ClearAheadEngine {
         }
         // Both models read this frame through one handler so Vision can reuse
         // its converted image instead of preparing the frame twice.
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: mount.imageOrientation, options: [:])
         // A due depth observation and detector observation use this same frame.
         // Never sample an older map using a newer bounding box.
         if shouldEstimateDepth {
@@ -541,7 +549,7 @@ final class ClearAheadEngine {
                                 && currentConfiguration.cameraHeightMeters >= 0.4 && groundNormalizer.plane != nil)
         emitSessionEvent(name: "sceneUpdated", body: [
             "state": available ? (sources.isEmpty ? "clear" : "available") : "unavailable",
-            "sources": sources.map(\.dictionary),
+            "sources": sources.map { $0.dictionary(on: mount) },
             "distanceStatus": distanceStatus,
             "spatialCapability": feedback.spatialCapability,
             "imageAspectRatio": Double(CVPixelBufferGetHeight(pixelBuffer)) / Double(CVPixelBufferGetWidth(pixelBuffer)),
@@ -558,7 +566,7 @@ final class ClearAheadEngine {
         if shouldEstimateDepth {
             var shape: PathShape?
             if imageClear, currentRotationRate() < 0.9, let map = latestDepthMap {
-                shape = WalkablePath.shape(pixelBuffer: pixelBuffer, depthMap: map,
+                shape = WalkablePath.shape(pixelBuffer: pixelBuffer, mount: mount, depthMap: map,
                                            maximumDistance: currentConfiguration.warningDistanceMeters)
             }
             if let cue = pathCueTracker.update(shape, now: evaluationTime), evaluationTime - lastHazardSpeech >= 2.5 {
@@ -585,6 +593,27 @@ final class ClearAheadEngine {
 
         latestProcessingLatencyMs = (ProcessInfo.processInfo.systemUptime - frameStartTime) * 1_000
         emitMetricsIfNeeded(now: frameStartTime)
+    }
+
+    /// The phone was turned on or off its side. Everything tracked by where it
+    /// sat in the picture no longer lines up, so it starts over.
+    private func remount(_ mount: CameraMount) {
+        frameMount = mount
+        groundNormalizer = GroundNormalizer()
+        collisionTracker.reset()
+        sceneSelector.reset()
+        groundHazardTracker.reset()
+        pathCueTracker.reset()
+        prioritizer.reset()
+        objectEvents = []
+        depthEvents = []
+        latestDepthMap = nil
+        latestDepthMapTime = 0
+        previousPathObstacle = nil
+        pathObservationCount = 0
+        pathClosingSpeed = 0
+        feedback.realignSceneAudio()
+        logger.info("Camera mount is now \(mount.rawValue, privacy: .public)")
     }
 
     func reportDroppedFrame(reason: String) {
@@ -680,7 +709,7 @@ final class ClearAheadEngine {
         configuration: FeedbackConfiguration
     ) -> [SpatialEvent] {
         let modelMap = estimateModelDepthMap(handler: handler)
-        let lidarMap = lidarDepth.flatMap { DepthMap(lidar: $0) }
+        let lidarMap = lidarDepth.flatMap { DepthMap(lidar: $0, mount: frameMount) }
         guard let rawMap = modelMap ?? lidarMap else {
             latestDepthMap = nil
             latestDepthMapTime = 0
@@ -719,6 +748,7 @@ final class ClearAheadEngine {
             if shouldQueue {
                 lastDepthPreviewTime = now
                 let status = distanceStatus
+                let mount = frameMount
                 let imageAspect = Double(CVPixelBufferGetHeight(pixelBuffer)) / Double(CVPixelBufferGetWidth(pixelBuffer))
                 depthMapQueue.async { [weak self] in
                     guard let self else { return }
@@ -727,7 +757,7 @@ final class ClearAheadEngine {
                         && self.depthPreviewGeneration == generation
                     self.stateLock.unlock()
                     let dataURL = shouldRender
-                        ? depthMap.heatmapDataURL(farDistance: configuration.warningDistanceMeters, imageAspect: imageAspect) : nil
+                        ? depthMap.turned(toScreen: mount).heatmapDataURL(farDistance: configuration.warningDistanceMeters, imageAspect: imageAspect) : nil
                     self.stateLock.lock()
                     let shouldEmit = self.sessionActive && self.configuration.depthMapEnabled
                         && self.depthPreviewGeneration == generation
@@ -944,9 +974,11 @@ final class ClearAheadEngine {
             // Arm swing and footfalls shake the phone; standing still does not.
             let push = motion.userAcceleration
             walkingEffort += (sqrt(push.x * push.x + push.y * push.y + push.z * push.z) - walkingEffort) * 0.2
-            latestGravity = SIMD3(motion.gravity.x, motion.gravity.y, motion.gravity.z)
+            let gravity = SIMD3(motion.gravity.x, motion.gravity.y, motion.gravity.z)
+            latestGravity = gravity
             latestCameraAttitude = SpatialAudio.attitude(motion.attitude)
             latestMotionTime = ProcessInfo.processInfo.systemUptime
+            mountDetector.update(gravity: gravity, now: latestMotionTime)
             stateLock.unlock()
             if magnitude > 3.2 {
                 markTransientQuality(
@@ -1236,16 +1268,25 @@ final class ClearAheadEngine {
         return latestRotationRate
     }
 
-    private static func geometry(sampleBuffer: CMSampleBuffer, pixelBuffer: CVPixelBuffer) -> CameraGeometry? {
+    private static func geometry(sampleBuffer: CMSampleBuffer, pixelBuffer: CVPixelBuffer,
+                                 mount: CameraMount) -> CameraGeometry? {
         guard let data = CMGetAttachment(sampleBuffer, key: kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix,
                                          attachmentModeOut: nil) as? Data,
               data.count >= MemoryLayout<simd_float3x3>.size else { return nil }
         let matrix = data.withUnsafeBytes { $0.loadUnaligned(as: simd_float3x3.self) }
         let width = Double(CVPixelBufferGetWidth(pixelBuffer))
         let height = Double(CVPixelBufferGetHeight(pixelBuffer))
-        // Vision rotates the landscape buffer clockwise into the portrait depth/box coordinate system.
-        let geometry = CameraGeometry(fx: Double(matrix[1][1]) / height, fy: Double(matrix[0][0]) / width,
-                                      cx: 1 - Double(matrix[2][1]) / height, cy: Double(matrix[2][0]) / width)
+        let fx = Double(matrix[0][0]) / width
+        let fy = Double(matrix[1][1]) / height
+        let cx = Double(matrix[2][0]) / width
+        let cy = Double(matrix[2][1]) / height
+        // Vision turns the landscape buffer into the upright depth/box coordinate system.
+        let geometry: CameraGeometry
+        switch mount {
+        case .upright: geometry = CameraGeometry(fx: fy, fy: fx, cx: 1 - cy, cy: cx)
+        case .sidewaysLeft: geometry = CameraGeometry(fx: fx, fy: fy, cx: cx, cy: cy)
+        case .sidewaysRight: geometry = CameraGeometry(fx: fx, fy: fy, cx: 1 - cx, cy: 1 - cy)
+        }
         return geometry.valid ? geometry : nil
     }
 

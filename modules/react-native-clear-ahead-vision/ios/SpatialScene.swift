@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import simd
 
-/// Portrait camera coordinates: right +x, up +y, forward -z (AVAudioEnvironmentNode).
+/// Upright picture coordinates (see CameraMount): right +x, up +y, forward -z (AVAudioEnvironmentNode).
 struct CameraGeometry {
     let fx: Double
     let fy: Double
@@ -153,11 +153,19 @@ struct SceneSource {
             && (event.timeToCollisionSeconds != nil || event.label == GroundHazardTracker.label)
     }
 
-    var dictionary: [String: Any] {
+    /// Outlines and box are turned to the screen, which stays upright on the phone.
+    func dictionary(on mount: CameraMount) -> [String: Any] {
         var payload = event.dictionary
         payload["visibility"] = visibility
         payload["isSurface"] = isSurface
-        payload["contours"] = contours.map { $0.map { ["x": $0.x, "y": $0.y] } }
+        payload["contours"] = contours.map { $0.map { point -> [String: Double] in
+            let shown = mount.screenPoint(x: Double(point.x), y: Double(point.y))
+            return ["x": shown.x, "y": shown.y]
+        } }
+        if mount != .upright, let box = event.box {
+            let shown = mount.screenBox(CGRect(x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height))
+            payload["box"] = ["x": shown.minX, "y": shown.minY, "width": shown.width, "height": shown.height]
+        }
         if let position {
             payload["position"] = ["x": position.x, "y": position.y, "z": position.z]
         }

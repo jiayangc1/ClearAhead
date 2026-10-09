@@ -60,11 +60,11 @@ struct DepthMap: Sendable {
         return Double(usable) / Double(values.count) >= 0.65
     }
 
-    init?(lidar: AVDepthData, maxDimension: Int = 160) {
+    init?(lidar: AVDepthData, mount: CameraMount = .upright, maxDimension: Int = 160) {
         guard lidar.depthDataAccuracy == .absolute, lidar.depthDataQuality == .high else { return nil }
-        // Match Vision's clockwise portrait rotation; LiDAR and color share the same field of view.
+        // Match Vision's upright turn; LiDAR and color share the same field of view.
         let buffer = lidar.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
-            .applyingExifOrientation(.right).depthDataMap
+            .applyingExifOrientation(mount.imageOrientation).depthDataMap
         guard CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else { return nil }
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
@@ -483,6 +483,22 @@ struct DepthMap: Sendable {
         let sorted = values.sorted()
         let index = min(sorted.count - 1, max(0, Int(Double(sorted.count - 1) * fraction)))
         return sorted[index]
+    }
+
+    /// The map turned from the upright picture to the screen, which stays upright on the phone.
+    func turned(toScreen mount: CameraMount) -> DepthMap {
+        guard mount != .upright else { return self }
+        // Sideways, the picture's rows run across the screen.
+        var turned = [Double](repeating: .nan, count: values.count)
+        for row in 0..<width {
+            for column in 0..<height {
+                let source = mount == .sidewaysLeft
+                    ? (height - 1 - column) * width + row
+                    : column * width + (width - 1 - row)
+                turned[row * height + column] = values[source]
+            }
+        }
+        return DepthMap(width: height, height: width, values: turned)
     }
 
     func heatmapDataURL(maxDimension: Int = 128, farDistance: Double = 6, imageAspect: Double? = nil) -> String? {

@@ -21,6 +21,7 @@ tones, visible depth contours, urgency vibrations, and short speech.
 - Up to six simultaneous sources, with stable selection based on visibility, distance, and collision risk
 - Urgency-only Core Haptics, continuous AVAudioEnvironmentNode sources, and speech ducking
 - Ground fitting with camera intrinsics, gravity, and optional measured camera-height calibration
+- Upright or sideways (horizontal) phone mounts, detected from gravity
 - Speech enabled by default; saved speech opt-outs remain respected
 - Startup progress from loaded model sizes and size-weighted download bytes
 - Low-light, covered-camera, and thermal-pressure reporting
@@ -168,14 +169,26 @@ horizontal fallback, explicitly shown as limited in the interface.
 is available from iOS 14, requires NSMotionUsageDescription, and must be checked
 for availability. The app manually combines phone and headphone attitudes, converts
 headphone axes to the audio coordinate system, and aligns arbitrary yaw origins.
-Start looking along the upright rear camera. Restart Assist after repositioning
-the phone or to recenter. Motion denial, unavailable motion, stale updates, and
+Start looking along the rear camera, upright or on its side. Restart Assist after
+repositioning the phone or to recenter. Motion denial, unavailable motion, stale updates, and
 unsupported headphones disable head tracking. Automatic
 [isListenerHeadTrackingEnabled](https://developer.apple.com/documentation/avfaudio/avaudioenvironmentnode/islistenerheadtrackingenabled)
 requires Apple's Head Pose entitlement; this app does not enable that entitlement
 or automatic API. Personalized spatial-audio profile access is also not configured.
 Manual motion tracking does not depend on those capabilities. Reconnecting an
 output restarts motion and requires the same forward-facing calibration.
+
+## Phone mounting
+
+The phone can be mounted upright or sideways (horizontally), with its top edge to
+either side. Gravity decides which: the first reading of a session is taken at
+once, and a later change must hold past 60 degrees of roll for 0.6 seconds, so
+arm swing does not flip it. Camera frames, LiDAR depth, intrinsics, gravity, and
+attitude are turned into the upright picture before any reading, so obstacles,
+ground fitting, path cues, and spatial audio behave the same either way. When the
+mount changes mid-session, tracked hazards and ground calibration start over and
+spatial audio realigns to the camera. The interface stays upright on the phone;
+the depth preview and outlines are turned to match the camera preview.
 
 ## Distance normalization and urgency
 
