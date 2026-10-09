@@ -6,17 +6,17 @@ While assisting, tell a blind or low-vision walker when the sidewalk they are
 on is about to end and when it bends, early enough to act on and rarely enough
 to trust.
 
-Success: on an ordinary sidewalk in daylight the app says "Sidewalk ends
-ahead" two or three steps before the pavement stops, and "Sidewalk curves
-left" or "Sidewalk curves right" before a bend. It stays silent mid-block.
+Success: on an ordinary sidewalk in daylight the app says "Path ends
+ahead" two or three steps before the pavement stops, and "Path curves
+left" or "Path curves right" before a bend. It stays silent mid-block.
 
 ## Spoken cues
 
 | Situation | Speech |
 |---|---|
-| Walking surface stops within about 2.5 m | "Sidewalk ends ahead" |
-| Path centre bends left | "Sidewalk curves left" |
-| Path centre bends right | "Sidewalk curves right" |
+| Walking surface stops within about 2.5 m | "Path ends ahead" |
+| Path centre bends left | "Path curves left" |
+| Path centre bends right | "Path curves right" |
 
 - Voice only. No tone, no haptic, no overlay.
 - Follows the existing voice toggle (`speechEnabled`).
@@ -24,8 +24,8 @@ left" or "Sidewalk curves right" before a bend. It stays silent mid-block.
   queued, while a hazard is being announced.
 - The same cue repeats no sooner than 8 seconds later. After a cue, the
   condition must clear for 1.5 seconds before that cue can fire again.
-- The word stays "sidewalk" even though the detector reacts to any walking
-  surface that ends or bends (a trail, a carpet edge).
+- The word is "path", because the detector reacts to any walking surface
+  that ends or bends (a sidewalk, a trail, a carpet edge).
 
 ## Detection
 
