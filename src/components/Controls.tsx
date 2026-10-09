@@ -19,38 +19,12 @@ export function PrimaryButton({label, hint, onPress, destructive = false, disabl
   );
 }
 
-export function ToggleRow({label, description, value, onValueChange, disabled = false}: {label: string; description: string; value: boolean; onValueChange: (value: boolean) => void; disabled?: boolean}) {
-  const reduceMotion = useReducedMotion();
-  const emphasis = useRef(new Animated.Value(1)).current;
-  const previousValue = useRef(value);
-
-  useEffect(() => {
-    if (previousValue.current === value) {
-      return;
-    }
-    previousValue.current = value;
-    if (reduceMotion) {
-      return;
-    }
-    Animated.sequence([
-      Animated.spring(emphasis, {
-        toValue: 1.025,
-        ...motion.spring,
-        useNativeDriver: true,
-      }),
-      Animated.spring(emphasis, {
-        toValue: 1,
-        ...motion.spring,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [emphasis, reduceMotion, value]);
-
+export function ToggleRow({label, description, value, onValueChange, disabled = false}: {label: string; description?: string; value: boolean; onValueChange: (value: boolean) => void; disabled?: boolean}) {
   return (
-    <Animated.View style={[styles.row, {transform: [{scale: emphasis}]}]} accessible={false}>
+    <View style={styles.row} accessible={false}>
       <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.rowDescription}>{description}</Text>
+        {description ? <Text style={styles.rowDescription}>{description}</Text> : null}
       </View>
       <Switch
         accessibilityLabel={label}
@@ -58,11 +32,38 @@ export function ToggleRow({label, description, value, onValueChange, disabled = 
         disabled={disabled}
         value={value}
         onValueChange={onValueChange}
-        trackColor={{false: colors.line, true: colors.cyan}}
+        trackColor={{false: colors.line, true: colors.accentStrong}}
         ios_backgroundColor={colors.line}
-        thumbColor={colors.text}
+        thumbColor={colors.surface}
       />
-    </Animated.View>
+    </View>
+  );
+}
+
+/** Two or three mutually exclusive choices shown side by side. */
+export function SegmentedRow<T extends string>({label, options, value, onChange}: {label: string; options: ReadonlyArray<{value: T; label: string}>; value: T; onChange: (value: T) => void}) {
+  return (
+    <View style={styles.segmentedRow}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <View accessibilityRole="radiogroup" accessibilityLabel={label} style={styles.segments}>
+        {options.map(option => {
+          const selected = option.value === value;
+          return (
+            <SpringPressable
+              key={option.value}
+              accessibilityRole="radio"
+              accessibilityLabel={option.label}
+              accessibilityState={{checked: selected}}
+              onPress={() => onChange(option.value)}
+              containerStyle={styles.segmentContainer}
+              style={[styles.segment, selected && styles.segmentSelected]}
+            >
+              <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>{option.label}</Text>
+            </SpringPressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -108,7 +109,7 @@ export function AdjustableRow({label, valueLabel, onIncrement, onDecrement}: {la
       onAccessibilityAction={onAccessibilityAction}
       style={styles.adjustable}
     >
-      <View>
+      <View style={styles.rowCopy}>
         <Text style={styles.rowLabel}>{label}</Text>
         <Animated.Text style={[styles.adjustableValue, {transform: [{scale: valueScale}]}]}>{valueLabel}</Animated.Text>
       </View>
@@ -126,72 +127,89 @@ export function AdjustableRow({label, valueLabel, onIncrement, onDecrement}: {la
 
 const styles = StyleSheet.create({
   primaryButton: {
-    minHeight: 58,
-    borderRadius: 9,
-    backgroundColor: colors.cyan,
+    minHeight: 64,
+    borderRadius: 32,
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 22,
-    overflow: 'hidden',
+    paddingHorizontal: 24,
   },
-  destructiveButton: {backgroundColor: colors.critical},
+  destructiveButton: {backgroundColor: colors.coral},
   primaryButtonText: {
-    color: colors.night,
-    fontSize: 18,
+    color: colors.ink,
+    fontSize: 19,
     lineHeight: 25,
-    fontWeight: '800',
+    fontWeight: '700',
   },
-  disabled: {opacity: 0.4},
+  disabled: {opacity: 0.45},
   row: {
     minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
+    paddingVertical: 10,
   },
   rowCopy: {flex: 1},
   rowLabel: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '600',
   },
   rowDescription: {
     color: colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 3,
+    fontSize: 14,
+    lineHeight: 19,
+    marginTop: 2,
   },
+  segmentedRow: {paddingVertical: 10, gap: 10},
+  segments: {
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceRaised,
+  },
+  segmentContainer: {flex: 1},
+  segment: {
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  segmentSelected: {backgroundColor: colors.accent},
+  segmentText: {color: colors.muted, fontSize: 15, fontWeight: '600', textAlign: 'center'},
+  segmentTextSelected: {color: colors.ink, fontWeight: '700'},
   adjustable: {
-    minHeight: 56,
+    minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
+    paddingVertical: 8,
   },
   adjustableValue: {
-    color: colors.cyan,
-    fontSize: 17,
+    alignSelf: 'flex-start',
+    color: colors.accentInk,
+    fontSize: 15,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
-    marginTop: 4,
+    marginTop: 2,
   },
   stepper: {flexDirection: 'row', gap: 8},
   stepButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: colors.surfaceRaised,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepText: {
-    color: colors.text,
-    fontSize: 28,
+    color: colors.ink,
+    fontSize: 26,
     lineHeight: 30,
-    fontWeight: '600',
+    fontWeight: '500',
   },
 });

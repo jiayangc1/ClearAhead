@@ -10,20 +10,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronDown } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft } from 'lucide-react-native';
 import { useCameraDevices } from 'react-native-vision-camera';
-import { BrandLogo } from '../components/BrandLogo';
-import { BottomNavigation } from '../components/BottomNavigation';
-import { AdjustableRow, ToggleRow } from '../components/Controls';
+import { AdjustableRow, SegmentedRow, ToggleRow } from '../components/Controls';
 import { motion, SpringPressable } from '../components/Motion';
-import { colors, hasFeedbackChannel } from '../config';
+import { colors } from '../config';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ClearAheadModule } from '../native/ClearAheadModule';
 import type {
   AppPreferences,
   EventKind,
   ModelVariant,
-  MountingMode,
   ProcessingMode,
 } from '../types';
 import { stepValue } from '../utils/eventLogic';
@@ -39,20 +36,16 @@ export function SettingsScreen({
   preferences,
   storageError,
   onChange,
-  onHome,
-  onAssist,
-  onSettings,
+  onBack,
   hasCameraPermission,
 }: {
   preferences: AppPreferences;
   storageError?: string;
   onChange: (update: Partial<AppPreferences>) => void;
-  onHome: () => void;
-  onAssist: () => void;
-  onSettings: () => void;
+  onBack: () => void;
   hasCameraPermission: boolean;
 }) {
-  const [openSection, setOpenSection] = useState<string | null>('Performance');
+  const [openSection, setOpenSection] = useState<string | null>(null);
   const [modelStatus, setModelStatus] = useState(
     'Nano detector and depth are bundled with the app',
   );
@@ -147,209 +140,145 @@ export function SettingsScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <BrandLogo width={40} />
+        <SpringPressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          accessibilityHint="Returns to the home screen"
+          hitSlop={8}
+          onPress={onBack}
+          pressedScale={0.9}
+          style={styles.backButton}
+        >
+          <ChevronLeft color={colors.ink} size={26} strokeWidth={2.2} />
+        </SpringPressable>
         <Text accessibilityRole="header" style={styles.title}>
           Settings
-        </Text>
-        <Text style={styles.subtitle}>
-          Tune feedback and detection for the way you move.
         </Text>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         {storageError ? (
-          <Text accessibilityRole="alert" style={styles.safetyNote}>
+          <Text accessibilityRole="alert" style={styles.alert}>
             {storageError}
           </Text>
         ) : null}
-        <Section {...sectionProps('Performance')}>
-          <Text style={styles.sectionHelp}>
-            Choose how often the app checks for nearby objects and depth. The
-            processed rate can be lower than the camera capture rate.
-          </Text>
-          <ProcessingChoice
-            mode="responsive"
-            current={preferences.processingMode}
-            label="Responsive"
-            description="Smaller frames and fewer depth checks. Favors quicker object updates. Generic obstacles may be reported less often."
-            onPress={() => onChange({ processingMode: 'responsive' })}
-          />
-          <ProcessingChoice
-            mode="detailed"
-            current={preferences.processingMode}
-            label="Detailed"
-            description="Larger frames and more frequent depth checks. May slow updates on older iPhones."
-            onPress={() => onChange({ processingMode: 'detailed' })}
-          />
-          <ToggleRow
-            label="Show frame rates"
-            description="Show processed, object, and depth updates during assist mode and the last reading on Home."
-            value={preferences.showFps}
-            onValueChange={value => onChange({ showFps: value })}
-          />
-        </Section>
 
-        <Section {...sectionProps('Feedback')}>
+        <View style={styles.card}>
           <ToggleRow
-            label="Haptics"
-            description="Vibrations escalate for possible and imminent collisions. Ordinary scenery stays quiet."
-            value={preferences.hapticsEnabled}
-            onValueChange={value => onChange({ hapticsEnabled: value })}
+            label="Voice"
+            description="Spoken warnings."
+            value={preferences.speechEnabled}
+            onValueChange={value => onChange({ speechEnabled: value })}
           />
+          {preferences.speechEnabled ? (
+            <SegmentedRow
+              label="Voice says"
+              options={[
+                { value: 'hazards', label: 'What is in my way' },
+                { value: 'everything', label: 'Everything nearby' },
+              ]}
+              value={preferences.speechDetail}
+              onChange={speechDetail => onChange({ speechDetail })}
+            />
+          ) : null}
           <ToggleRow
-            label="Directional audio"
-            description={
-              'Up to six visible sources sound together. Nearer sources are louder and brighter. Pitch follows height and proximity; approaching or collision hazards pulse faster with a brighter timbre. People and vehicles have distinct registers. Stereo headphones add 3D position. Compatible AirPods track head turns after you start looking along the camera. Speakers cannot reliably convey height or front/back.'
-            }
+            label="Sounds"
+            description="Tones that get louder as things get closer."
             value={preferences.audioEnabled}
             onValueChange={value => onChange({ audioEnabled: value })}
           />
           <ToggleRow
-            label="Continuous scene tones"
-            description="Smooth tones follow visible surroundings. Turn off to use speech and urgency vibrations only."
-            value={preferences.continuousAudio}
-            onValueChange={value => onChange({ continuousAudio: value })}
+            label="Vibration"
+            description="Pulses when something is in your way."
+            value={preferences.hapticsEnabled}
+            onValueChange={value => onChange({ hapticsEnabled: value })}
           />
-          <ToggleRow
-            label="Speech"
-            description="Brief spoken labels plus urgent collision and camera warnings."
-            value={preferences.speechEnabled}
-            onValueChange={value => onChange({ speechEnabled: value })}
-          />
-          <AdjustableRow
-            label="Haptic strength"
-            valueLabel={`${Math.round(
-              preferences.hapticIntensity * 100,
-            )} percent`}
-            onIncrement={() =>
-              onChange({
-                hapticIntensity: stepValue(
-                  preferences.hapticIntensity,
-                  'increment',
-                  0.1,
-                  0.1,
-                  1,
-                ),
-              })
-            }
-            onDecrement={() =>
-              onChange({
-                hapticIntensity: stepValue(
-                  preferences.hapticIntensity,
-                  'decrement',
-                  0.1,
-                  0.1,
-                  1,
-                ),
-              })
-            }
-          />
-          <AdjustableRow
-            label="Audio volume"
-            valueLabel={`${Math.round(preferences.audioVolume * 100)} percent`}
-            onIncrement={() =>
-              onChange({
-                audioVolume: stepValue(
-                  preferences.audioVolume,
-                  'increment',
-                  0.1,
-                  0.1,
-                  1,
-                ),
-              })
-            }
-            onDecrement={() =>
-              onChange({
-                audioVolume: stepValue(
-                  preferences.audioVolume,
-                  'decrement',
-                  0.1,
-                  0.1,
-                  1,
-                ),
-              })
-            }
-          />
-        </Section>
+        </View>
 
-        <Section {...sectionProps('Detection')}>
-          <Text style={styles.sectionHelp}>
-            Collision warnings combine several frames of relative movement,
-            depth, and the projected walking path. Higher sensitivity accepts
-            less evidence and may warn more often.
-          </Text>
+        <View style={styles.card}>
+          <SegmentedRow
+            label="Phone position"
+            options={[
+              { value: 'handheld', label: 'In my hand' },
+              { value: 'chest', label: 'On my chest' },
+            ]}
+            value={preferences.mountingMode}
+            onChange={mountingMode => onChange({ mountingMode })}
+          />
+          <AdjustableRow
+            label="Warning range"
+            valueLabel={`${preferences.warningDistanceMeters.toFixed(1)} meters`}
+            onIncrement={() =>
+              onChange({
+                warningDistanceMeters: stepValue(preferences.warningDistanceMeters, 'increment', 0.5, 1, 12),
+              })
+            }
+            onDecrement={() =>
+              onChange({
+                warningDistanceMeters: stepValue(preferences.warningDistanceMeters, 'decrement', 0.5, 1, 12),
+              })
+            }
+          />
           <AdjustableRow
             label="Sensitivity"
             valueLabel={`${Math.round(preferences.sensitivity * 100)} percent`}
             onIncrement={() =>
-              onChange({
-                sensitivity: stepValue(
-                  preferences.sensitivity,
-                  'increment',
-                  0.05,
-                  0.2,
-                  1,
-                ),
-              })
+              onChange({ sensitivity: stepValue(preferences.sensitivity, 'increment', 0.05, 0.2, 1) })
             }
             onDecrement={() =>
-              onChange({
-                sensitivity: stepValue(
-                  preferences.sensitivity,
-                  'decrement',
-                  0.05,
-                  0.2,
-                  1,
-                ),
-              })
+              onChange({ sensitivity: stepValue(preferences.sensitivity, 'decrement', 0.05, 0.2, 1) })
+            }
+          />
+        </View>
+
+        <Section {...sectionProps('Sound and vibration')}>
+          <ToggleRow
+            label="Continuous tones"
+            description="Keep tones playing for everything in view. Off leaves voice and vibration only."
+            value={preferences.continuousAudio}
+            onValueChange={value => onChange({ continuousAudio: value })}
+          />
+          <AdjustableRow
+            label="Volume"
+            valueLabel={`${Math.round(preferences.audioVolume * 100)} percent`}
+            onIncrement={() =>
+              onChange({ audioVolume: stepValue(preferences.audioVolume, 'increment', 0.1, 0.1, 1) })
+            }
+            onDecrement={() =>
+              onChange({ audioVolume: stepValue(preferences.audioVolume, 'decrement', 0.1, 0.1, 1) })
             }
           />
           <AdjustableRow
-            label="Scene range"
-            valueLabel={`${preferences.warningDistanceMeters.toFixed(
-              1,
-            )} meters`}
+            label="Vibration strength"
+            valueLabel={`${Math.round(preferences.hapticIntensity * 100)} percent`}
             onIncrement={() =>
-              onChange({
-                warningDistanceMeters: stepValue(
-                  preferences.warningDistanceMeters,
-                  'increment',
-                  0.5,
-                  1,
-                  12,
-                ),
-              })
+              onChange({ hapticIntensity: stepValue(preferences.hapticIntensity, 'increment', 0.1, 0.1, 1) })
             }
             onDecrement={() =>
-              onChange({
-                warningDistanceMeters: stepValue(
-                  preferences.warningDistanceMeters,
-                  'decrement',
-                  0.5,
-                  1,
-                  12,
-                ),
-              })
+              onChange({ hapticIntensity: stepValue(preferences.hapticIntensity, 'decrement', 0.1, 0.1, 1) })
             }
           />
-          <ToggleRow
-            label="Bounding boxes"
-            description="Outline and label objects and surfaces that pose a collision risk. Nothing is drawn while the way is clear."
-            value={preferences.showBoundingBoxes}
-            onValueChange={value => onChange({ showBoundingBoxes: value })}
-          />
+          <Text style={styles.subheading}>Voice names</Text>
+          {speechCategories.map(category => (
+            <ToggleRow
+              key={category.kind}
+              label={category.label}
+              value={preferences.spokenCategories.includes(category.kind)}
+              onValueChange={value => toggleSpeechCategory(category.kind, value)}
+            />
+          ))}
+          <Text style={styles.help}>Warnings are always spoken while Voice is on.</Text>
         </Section>
 
-        <Section {...sectionProps('Phone position')}>
-          <Text style={styles.sectionHelp}>
-            Start looking along the rear camera with the phone upright. Measure camera and ear heights above level ground.
-            Measure how far the camera sits forward and right of the midpoint between your ears (negative right means left).
-            Keep this position steady. Without height calibration, distances are model estimates and sounds are camera-centered.
+        <Section {...sectionProps('Calibration')}>
+          <Text style={styles.help}>
+            Measure heights above level ground. Offsets are how far the camera sits forward and right of the
+            midpoint between your ears. Without these, distances are estimates.
           </Text>
           {(['cameraHeightMeters', 'earHeightMeters'] as const).map(key => (
             <AdjustableRow
               key={key}
               label={key === 'cameraHeightMeters' ? 'Camera height' : 'Ear height'}
-              valueLabel={preferences[key] >= 0.4 ? `${preferences[key].toFixed(1)} meters` : 'Not calibrated'}
+              valueLabel={preferences[key] >= 0.4 ? `${preferences[key].toFixed(1)} meters` : 'Not set'}
               onIncrement={() => onChange({ [key]: preferences[key] < 0.4 ? 0.4 : stepValue(preferences[key], 'increment', 0.1, 0, 2.5) })}
               onDecrement={() => onChange({ [key]: preferences[key] <= 0.4 ? 0 : stepValue(preferences[key], 'decrement', 0.1, 0, 2.5) })}
             />
@@ -363,92 +292,77 @@ export function SettingsScreen({
               onDecrement={() => onChange({ [key]: stepValue(preferences[key], 'decrement', 0.05, key === 'cameraRightOffsetMeters' ? -0.5 : 0, key === 'cameraRightOffsetMeters' ? 0.5 : 0.8) })}
             />
           ))}
-          <MountingChoice
-            mode="handheld"
-            current={preferences.mountingMode}
-            label="In my hand"
-            onPress={() => onChange({ mountingMode: 'handheld' })}
-          />
-          <MountingChoice
-            mode="chest"
-            current={preferences.mountingMode}
-            label="Chest mounted"
-            onPress={() => onChange({ mountingMode: 'chest' })}
-          />
-        </Section>
-
-        <Section {...sectionProps('Spoken events')}>
-          <Text style={styles.sectionHelp}>
-            Choose ordinary spoken labels. Urgent collision and camera warnings
-            still speak when Speech is on.
-          </Text>
-          {speechCategories.map(category => (
-            <ToggleRow
-              key={category.kind}
-              label={category.label}
-              description={`Speak when important ${category.label.toLowerCase()} are detected.`}
-              value={preferences.spokenCategories.includes(category.kind)}
-              onValueChange={value =>
-                toggleSpeechCategory(category.kind, value)
-              }
-            />
-          ))}
         </Section>
 
         <Section {...sectionProps('Advanced')}>
-          <Text style={styles.sectionHelp}>
-            Nano is bundled. Other models download from Ultralytics and stay on
-            this device. Cellular downloads require your approval.
-          </Text>
-          {(['n', 's', 'm', 'l', 'x'] as ModelVariant[]).map(variant => (
-            <ModelChoice
-              key={variant}
-              variant={variant}
-              current={preferences.modelVariant}
-              onPress={() => selectModel(variant)}
-            />
-          ))}
-          <Text accessibilityLiveRegion="polite" style={styles.modelStatus}>
-            {modelStatus}
-          </Text>
+          <SegmentedRow<ProcessingMode>
+            label="Processing"
+            options={[
+              { value: 'responsive', label: 'Faster' },
+              { value: 'detailed', label: 'More detail' },
+            ]}
+            value={preferences.processingMode}
+            onChange={processingMode => onChange({ processingMode })}
+          />
           <ToggleRow
-            label="LiDAR backup"
+            label="Outlines"
+            description="Outline hazards on the camera view."
+            value={preferences.showBoundingBoxes}
+            onValueChange={value => onChange({ showBoundingBoxes: value })}
+          />
+          {preferences.showBoundingBoxes ? (
+            <SegmentedRow
+              label="Outline"
+              options={[
+                { value: 'less', label: 'Stops only' },
+                { value: 'standard', label: 'Hazards' },
+                { value: 'verbose', label: 'Everything' },
+              ]}
+              value={preferences.boundingBoxVerbosity}
+              onChange={boundingBoxVerbosity => onChange({ boundingBoxVerbosity })}
+            />
+          ) : null}
+          <ToggleRow
+            label="LiDAR"
             description={supportsLidar
-              ? 'With the standard rear camera, measure close objects within 2 m and back up unavailable model depth. Choosing another lens uses model depth.'
-              : hasCameraPermission ? 'This phone does not expose a rear LiDAR camera. Model depth remains active.'
-              : 'Allow camera access to check whether rear LiDAR is available.'}
+              ? 'Measure close objects with the LiDAR sensor.'
+              : hasCameraPermission ? 'This phone has no rear LiDAR sensor.'
+              : 'Allow camera access to check for LiDAR.'}
             value={preferences.lidarEnabled && supportsLidar}
             disabled={!supportsLidar}
             onValueChange={value => onChange({ lidarEnabled: value })}
           />
           <ToggleRow
-            label="Depth map view"
-            description="Show estimated distances in meters, a fixed color scale, and calibration status. Set measured camera height to calibrate model depth; LiDAR supplies measured depth where available."
+            label="Depth map"
+            description="Show estimated distances as colors."
             value={preferences.depthMapEnabled}
             onValueChange={value => onChange({ depthMapEnabled: value })}
           />
-          <Text style={styles.advancedSubheading}>Bounding box verbosity</Text>
-          {([
-            ['verbose', 'Verbose', 'Every selected source, with distance and confidence.'],
-            ['standard', 'Standard', 'Only sources with a possible or likely collision.'],
-            ['less', 'Less', 'Only sources with a likely collision.'],
-          ] as const).map(([value, label, description]) => (
-            <CameraChoice
-              key={value}
-              label={label}
-              description={description}
-              selected={preferences.boundingBoxVerbosity === value}
-              onPress={() => onChange({ boundingBoxVerbosity: value })}
+          <ToggleRow
+            label="Diagnostics"
+            description="Show frame rates and audio status."
+            value={preferences.showFps}
+            onValueChange={value => onChange({ showFps: value })}
+          />
+          <Text style={styles.subheading}>Model</Text>
+          <Text style={styles.help}>
+            Nano is built in. Larger models download from Ultralytics and stay on this phone.
+          </Text>
+          {(['n', 's', 'm', 'l', 'x'] as ModelVariant[]).map(variant => (
+            <ChoiceRow
+              key={variant}
+              label={modelNames[variant]}
+              accessibilityLabel={`YOLO26 ${modelNames[variant]}`}
+              selected={preferences.modelVariant === variant}
+              onPress={() => selectModel(variant)}
             />
           ))}
-          <Text style={styles.advancedSubheading}>Camera field of view</Text>
-          <Text style={styles.cameraHelp}>
-            Available fields of view depend on this device. Automatic prefers
-            the standard wide rear camera. Other lenses need device calibration.
+          <Text accessibilityLiveRegion="polite" style={styles.help}>
+            {modelStatus}
           </Text>
-          <CameraChoice
-            label="Automatic · standard wide"
-            description="Uses the standard wide rear camera when available."
+          <Text style={styles.subheading}>Camera</Text>
+          <ChoiceRow
+            label="Automatic"
             selected={
               preferences.cameraDeviceId === 'standard' ||
               (preferences.cameraDeviceId !== 'widest' && !hasSelectedCamera)
@@ -456,14 +370,9 @@ export function SettingsScreen({
             onPress={() => onChange({ cameraDeviceId: 'standard' })}
           />
           {backCameras.map(device => (
-            <CameraChoice
+            <ChoiceRow
               key={device.id}
-              label={`${cameraMagnification(
-                device.type,
-                device.focalLength,
-                backCameras,
-              )} · ${device.name}`}
-              description="Use this camera whenever Assist Mode starts."
+              label={`${cameraMagnification(device.type, device.focalLength, backCameras)} · ${device.name}`}
               selected={preferences.cameraDeviceId === device.id}
               onPress={() => onChange({ cameraDeviceId: device.id })}
             />
@@ -471,7 +380,7 @@ export function SettingsScreen({
         </Section>
 
         <Section {...sectionProps('About')}>
-          <Text style={styles.sectionHelp}>
+          <Text style={styles.help}>
             Clear Ahead is free software under the GNU Affero General Public
             License version 3, provided without warranty. YOLO26 models are
             supplied under the same license.
@@ -480,11 +389,9 @@ export function SettingsScreen({
             accessibilityRole="link"
             accessibilityLabel="View Clear Ahead source code and license"
             onPress={() => Linking.openURL('https://github.com/jiayangc1/cac')}
-            style={styles.licenseLink}
+            style={styles.link}
           >
-            <Text style={styles.licenseLinkText}>
-              View source code and license
-            </Text>
+            <Text style={styles.linkText}>View source code and license</Text>
           </Pressable>
         </Section>
 
@@ -493,15 +400,6 @@ export function SettingsScreen({
           a cane, guide dog, or mobility training.
         </Text>
       </ScrollView>
-      <BottomNavigation
-        active="settings"
-        onHome={onHome}
-        onAssist={onAssist}
-        onSettings={onSettings}
-        assistDisabled={
-          !hasCameraPermission || !hasFeedbackChannel(preferences)
-        }
-      />
     </SafeAreaView>
   );
 }
@@ -537,7 +435,7 @@ function Section({
     <View style={styles.section}>
       <SpringPressable
         accessibilityRole="button"
-        accessibilityLabel={`${title} settings`}
+        accessibilityLabel={title}
         accessibilityState={{ expanded }}
         onPress={onToggle}
         pressedScale={0.98}
@@ -557,74 +455,13 @@ function Section({
             ],
           }}
         >
-          <ChevronDown color={colors.cyan} size={24} strokeWidth={2.5} />
+          <ChevronDown color={colors.muted} size={22} strokeWidth={2.2} />
         </Animated.View>
       </SpringPressable>
       {expanded ? (
-        <View style={styles.sectionBodySpacing}>
-          <View style={styles.sectionBody}>{children}</View>
-        </View>
+        <View style={styles.sectionBody}>{children}</View>
       ) : null}
     </View>
-  );
-}
-
-function ProcessingChoice({
-  mode,
-  current,
-  label,
-  description,
-  onPress,
-}: {
-  mode: ProcessingMode;
-  current: ProcessingMode;
-  label: string;
-  description: string;
-  onPress: () => void;
-}) {
-  return (
-    <SpringPressable
-      accessibilityRole="radio"
-      accessibilityLabel={`${label}. ${description}`}
-      accessibilityState={{ checked: mode === current }}
-      onPress={onPress}
-      pressedScale={0.975}
-      style={[
-        styles.processingChoice,
-        mode === current && styles.processingChoiceSelected,
-      ]}
-    >
-      {mode === current ? <View style={styles.selectedRailGlow} /> : null}
-      <Text style={styles.mountingLabel}>{label}</Text>
-      <Text style={styles.processingDescription}>{description}</Text>
-    </SpringPressable>
-  );
-}
-
-function MountingChoice({
-  mode,
-  current,
-  label,
-  onPress,
-}: {
-  mode: MountingMode;
-  current: MountingMode;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <SpringPressable
-      accessibilityRole="radio"
-      accessibilityState={{ checked: mode === current }}
-      onPress={onPress}
-      pressedScale={0.97}
-      style={styles.mountingChoice}
-    >
-      <Text style={styles.mountingLabel}>{label}</Text>
-      <Text style={styles.mountingValue}>
-        {mode === current ? 'Selected' : 'Select'}
-      </Text>
-    </SpringPressable>
   );
 }
 
@@ -636,62 +473,28 @@ const modelNames: Record<ModelVariant, string> = {
   x: 'Extra large',
 };
 
-function ModelChoice({
-  variant,
-  current,
-  onPress,
-}: {
-  variant: ModelVariant;
-  current: ModelVariant;
-  onPress: () => void;
-}) {
-  const selected = variant === current;
-  return (
-    <SpringPressable
-      accessibilityRole="radio"
-      accessibilityLabel={`YOLO26 ${modelNames[variant]}`}
-      accessibilityState={{ checked: selected }}
-      onPress={onPress}
-      pressedScale={0.975}
-      style={[styles.modelChoice, selected && styles.processingChoiceSelected]}
-    >
-      <Text style={styles.mountingLabel}>
-        YOLO26{variant} · {modelNames[variant]}
-      </Text>
-      <Text style={styles.mountingValue}>
-        {selected ? 'Selected' : 'Download'}
-      </Text>
-    </SpringPressable>
-  );
-}
-
-function CameraChoice({
+function ChoiceRow({
   label,
-  description,
+  accessibilityLabel,
   selected,
   onPress,
 }: {
   label: string;
-  description: string;
+  accessibilityLabel?: string;
   selected: boolean;
   onPress: () => void;
 }) {
   return (
     <SpringPressable
       accessibilityRole="radio"
-      accessibilityLabel={`${label}. ${description}`}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ checked: selected }}
       onPress={onPress}
       pressedScale={0.975}
-      style={[styles.cameraChoice, selected && styles.processingChoiceSelected]}
+      style={styles.choice}
     >
-      <View style={styles.readOnlyCopy}>
-        <Text style={styles.mountingLabel}>{label}</Text>
-        <Text style={styles.processingDescription}>{description}</Text>
-      </View>
-      <Text style={styles.mountingValue}>
-        {selected ? 'Selected' : 'Select'}
-      </Text>
+      <Text style={styles.choiceLabel}>{label}</Text>
+      <View style={[styles.radio, selected && styles.radioSelected]} />
     </SpringPressable>
   );
 }
@@ -718,120 +521,97 @@ function cameraMagnification(
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.night },
-  header: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12 },
-  title: {
-    color: colors.text,
-    fontSize: 28,
-    lineHeight: 32,
-    fontWeight: '800',
-    letterSpacing: -0.6,
-    marginTop: 4,
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
-  subtitle: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
-  content: { paddingHorizontal: 12, paddingBottom: 20, gap: 8 },
-  section: {},
-  sectionHeader: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+  backButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: colors.surfaceRaised,
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
   },
-  sectionTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
-  sectionBody: {
+  title: {
+    color: colors.ink,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '700',
+    letterSpacing: -0.6,
+  },
+  content: { paddingHorizontal: 20, paddingBottom: 32, gap: 14 },
+  card: {
     backgroundColor: colors.surface,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    overflow: 'hidden',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
   },
-  sectionBodySpacing: { paddingTop: 8 },
-  sectionHelp: {
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
-    paddingTop: 10,
-    paddingBottom: 8,
+  section: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    paddingHorizontal: 18,
   },
-  processingChoice: {
-    minHeight: 48,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-  },
-  processingChoiceSelected: {
-    borderLeftWidth: 4,
-    borderLeftColor: colors.cyan,
-    paddingLeft: 8,
-  },
-  selectedRailGlow: {
-    position: 'absolute',
-    left: -4,
-    top: 14,
-    bottom: 14,
-    width: 4,
-    borderRadius: 2,
-    backgroundColor: colors.cyan,
-    shadowColor: colors.cyan,
-    shadowOpacity: 0.9,
-    shadowRadius: 7,
-  },
-  processingDescription: {
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  mountingChoice: {
-    minHeight: 48,
+  sectionHeader: {
+    minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
   },
-  modelChoice: {
-    minHeight: 44,
+  sectionTitle: { color: colors.ink, fontSize: 17, fontWeight: '600' },
+  sectionBody: { paddingBottom: 12 },
+  subheading: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: '700',
+    paddingTop: 16,
+    paddingBottom: 2,
+  },
+  help: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    paddingVertical: 6,
+  },
+  choice: {
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
   },
-  modelStatus: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
+  choiceLabel: { color: colors.ink, fontSize: 16, fontWeight: '500', flex: 1 },
+  radio: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.line,
+  },
+  radioSelected: { borderWidth: 7, borderColor: colors.accentStrong },
+  link: { minHeight: 44, justifyContent: 'center' },
+  linkText: { color: colors.accentInk, fontSize: 15, fontWeight: '700' },
+  alert: {
+    color: colors.peachInk,
+    backgroundColor: colors.peach,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '600',
+    paddingHorizontal: 16,
     paddingVertical: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  readOnlyCopy: { flex: 1 },
-  advancedSubheading: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '800',
-    paddingTop: 12,
-  },
-  cameraHelp: {
+  safetyNote: {
     color: colors.muted,
     fontSize: 13,
-    lineHeight: 18,
-    paddingVertical: 8,
+    lineHeight: 19,
+    textAlign: 'center',
+    paddingHorizontal: 12,
   },
-  cameraChoice: {
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-  },
-  licenseLink: { minHeight: 44, justifyContent: 'center' },
-  licenseLinkText: { color: colors.cyan, fontSize: 14, fontWeight: '800' },
-  mountingLabel: { color: colors.text, fontSize: 15, fontWeight: '700' },
-  mountingValue: { color: colors.cyan, fontSize: 13, fontWeight: '700' },
-  safetyNote: { color: colors.muted, fontSize: 13, lineHeight: 22 },
 });

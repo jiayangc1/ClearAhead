@@ -9,12 +9,12 @@ import {
   AccessibilityInfo,
   AppState,
   Image,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Volume2, VolumeX } from 'lucide-react-native';
 import {
   Camera,
   CommonResolutions,
@@ -25,6 +25,7 @@ import {
 } from 'react-native-vision-camera';
 import { ClearAheadVision } from 'react-native-clear-ahead-vision';
 import { PrimaryButton } from '../components/Controls';
+import { SpringPressable } from '../components/Motion';
 import { SoundField } from '../components/SoundField';
 import { LoadingBar } from '../components/LoadingBar';
 import { colors, toFeedbackConfiguration } from '../config';
@@ -38,7 +39,7 @@ import type {
   SessionState,
   SpatialEvent,
 } from '../types';
-import { describeEvent, qualityMessage } from '../utils/eventLogic';
+import { describeEvent, qualityMessage, summarizeEvent } from '../utils/eventLogic';
 import { cameraStartedMessage } from '../utils/sessionStatus';
 import { chooseRearCamera } from '../utils/cameraSelection';
 import { AnnouncementGate } from '../utils/announcements';
@@ -52,10 +53,12 @@ const DEPTH_SPECTRUM = ['#FF0000', '#FF8000', '#FFFF00', '#00FF00', '#00FFFF', '
 
 export function AssistScreen({
   preferences,
+  onChange,
   onMetrics,
   onStop,
 }: {
   preferences: AppPreferences;
+  onChange: (update: Partial<AppPreferences>) => void;
   onMetrics: (metrics: PipelineMetrics) => void;
   onStop: () => void;
 }) {
@@ -81,6 +84,8 @@ export function AssistScreen({
   const latestStatus = useRef<
     import('../types').SessionStatusPayload | undefined
   >(undefined);
+  const configuration = useMemo(() => toFeedbackConfiguration(preferences), [preferences]);
+  const latestConfiguration = useRef(configuration);
   const cameraDevices = useCameraDevices();
   const cameraDevice = useMemo(() => {
     return chooseRearCamera(cameraDevices, preferences.cameraDeviceId, preferences.lidarEnabled && !lidarUnavailable);
@@ -142,6 +147,13 @@ export function AssistScreen({
   });
   const cameraOutputs = useMemo(() => usesLidar ? [frameOutput, depthOutput] : [frameOutput],
     [frameOutput, depthOutput, usesLidar]);
+
+  // Feedback changes made on this screen reach the running session directly;
+  // restarting it would drop every tracked hazard.
+  useEffect(() => {
+    latestConfiguration.current = configuration;
+    ClearAheadModule.updateConfiguration(configuration).catch(() => undefined);
+  }, [configuration]);
 
   useEffect(() => {
     let active = true;
@@ -206,10 +218,9 @@ export function AssistScreen({
       }),
     ];
 
-    const configuration = toFeedbackConfiguration(preferences);
     const controller = new SessionController(
-      () => ClearAheadModule.updateConfiguration(configuration),
-      () => ClearAheadModule.startSession(configuration),
+      () => ClearAheadModule.updateConfiguration(latestConfiguration.current),
+      () => ClearAheadModule.startSession(latestConfiguration.current),
       () => ClearAheadModule.stopSession(),
     );
     sessionController.current = controller;
@@ -275,20 +286,33 @@ export function AssistScreen({
         onMetrics(latestMetrics.current);
       }
     };
-  }, [cameraDevice, onMetrics, preferences]);
+  }, [cameraDevice, onMetrics, preferences.depthMapEnabled, preferences.modelVariant]);
 
-  const eventDescription = useMemo(
-    () => (event ? describeEvent(event) : scene?.state === 'clear' ? 'No nearby sources in the camera view' : 'Scene unavailable'),
-    [event, scene],
-  );
+  const risk = event?.collisionRisk ?? 'none';
+  const sceneClear = !event && scene?.state === 'clear';
+  const cardTitle =
+    risk === 'imminent' ? 'Stop'
+    : risk === 'caution' ? 'Careful'
+    : event ? summarizeEvent(event)
+    : sceneClear ? 'Path clear'
+    : sessionState === 'starting' ? 'Starting' : 'Looking';
+  const cardDetail = risk !== 'none' && event ? summarizeEvent(event) : undefined;
+  const cardLabel = event
+    ? describeEvent(event)
+    : sceneClear ? 'Path clear. Nothing nearby in the camera view.' : 'Scene unavailable';
+  // Voice can be silenced here only while another kind of feedback remains.
+  const canMuteVoice = preferences.audioEnabled || preferences.hapticsEnabled;
   const statusHasWarning =
     sessionState === 'error' ||
     latestStatus.current?.severity === 'warning' ||
     latestStatus.current?.severity === 'error';
-  const displayedStatus =
-    statusHasWarning || quality === 'good'
-      ? statusMessage
-      : qualityMessage(quality);
+  const displayedStatus = statusHasWarning
+    ? statusMessage
+    : quality !== 'good'
+    ? qualityMessage(quality)
+    : sessionState === 'running'
+    ? 'Watching the path'
+    : statusMessage;
 
   const stop = () => {
     (sessionController.current?.stop() ?? ClearAheadModule.stopSession())
@@ -389,7 +413,7 @@ export function AssistScreen({
         boundingBoxVerbosity={preferences.boundingBoxVerbosity}
       />
       <SafeAreaView pointerEvents="box-none" style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.assistContent}>
+        <View style={styles.topRow}>
           <View
             accessible
             accessibilityLabel={`${statusMessage}. ${qualityMessage(quality)}`}
@@ -398,113 +422,104 @@ export function AssistScreen({
             <View
               style={[
                 styles.statusDot,
-                quality !== 'good' && styles.statusDotWarning,
+                (quality !== 'good' || statusHasWarning) && styles.statusDotWarning,
               ]}
             />
-            <Text style={styles.statusText}>{displayedStatus}</Text>
-            {metrics ? (
-              <Text style={styles.latency}>
-                Processing {Math.round(metrics.processingLatencyMs)} ms
-              </Text>
-            ) : null}
+            <Text numberOfLines={2} style={styles.statusText}>{displayedStatus}</Text>
           </View>
+          {canMuteVoice || !preferences.speechEnabled ? (
+            <SpringPressable
+              accessibilityRole="switch"
+              accessibilityLabel="Voice"
+              accessibilityState={{ checked: preferences.speechEnabled }}
+              accessibilityHint="Turns spoken warnings on or off. Sounds and vibration continue."
+              hitSlop={6}
+              onPress={() => onChange({ speechEnabled: !preferences.speechEnabled })}
+              pressedScale={0.9}
+              style={[styles.voiceButton, !preferences.speechEnabled && styles.voiceButtonOff]}
+            >
+              {preferences.speechEnabled
+                ? <Volume2 color={colors.ink} size={24} strokeWidth={2} />
+                : <VolumeX color={colors.muted} size={24} strokeWidth={2} />}
+            </SpringPressable>
+          ) : null}
+        </View>
 
-          {sessionState === 'starting' ? <LoadingBar progress={loadProgress} message={statusMessage} /> : null}
-          <Text style={styles.fpsText}>
-            {scene?.spatialCapability ?? 'Spatial audio initializing'}
-            {' · '}{scene?.distanceStatus.replaceAll('-', ' ') ?? 'Distance unavailable'}
+        {sessionState === 'starting' ? (
+          <View style={styles.loading}><LoadingBar progress={loadProgress} message={statusMessage} /></View>
+        ) : null}
+
+        {preferences.showFps ? (
+          <View
+            accessible
+            accessibilityLabel={
+              metrics
+                ? `Processed ${metrics.cameraFps.toFixed(
+                    1,
+                  )} frames per second. Objects ${metrics.detectorFps.toFixed(
+                    1,
+                  )} per second. Depth ${metrics.depthFps.toFixed(
+                    1,
+                  )} per second. ${metrics.droppedFrames} dropped frames.`
+                : 'Waiting for frame rate measurements'
+            }
+            style={styles.diagnostics}
+          >
+            <Text style={styles.diagnosticsText}>
+              {metrics
+                ? `${metrics.cameraFps.toFixed(0)} fps · objects ${metrics.detectorFps.toFixed(
+                    0,
+                  )} · depth ${metrics.depthFps.toFixed(0)} · ${Math.round(metrics.processingLatencyMs)} ms`
+                : 'Measuring performance…'}
+            </Text>
+            <Text style={styles.diagnosticsText}>
+              {scene?.spatialCapability ?? 'Spatial audio initializing'}
+              {' · '}{scene?.distanceStatus.replaceAll('-', ' ') ?? 'Distance unavailable'}
+            </Text>
+          </View>
+        ) : null}
+
+        {preferences.depthMapEnabled ? (
+          <View
+            accessible
+            accessibilityLabel={depthMap?.dataUrl
+              ? `Estimated depth in meters. Red: ${depthMap.nearMeters} meters or closer. Blue: ${depthMap.farMeters} meters or farther. ${depthMap.distanceStatus?.replaceAll('-', ' ')}`
+              : 'Depth unavailable'}
+            style={styles.depthLegend}
+          >
+            <Text style={styles.diagnosticsText}>{depthMap?.dataUrl ? `≤${depthMap.nearMeters} m` : 'Depth unavailable'}</Text>
+            <View style={styles.depthLegendLine}>
+              {DEPTH_SPECTRUM.map(color => (
+                <View key={color} style={[styles.depthLegendStop, { backgroundColor: color }]} />
+              ))}
+            </View>
+            <Text style={styles.diagnosticsText}>{depthMap?.dataUrl ? `≥${depthMap.farMeters} m` : ''}</Text>
+          </View>
+        ) : null}
+
+        <View pointerEvents="none" style={styles.spacer} />
+
+        <View
+          accessible
+          accessibilityLabel={cardLabel}
+          style={[
+            styles.eventCard,
+            sceneClear && styles.eventCardClear,
+            risk === 'caution' && styles.eventCardCaution,
+            risk === 'imminent' && styles.eventCardCritical,
+          ]}
+        >
+          <Text
+            numberOfLines={2}
+            adjustsFontSizeToFit
+            style={[styles.eventTitle, risk !== 'none' && styles.eventTitleUrgent]}
+          >
+            {cardTitle}
           </Text>
-
-          {preferences.showFps ? (
-            <View
-              accessible
-              accessibilityLabel={
-                metrics
-                  ? `Processed ${metrics.cameraFps.toFixed(
-                      1,
-                    )} frames per second. Objects ${metrics.detectorFps.toFixed(
-                      1,
-                    )} per second. Depth ${metrics.depthFps.toFixed(
-                      1,
-                    )} per second. ${metrics.droppedFrames} dropped frames.`
-                  : 'Waiting for frame rate measurements'
-              }
-              style={styles.fpsLine}
-            >
-              <Text style={styles.fpsText}>
-                {metrics
-                  ? `${metrics.cameraFps.toFixed(
-                      0,
-                    )} fps  ·  objects ${metrics.detectorFps.toFixed(
-                      0,
-                    )}  ·  depth ${metrics.depthFps.toFixed(0)}`
-                  : 'Measuring performance…'}
-              </Text>
-            </View>
-          ) : null}
-
-          {preferences.depthMapEnabled ? (
-            <View
-              accessible
-              accessibilityLabel={depthMap?.dataUrl
-                ? `Estimated depth in meters. Red: ${depthMap.nearMeters} meters or closer. Blue: ${depthMap.farMeters} meters or farther. ${depthMap.distanceStatus?.replaceAll('-', ' ')}`
-                : 'Depth unavailable'}
-              style={styles.depthLegend}
-            >
-              <Text style={styles.depthNear}>{depthMap?.dataUrl ? `≤${depthMap.nearMeters} m` : 'DEPTH UNAVAILABLE'}</Text>
-              <View style={styles.depthLegendLine}>
-                {DEPTH_SPECTRUM.map(color => (
-                  <View key={color} style={[styles.depthLegendStop, { backgroundColor: color }]} />
-                ))}
-              </View>
-              <Text style={styles.depthFar}>{depthMap?.dataUrl ? `≥${depthMap.farMeters} m · estimated` : ''}</Text>
-            </View>
-          ) : null}
-
-          <View style={styles.spacer} />
-
-          <View style={styles.bottomGroup}>
-            <View
-              accessible
-              accessibilityLabel={eventDescription}
-              style={[
-                styles.eventCard,
-                event?.collisionRisk === 'caution' && styles.eventCardCaution,
-                event?.collisionRisk === 'imminent' && styles.eventCardCritical,
-              ]}
-            >
-              <View style={styles.eventHeader}>
-                <Text style={styles.eventEyebrow}>
-                  {event?.collisionRisk === 'imminent'
-                    ? 'COLLISION LIKELY'
-                    : event?.collisionRisk === 'caution'
-                    ? 'POSSIBLE COLLISION'
-                    : event
-                    ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
-                    : scene?.state === 'clear' ? 'SCENE CLEAR' : 'SCENE UNAVAILABLE'}
-                </Text>
-                {!event ? <View style={styles.clearMark} /> : null}
-              </View>
-              <Text style={styles.eventTitle}>
-                {event?.collisionRisk === 'imminent'
-                  ? 'Stop'
-                  : event?.collisionRisk === 'caution'
-                  ? 'Caution'
-                  : event
-                  ? event.label ?? event.kind.replace('-', ' ')
-                  : scene?.state === 'clear' ? 'Listening' : 'Waiting for scene'}
-              </Text>
-              {event ? (
-                <Text style={styles.eventDescription}>{eventDescription}</Text>
-              ) : null}
-              {scene?.state === 'available' ? (
-                <Text style={styles.eventDescription}>{scene.sources.length} visible sources · Camera view only</Text>
-              ) : null}
-            </View>
-          </View>
-        </ScrollView>
+          {cardDetail ? <Text style={styles.eventDetail}>{cardDetail}</Text> : null}
+        </View>
         <PrimaryButton
-          label={'Stop Assist Mode'}
+          label="Stop"
           hint="Stops the camera and all feedback immediately"
           destructive
           onPress={stop}
@@ -517,45 +532,55 @@ export function AssistScreen({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.black },
   depthLoading: { backgroundColor: colors.black },
-  safeArea: { flex: 1, paddingHorizontal: 14, paddingVertical: 10 },
-  assistContent: { flexGrow: 1, paddingBottom: 10 },
+  safeArea: { flex: 1, paddingHorizontal: 16, paddingVertical: 10 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   statusPill: {
-    minHeight: 44,
-    alignSelf: 'stretch',
-    borderRadius: 9,
-    backgroundColor: '#080808E8',
-    borderWidth: 1,
-    borderColor: '#FFFFFF24',
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 24,
+    backgroundColor: '#FAF7F2F2',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 10,
   },
   statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.cyan,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.mintInk,
   },
-  statusDotWarning: { backgroundColor: colors.amber },
-  statusText: { color: colors.text, fontSize: 14, fontWeight: '700', flex: 1 },
-  latency: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
+  statusDotWarning: { backgroundColor: colors.peachInk },
+  statusText: { color: colors.ink, fontSize: 15, lineHeight: 20, fontWeight: '600', flex: 1 },
+  voiceButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  fpsLine: {
+  voiceButtonOff: { backgroundColor: '#FAF7F2F2' },
+  loading: {
+    marginTop: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#FAF7F2F2',
+  },
+  diagnostics: {
     alignSelf: 'flex-start',
-    marginTop: 7,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: '#080808CC',
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#FAF7F2E6',
+    gap: 2,
   },
-  fpsText: {
-    color: '#D4D4D4',
-    fontSize: 10,
+  diagnosticsText: {
+    color: colors.ink,
+    fontSize: 11,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
@@ -563,60 +588,41 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    marginTop: 7,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: '#080808CC',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#FAF7F2E6',
   },
-  depthLegendLine: { width: 42, height: 3, flexDirection: 'row' },
+  depthLegendLine: { width: 48, height: 4, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' },
   depthLegendStop: { flex: 1 },
-  depthNear: { color: '#FF0000', fontSize: 10, fontWeight: '800' },
-  depthFar: { color: '#3291FF', fontSize: 10, fontWeight: '800' },
   spacer: { flex: 1 },
-  bottomGroup: { gap: 10 },
   eventCard: {
-    backgroundColor: '#080808E8',
-    borderWidth: 1,
-    borderColor: '#FFFFFF24',
-    borderLeftWidth: 3,
-    borderLeftColor: colors.cyan,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    minHeight: 112,
+    justifyContent: 'center',
+    backgroundColor: '#FAF7F2F2',
+    borderRadius: 28,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+    marginBottom: 12,
   },
-  eventCardCaution: { borderLeftColor: colors.amber },
-  eventCardCritical: { borderLeftColor: colors.critical },
-  eventHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  clearMark: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.cyan,
-  },
-  eventEyebrow: {
-    color: colors.cyan,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-  },
+  eventCardClear: { backgroundColor: colors.mint },
+  eventCardCaution: { backgroundColor: colors.peach },
+  eventCardCritical: { backgroundColor: colors.coral },
   eventTitle: {
-    color: colors.text,
-    fontSize: 24,
-    lineHeight: 29,
-    fontWeight: '800',
-    textTransform: 'capitalize',
-    marginTop: 2,
+    color: colors.ink,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '700',
+    letterSpacing: -0.4,
   },
-  eventDescription: {
-    color: '#D4D4D4',
-    fontSize: 14,
-    lineHeight: 19,
+  eventTitleUrgent: { fontSize: 44, lineHeight: 50, letterSpacing: -1 },
+  eventDetail: {
+    color: colors.ink,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '500',
     marginTop: 2,
   },
 });

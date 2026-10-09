@@ -6,18 +6,26 @@ import type {
   ModelVariant,
   MountingMode,
   ProcessingMode,
+  SpeechDetail,
 } from './types';
 
+// Soft fills carry state; the ink colors keep text at reading contrast on them.
 export const colors = {
-  night: '#000000',
-  surface: '#111111',
-  surfaceRaised: '#1C1C1C',
-  text: '#F2F2F2',
-  muted: '#A1A1A1',
-  cyan: '#3291FF',
-  amber: '#F5A623',
-  critical: '#FF4545',
-  line: '#2E2E2E',
+  background: '#FAF7F2',
+  surface: '#FFFFFF',
+  surfaceRaised: '#EFEDF9',
+  ink: '#2B2838',
+  muted: '#6B6779',
+  line: '#E7E2EC',
+  accent: '#BCC8F9',
+  accentStrong: '#8C9CEB',
+  accentInk: '#4A53A6',
+  mint: '#C5E9D7',
+  mintInk: '#2C6549',
+  peach: '#FBDDBB',
+  peachInk: '#8A5210',
+  coral: '#F8C1BC',
+  coralInk: '#9C2F2F',
   black: '#000000',
 } as const;
 
@@ -41,11 +49,12 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   modelVariant: 'n',
   depthMapEnabled: false,
   lidarEnabled: true,
-  showFps: true,
+  showFps: false,
   showBoundingBoxes: true,
   boundingBoxVerbosity: 'standard',
   cameraDeviceId: 'standard',
   spokenCategories: ['person', 'vehicle', 'obstacle', 'furniture'],
+  speechDetail: 'hazards',
 };
 
 export function hasFeedbackChannel(preferences: AppPreferences): boolean {
@@ -179,6 +188,9 @@ export function normalizePreferences(value: unknown): AppPreferences {
         ? stored.cameraDeviceId
         : DEFAULT_PREFERENCES.cameraDeviceId,
     spokenCategories,
+    speechDetail: (stored.speechDetail === 'everything'
+      ? 'everything'
+      : DEFAULT_PREFERENCES.speechDetail) satisfies SpeechDetail,
   };
 }
 
@@ -207,5 +219,6 @@ export function toFeedbackConfiguration(
     showBoundingBoxes: preferences.showBoundingBoxes,
     boundingBoxVerbosity: preferences.boundingBoxVerbosity,
     spokenCategories: preferences.spokenCategories,
+    speechDetail: preferences.speechDetail,
   };
 }

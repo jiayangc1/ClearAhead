@@ -1,6 +1,7 @@
 export type MountingMode = 'handheld' | 'chest';
 export type ProcessingMode = 'responsive' | 'detailed';
 export type BoundingBoxVerbosity = 'verbose' | 'standard' | 'less';
+export type SpeechDetail = 'hazards' | 'everything';
 export type ModelVariant = 'n' | 's' | 'm' | 'l' | 'x';
 export type Direction = 'left' | 'center' | 'right';
 export type Proximity = 'near' | 'medium' | 'far' | 'unknown';
@@ -50,6 +51,8 @@ export interface SpatialEvent {
   urgency: number;
   timestamp: number;
   box?: NormalizedBox;
+  /** Left the camera view while still ahead; carried forward from memory. */
+  outOfView?: boolean;
 }
 
 export interface SceneSource extends SpatialEvent {
@@ -102,6 +105,7 @@ export interface FeedbackConfiguration {
   showBoundingBoxes: boolean;
   boundingBoxVerbosity: BoundingBoxVerbosity;
   spokenCategories: EventKind[];
+  speechDetail: SpeechDetail;
 }
 
 export interface AppPreferences extends FeedbackConfiguration {

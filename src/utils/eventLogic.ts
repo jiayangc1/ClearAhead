@@ -51,6 +51,19 @@ export function describeEvent(event: SpatialEvent): string {
   }`;
 }
 
+/** One short line for the assist card: what it is, where, and how far. */
+export function summarizeEvent(event: SpatialEvent): string {
+  const label = event.label === 'surface' ? 'obstacle' : event.label ?? event.kind;
+  const name = label.charAt(0).toUpperCase() + label.slice(1);
+  const place = event.direction === 'center' ? 'ahead' : `on your ${event.direction}`;
+  if (event.outOfView) {
+    return `${name} ${place} · out of view`;
+  }
+  return event.approximateDistanceMeters != null
+    ? `${name} ${place} · ${event.approximateDistanceMeters.toFixed(1)} m`
+    : `${name} ${place}`;
+}
+
 export function qualityMessage(quality: SessionQuality): string {
   const messages: Record<SessionQuality, string> = {
     good: 'Camera view is clear',

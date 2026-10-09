@@ -16,8 +16,9 @@ export const SoundField = React.memo(function SoundFieldView({
   const imageAspect = scene?.imageAspectRatio ?? 9 / 16;
   const sources = showBoundingBoxes && scene?.state === 'available'
     // Nothing is drawn for ordinary scenery; only Verbose shows every source.
-    ? scene.sources.filter(source => boundingBoxVerbosity === 'verbose'
-      || (boundingBoxVerbosity === 'less' ? source.collisionRisk === 'imminent' : source.collisionRisk !== 'none')) : [];
+    // A hazard that has left the view has no outline; the card reports it.
+    ? scene.sources.filter(source => !source.outOfView && (boundingBoxVerbosity === 'verbose'
+      || (boundingBoxVerbosity === 'less' ? source.collisionRisk === 'imminent' : source.collisionRisk !== 'none'))) : [];
   return (
     <View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
       style={styles.field} onLayout={({ nativeEvent: { layout } }) => {
@@ -25,11 +26,11 @@ export const SoundField = React.memo(function SoundFieldView({
       }}>
       <Svg width="100%" height="100%" viewBox={`0 0 ${imageAspect} 1`} preserveAspectRatio="xMidYMid slice">
         {sources.map(source => {
-          const color = source.collisionRisk === 'imminent' ? colors.critical
-            : source.collisionRisk === 'caution' ? colors.amber : colors.cyan;
+          const color = source.collisionRisk === 'imminent' ? colors.coral
+            : source.collisionRisk === 'caution' ? colors.peach : colors.accent;
           const path = source.contours.map(contour => contour.map((point, index) =>
             `${index ? 'L' : 'M'}${point.x * imageAspect},${point.y}`).join(' ') + ' Z').join(' ');
-          return <Path key={source.id} d={path} fill={color} fillOpacity={0.08} fillRule="evenodd" stroke={color} strokeWidth={0.0025} />;
+          return <Path key={source.id} d={path} fill={color} fillOpacity={0.22} fillRule="evenodd" stroke={color} strokeWidth={0.004} />;
         })}
       </Svg>
       {sources.map(source => {
@@ -53,5 +54,8 @@ export const SoundField = React.memo(function SoundFieldView({
 const styles = StyleSheet.create({
   field: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, overflow: 'hidden' },
   labelPosition: { position: 'absolute' },
-  label: { color: colors.text, backgroundColor: '#000000B0', fontSize: 10, paddingHorizontal: 5, paddingVertical: 3 },
+  label: {
+    color: colors.ink, backgroundColor: '#FAF7F2E6', fontSize: 12, fontWeight: '600',
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, overflow: 'hidden',
+  },
 });

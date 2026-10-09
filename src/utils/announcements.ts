@@ -3,6 +3,10 @@ import type { SpatialEvent } from '../types';
 const proximityRank = { unknown: 0, far: 1, medium: 2, near: 3 };
 const riskRank = { none: 0, caution: 1, imminent: 2 };
 
+// Track ids change whenever tracking hiccups; what the listener hears does not.
+const heardAs = (event: SpatialEvent) =>
+  `${event.label ?? event.kind}|${event.direction}`;
+
 export class AnnouncementGate {
   private lastEvent?: SpatialEvent;
   private lastMessage = '';
@@ -17,7 +21,7 @@ export class AnnouncementGate {
     const escalated = !previous || riskRank[event.collisionRisk] > riskRank[previous.collisionRisk];
     const changed =
       !previous ||
-      event.id !== previous.id ||
+      heardAs(event) !== heardAs(previous) ||
       riskRank[event.collisionRisk] > riskRank[previous.collisionRisk] ||
       proximityRank[event.proximity] > proximityRank[previous.proximity] ||
       (event.motionState === 'approaching' &&
@@ -25,7 +29,7 @@ export class AnnouncementGate {
       event.urgency >= previous.urgency + 0.2;
     if (
       !changed ||
-      (!escalated && now - this.lastAnnouncementTime < 1.2)
+      (!escalated && now - this.lastAnnouncementTime < 4)
     ) {
       return false;
     }

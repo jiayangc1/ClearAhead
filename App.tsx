@@ -128,7 +128,7 @@ export default function App() {
   if (!preferences.onboardingComplete) {
     return (
       <SafeAreaProvider>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle="dark-content" />
         <OnboardingScreen
           mountingMode={preferences.mountingMode}
           hasCameraPermission={cameraPermission.hasPermission}
@@ -147,7 +147,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={route.name === 'assist' ? 'light-content' : 'dark-content'} />
       <Animated.View
         style={[
           styles.screen,
@@ -179,7 +179,6 @@ export default function App() {
               if (canStartAssist) navigate({ name: 'assist' });
             }}
             onSettings={() => navigate({ name: 'settings' })}
-            onHome={() => navigate({ name: 'home' })}
           />
         ) : null}
         {route.name === 'settings' ? (
@@ -188,16 +187,13 @@ export default function App() {
             storageError={storageError}
             onChange={setPreferences}
             hasCameraPermission={cameraPermission.hasPermission}
-            onHome={() => navigate({ name: 'home' })}
-            onAssist={() => {
-              if (canStartAssist) navigate({ name: 'assist' });
-            }}
-            onSettings={() => navigate({ name: 'settings' })}
+            onBack={() => navigate({ name: 'home' })}
           />
         ) : null}
         {route.name === 'assist' ? (
           <AssistScreen
             preferences={preferences}
+            onChange={setPreferences}
             onMetrics={setLastMetrics}
             onStop={() => navigate({ name: 'home' })}
           />
@@ -208,22 +204,22 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.night },
+  screen: { flex: 1, backgroundColor: colors.background },
   loading: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.night,
+    backgroundColor: colors.background,
     paddingHorizontal: 32,
     paddingVertical: 48,
     gap: 28,
   },
   loadingCopy: { alignItems: 'center', gap: 6 },
   loadingName: {
-    color: colors.text,
+    color: colors.ink,
     fontSize: 28,
     lineHeight: 32,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: -0.6,
     textAlign: 'center',
   },
@@ -234,7 +230,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   loadingError: {
-    color: colors.amber,
+    color: colors.peachInk,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '700',

@@ -117,7 +117,7 @@ export function OnboardingScreen({
               pressedScale={0.9}
               style={styles.topBarSlot}
             >
-              <ChevronLeft color={colors.text} size={26} strokeWidth={2.2} />
+              <ChevronLeft color={colors.ink} size={26} strokeWidth={2.2} />
             </SpringPressable>
           )}
           <View
@@ -285,7 +285,7 @@ function Choice({
       </View>
       <View style={[styles.radio, selected && styles.radioSelected]}>
         {selected ? (
-          <Check color={colors.night} size={15} strokeWidth={3.5} />
+          <Check color={colors.ink} size={15} strokeWidth={3.5} />
         ) : null}
       </View>
     </SpringPressable>
@@ -293,7 +293,7 @@ function Choice({
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.night },
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1 },
   topBar: {
     flexDirection: 'row',
@@ -317,7 +317,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: colors.line,
   },
-  progressSegmentActive: { backgroundColor: colors.cyan },
+  progressSegmentActive: { backgroundColor: colors.accentStrong },
   eyebrow: {
     color: colors.muted,
     fontSize: 11,
@@ -333,29 +333,29 @@ const styles = StyleSheet.create({
   },
   stepContent: { gap: 20 },
   title: {
-    color: colors.text,
-    fontSize: 36,
-    lineHeight: 41,
-    fontWeight: '800',
-    letterSpacing: -1.2,
+    color: colors.ink,
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '700',
+    letterSpacing: -0.8,
   },
   body: { color: colors.muted, fontSize: 18, lineHeight: 27 },
   panel: {
     backgroundColor: colors.surface,
     borderColor: colors.line,
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 20,
+    padding: 18,
     gap: 8,
   },
   warningLabel: {
-    color: colors.amber,
+    color: colors.peachInk,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.5,
   },
   warningText: {
-    color: colors.text,
+    color: colors.ink,
     fontSize: 18,
     lineHeight: 26,
     fontWeight: '600',
@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
   choices: { gap: 12 },
   choice: {
     minHeight: 88,
-    borderRadius: 12,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.surface,
@@ -373,12 +373,12 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   choiceSelected: {
-    borderColor: colors.cyan,
+    borderColor: colors.accentStrong,
     backgroundColor: colors.surfaceRaised,
   },
   choiceCopy: { flex: 1 },
   choiceLabel: {
-    color: colors.text,
+    color: colors.ink,
     fontSize: 18,
     lineHeight: 23,
     fontWeight: '700',
@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radioSelected: { borderColor: colors.cyan, backgroundColor: colors.cyan },
+  radioSelected: { borderColor: colors.accent, backgroundColor: colors.accent },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -411,18 +411,16 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.cyan,
+    backgroundColor: colors.mintInk,
   },
-  statusMarkPending: { backgroundColor: colors.amber },
-  statusValue: { color: colors.text, fontSize: 15, fontWeight: '700' },
-  help: { color: colors.amber, fontSize: 16, lineHeight: 23 },
+  statusMarkPending: { backgroundColor: colors.peachInk },
+  statusValue: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+  help: { color: colors.peachInk, fontSize: 16, lineHeight: 23 },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 12,
     gap: 4,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
   },
   quietButton: {
     minHeight: 50,
