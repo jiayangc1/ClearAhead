@@ -297,27 +297,46 @@ final class SceneSelector {
 
     func select(_ candidates: [SceneSource], now: TimeInterval, range: Double) -> [SceneSource] {
         var used = Set<String>()
-        let ranked = candidates.map { source -> (SceneSource, Double) in
-            var source = source
-            if let previous = selected.filter({ !used.contains($0.event.id) && $0.isSurface == source.isSurface
-                && $0.event.kind == source.event.kind }).max(by: {
-                SceneBuilder.overlap($0.event.box!, source.event.box!) < SceneBuilder.overlap($1.event.box!, source.event.box!)
-            }), SceneBuilder.overlap(previous.event.box!, source.event.box!) > 0.35,
-               abs((previous.event.approximateDistanceMeters ?? 100) - (source.event.approximateDistanceMeters ?? 0)) < 1 {
+        var ranked: [(source: SceneSource, score: Double)] = []
+        for candidate in candidates {
+            var source = candidate
+            if let previous = previousMatch(for: source, excluding: used) {
                 source.event = copy(source.event, id: previous.event.id)
                 used.insert(previous.event.id)
             } else {
                 source.event = copy(source.event, id: "scene-\(nextID)")
                 nextID += 1
             }
-            let risk = source.event.collisionRisk == .imminent ? 3.0 : source.event.collisionRisk == .caution ? 1.5 : 0
-            let score = risk + 1 - min((source.event.approximateDistanceMeters ?? range) / range, 1)
-                + source.visibility * 0.25 + source.event.confidence * 0.1 + (used.contains(source.event.id) ? 0.18 : 0)
-            return (source, score)
-        }.sorted { $0.1 == $1.1 ? $0.0.event.id < $1.0.event.id : $0.1 > $1.1 }
+            let risk: Double = source.event.collisionRisk == .imminent ? 3.0 : source.event.collisionRisk == .caution ? 1.5 : 0
+            let distance: Double = source.event.approximateDistanceMeters ?? range
+            let nearness: Double = 1 - min(distance / range, 1)
+            let visibility: Double = source.visibility * 0.25
+            let confidence: Double = source.event.confidence * 0.1
+            let continuity: Double = used.contains(source.event.id) ? 0.18 : 0
+            ranked.append((source, risk + nearness + visibility + confidence + continuity))
+        }
+        ranked.sort { lhs, rhs in
+            lhs.score == rhs.score ? lhs.source.event.id < rhs.source.event.id : lhs.score > rhs.score
+        }
         // Retain identity only while currently visible. Audio handles fade-out; no stale objects survive occlusion.
-        selected = Array(ranked.prefix(Self.maximumSources).map(\.0))
+        selected = ranked.prefix(Self.maximumSources).map { $0.source }
         return selected
+    }
+
+    private func previousMatch(for source: SceneSource, excluding used: Set<String>) -> SceneSource? {
+        guard let box = source.event.box else { return nil }
+        var best: SceneSource?
+        var bestOverlap = 0.35
+        for previous in selected {
+            guard !used.contains(previous.event.id), previous.isSurface == source.isSurface,
+                  previous.event.kind == source.event.kind, let previousBox = previous.event.box else { continue }
+            let overlap = Double(SceneBuilder.overlap(previousBox, box))
+            if overlap > bestOverlap { best = previous; bestOverlap = overlap }
+        }
+        guard let best else { return nil }
+        let previousDistance: Double = best.event.approximateDistanceMeters ?? 100
+        let distance: Double = source.event.approximateDistanceMeters ?? 0
+        return abs(previousDistance - distance) < 1 ? best : nil
     }
 
     private func copy(_ event: SpatialEvent, id: String) -> SpatialEvent {
