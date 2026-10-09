@@ -14,7 +14,7 @@ left" or "Path curves right" before a bend. It stays silent mid-block.
 
 | Situation | Speech |
 |---|---|
-| Walking surface stops within about 2.5 m | "Path ends ahead" |
+| Walking surface stops within about 4 m | "Path ends ahead" |
 | Path centre bends left | "Path curves left" |
 | Path centre bends right | "Path curves right" |
 
@@ -72,20 +72,26 @@ The sidewalk is ending when all of these hold:
 - The depth map at the stop reads as ground that keeps receding, not a
   surface at one depth going up the image. A wall or parked car is the
   obstacle code's job.
-- The depth at the stop row is between 0.8 m and 2.5 m, capped by the
-  walker's warning distance.
+- The depth at the stop row is between 0.8 m and 4 m, capped by the
+  walker's warning distance. A phone held upright cannot see ground nearer
+  than about 2.5 m, and the patch at the feet must still be on the path, so
+  a shorter range would never fire for an upright phone.
+- The path has not tapered away: its last row is at least half as wide as
+  the row four rows nearer.
 
 ### 6. Curving
 
 The sidewalk is curving when all of these hold:
 
-- The path has at least 14 rows and reaches at least 2 m by the depth map.
-- A straight line fitted to the centre of the nearest third of the rows,
+- Only rows where both edges of the path are inside the image are used; a
+  row cut off by the side of the image has no true centre.
+- There are at least 14 such rows and they reach at least 2 m by the depth
+  map.
+- A straight line fitted to the centre of the nearest third of those rows,
   extended to the farthest row, misses the measured centre there by more than
-  half the near path width.
-- The drift is in one direction: centres move the same way through the far
-  half of the rows.
-- The farthest rows are not simply clipped by the image edge on both sides.
+  three quarters of the path's width at that row (and at least three cells).
+- The drift is in one direction: at least 80% of the far half of the rows
+  sit on the same side of the line.
 
 Direction is the side the far centre lies on relative to the extended line.
 
@@ -97,8 +103,6 @@ No reading is produced when:
 - the camera is rotating faster than 0.9 rad/s (the same limit the ground
   hazard check uses),
 - the seed is mixed,
-- the path touches both the left and right image edges through its near half,
-  which means an open area with no edge to follow,
 - there is no depth map this frame.
 
 ### 8. Confirmation
@@ -115,18 +119,30 @@ measured distance must not jump by more than 0.8 m between frames.
 - `enum WalkablePath` with
   `static func shape(pixelBuffer: CVPixelBuffer, depthMap: DepthMap, maximumDistance: Double) -> PathShape?`.
   Pure: same inputs, same answer. Returns nil when it must stay silent.
+- `enum PathCue` (`ends`, `curvesLeft`, `curvesRight`) with a `text`.
 - `struct PathCueTracker` with
-  `mutating func update(_ shape: PathShape?, now: TimeInterval) -> String?`
-  and `mutating func reset()`. Owns confirmation, the 8-second repeat limit,
-  and the 1.5-second clear. Returns the sentence to speak, or nil.
+  `mutating func update(_ shape: PathShape?, now: TimeInterval) -> PathCue?`,
+  `mutating func spoke(_ cue: PathCue, now: TimeInterval)` and
+  `mutating func reset()`. Owns confirmation, the 8-second repeat limit, and
+  the 1.5-second clear. `update` keeps returning a confirmed cue until
+  `spoke` is called, so a cue held back by hazard speech is not lost.
 
 ### Changed: `ClearAheadEngine.swift`
 
 - Hold a `PathCueTracker`; reset it with the rest of the session state.
-- In `estimateDepthEvents`, after the ground hazard check, compute the shape
-  when the camera is stable and image quality is good, and feed the tracker.
-- When the tracker returns a sentence and no hazard is being announced this
-  frame, speak it through `feedback.speakWarning`.
+- In `process`, after hazard speech is chosen, compute the shape on frames
+  that produced a depth map, when the camera is stable and image quality is
+  good, and feed the tracker.
+- When the tracker returns a cue and no hazard has been spoken in the last
+  2.5 seconds, speak it and tell the tracker it was spoken.
+
+### Changed: `Feedback/Feedback.swift`
+
+- Add `speakPathCue`, like `speakWarning` but with an 8-second cooldown.
+
+### Changed: `ClearAheadVision.podspec`
+
+- List the new source file; the podspec names its sources one by one.
 
 ### Unchanged
 
