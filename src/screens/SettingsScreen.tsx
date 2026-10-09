@@ -59,6 +59,8 @@ export function SettingsScreen({
   const modelRequest = useRef(0);
   const pendingModelVariant = useRef<ModelVariant | undefined>(undefined);
   const cameraDevices = useCameraDevices();
+  const supportsLidar = cameraDevices.some(device => device.position === 'back'
+    && device.type === 'lidar-depth' && device.mediaTypes.includes('depth'));
   const backCameras = useMemo(
     () =>
       cameraDevices
@@ -196,7 +198,7 @@ export function SettingsScreen({
           <ToggleRow
             label="Directional audio"
             description={
-              'Up to six visible sources sound together. Nearer sources are louder. Surfaces share a soft tone; people and vehicles have distinct registers. Stereo headphones support binaural direction and height. Compatible AirPods track head turns after you start looking along the camera. Speakers cannot reliably convey height or front/back.'
+              'Up to six visible sources sound together. Nearer sources are louder and brighter. Pitch follows height and proximity; approaching or collision hazards pulse faster with a brighter timbre. People and vehicles have distinct registers. Stereo headphones add 3D position. Compatible AirPods track head turns after you start looking along the camera. Speakers cannot reliably convey height or front/back.'
             }
             value={preferences.audioEnabled}
             onValueChange={value => onChange({ audioEnabled: value })}
@@ -410,8 +412,18 @@ export function SettingsScreen({
             {modelStatus}
           </Text>
           <ToggleRow
+            label="LiDAR backup"
+            description={supportsLidar
+              ? 'With the standard rear camera, measure close objects within 2 m and back up unavailable model depth. Choosing another lens uses model depth.'
+              : hasCameraPermission ? 'This phone does not expose a rear LiDAR camera. Model depth remains active.'
+              : 'Allow camera access to check whether rear LiDAR is available.'}
+            value={preferences.lidarEnabled && supportsLidar}
+            disabled={!supportsLidar}
+            onValueChange={value => onChange({ lidarEnabled: value })}
+          />
+          <ToggleRow
             label="Depth map view"
-            description="Replace the camera image with a red-near to blue-far view while keeping visible surface contours."
+            description="Show estimated distances in meters, a fixed color scale, and calibration status. Set measured camera height to calibrate model depth; LiDAR supplies measured depth where available."
             value={preferences.depthMapEnabled}
             onValueChange={value => onChange({ depthMapEnabled: value })}
           />

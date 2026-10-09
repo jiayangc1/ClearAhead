@@ -173,6 +173,7 @@ struct FeedbackConfiguration {
     var processingMode = "responsive"
     var modelVariant = "n"
     var depthMapEnabled = false
+    var lidarEnabled = true
     var showBoundingBoxes = true
     var boundingBoxVerbosity = "standard"
     var spokenCategories: Set<String> = ["person", "vehicle", "obstacle", "furniture"]
@@ -205,6 +206,7 @@ struct FeedbackConfiguration {
         let requestedVariant = dictionary["modelVariant"] as? String ?? "n"
         modelVariant = ["n", "s", "m", "l", "x"].contains(requestedVariant) ? requestedVariant : "n"
         depthMapEnabled = dictionary["depthMapEnabled"] as? Bool ?? false
+        lidarEnabled = dictionary["lidarEnabled"] as? Bool ?? true
         showBoundingBoxes = dictionary["showBoundingBoxes"] as? Bool ?? true
         let requestedVerbosity = dictionary["boundingBoxVerbosity"] as? String ?? "standard"
         boundingBoxVerbosity = ["verbose", "standard", "less"].contains(requestedVerbosity)

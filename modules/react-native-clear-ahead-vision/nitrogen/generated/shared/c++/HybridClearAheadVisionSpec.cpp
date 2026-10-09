@@ -15,6 +15,7 @@ namespace margelo::nitro::clearaheadvision {
     // load custom methods/properties
     registerHybrids(this, [](Prototype& prototype) {
       prototype.registerHybridMethod("processFrame", &HybridClearAheadVisionSpec::processFrame);
+      prototype.registerHybridMethod("connectDepthOutputs", &HybridClearAheadVisionSpec::connectDepthOutputs);
       prototype.registerHybridMethod("reportDroppedFrame", &HybridClearAheadVisionSpec::reportDroppedFrame);
     });
   }

@@ -25,6 +25,36 @@ namespace margelo::nitro::clearaheadvision::bridge::swift {
     return margelo::nitro::camera::bridge::swift::get_std__shared_ptr_HybridFrameSpec_(cppType);
   }
   
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec>
+  std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec> create_std__shared_ptr_margelo__nitro__camera__HybridCameraOutputSpec_(void* NON_NULL swiftUnsafePointer) noexcept {
+    // Implemented in VisionCamera
+    return margelo::nitro::camera::bridge::swift::create_std__shared_ptr_HybridCameraOutputSpec_(swiftUnsafePointer);
+  }
+  void* NON_NULL get_std__shared_ptr_margelo__nitro__camera__HybridCameraOutputSpec_(std__shared_ptr_margelo__nitro__camera__HybridCameraOutputSpec_ cppType) {
+    // Implemented in VisionCamera
+    return margelo::nitro::camera::bridge::swift::get_std__shared_ptr_HybridCameraOutputSpec_(cppType);
+  }
+  
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>
+  std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec> create_std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_(void* NON_NULL swiftUnsafePointer) noexcept {
+    // Implemented in VisionCamera
+    return margelo::nitro::camera::bridge::swift::create_std__shared_ptr_HybridCameraFrameOutputSpec_(swiftUnsafePointer);
+  }
+  void* NON_NULL get_std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_(std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_ cppType) {
+    // Implemented in VisionCamera
+    return margelo::nitro::camera::bridge::swift::get_std__shared_ptr_HybridCameraFrameOutputSpec_(cppType);
+  }
+  
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>
+  std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec> create_std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_(void* NON_NULL swiftUnsafePointer) noexcept {
+    // Implemented in VisionCamera
+    return margelo::nitro::camera::bridge::swift::create_std__shared_ptr_HybridCameraDepthFrameOutputSpec_(swiftUnsafePointer);
+  }
+  void* NON_NULL get_std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_(std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_ cppType) {
+    // Implemented in VisionCamera
+    return margelo::nitro::camera::bridge::swift::get_std__shared_ptr_HybridCameraDepthFrameOutputSpec_(cppType);
+  }
+  
   // pragma MARK: std::shared_ptr<HybridClearAheadVisionSpec>
   std::shared_ptr<HybridClearAheadVisionSpec> create_std__shared_ptr_HybridClearAheadVisionSpec_(void* NON_NULL swiftUnsafePointer) noexcept {
     ClearAheadVision::HybridClearAheadVisionSpec_cxx swiftPart = ClearAheadVision::HybridClearAheadVisionSpec_cxx::fromUnsafe(swiftUnsafePointer);

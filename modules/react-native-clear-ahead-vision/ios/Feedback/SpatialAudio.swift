@@ -8,6 +8,9 @@ import UIKit
 final class SpatialAudio {
     private final class Voice {
         let player = AVAudioPlayerNode()
+        let pitch = AVAudioUnitTimePitch()
+        let color = AVAudioUnitEQ(numberOfBands: 1)
+        let spatial = AVAudioMixerNode()
         var id: String?
         var kind: EventKind = .obstacle
         var gain: Float = 0
@@ -15,6 +18,10 @@ final class SpatialAudio {
         var position = SIMD3<Double>(0, 0, -1)
         var targetPosition = SIMD3<Double>(0, 0, -1)
         var buffer: AVAudioPCMBuffer?
+        var cue = SceneTone.Cue(pitchCents: 0, brightness: 0, pulseRate: 0.8, pulseDepth: 0.15)
+        var pulsePhase = 0.0
+        var pulseRate = 0.8
+        var pulseDepth = 0.15
     }
 
     private let engine: AVAudioEngine
@@ -35,6 +42,7 @@ final class SpatialAudio {
     private var stereo = false
     private var geometryAvailable = false
     private var earCalibrated = false
+    private var lastTick: TimeInterval = 0
 
     init(engine: AVAudioEngine) {
         self.engine = engine
@@ -46,15 +54,22 @@ final class SpatialAudio {
         engine.connect(environment, to: engine.mainMixerNode, format: nil)
         for voice in voices {
             engine.attach(voice.player)
-            voice.player.renderingAlgorithm = .auto
-            voice.player.volume = 0
-            engine.connect(voice.player, to: environment, format: format)
+            engine.attach(voice.pitch)
+            engine.attach(voice.color)
+            engine.attach(voice.spatial)
+            voice.color.bands[0].filterType = .highShelf
+            voice.color.bands[0].frequency = 500
+            voice.color.bands[0].bypass = false
+            voice.spatial.renderingAlgorithm = .auto
+            voice.spatial.outputVolume = 0
+            connect(voice)
         }
         engine.mainMixerNode.outputVolume = 0.8
     }
 
     func start(queue: DispatchQueue) {
         alignment = nil
+        lastTick = ProcessInfo.processInfo.systemUptime
         headphones.stopDeviceMotionUpdates()
         motionLock.lock()
         motionGeneration += 1
@@ -94,7 +109,7 @@ final class SpatialAudio {
             voice.id = nil
             voice.gain = 0
             voice.targetGain = 0
-            voice.player.volume = 0
+            voice.spatial.outputVolume = 0
         }
     }
 
@@ -115,7 +130,8 @@ final class SpatialAudio {
         for source in sources {
             let existing = voices.first { $0.id == source.event.id }
             guard let voice = existing ?? voices.first(where: { $0.id == nil }) else { continue }
-            if voice.id == nil {
+            if voice.id == nil || voice.kind != source.event.kind {
+                voice.player.stop()
                 voice.id = source.event.id
                 if voice.kind != source.event.kind { voice.buffer = nil }
                 voice.kind = source.event.kind
@@ -127,7 +143,15 @@ final class SpatialAudio {
                 }
             }
             voice.targetPosition = source.position ?? SIMD3(Double(source.event.pan), 0, -1)
-            if existing == nil { voice.position = voice.targetPosition }
+            voice.cue = SceneTone.cue(event: source.event, position: source.position, range: configuration.warningDistanceMeters)
+            if existing == nil {
+                voice.position = voice.targetPosition
+                voice.pitch.pitch = voice.cue.pitchCents
+                voice.color.bands[0].gain = voice.cue.brightness
+                voice.pulseRate = voice.cue.pulseRate
+                voice.pulseDepth = voice.cue.pulseDepth
+                voice.pulsePhase = 0
+            }
             // Legacy repeat-off preference now means scene tones off; speech/haptics stay available.
             voice.targetGain = configuration.audioEnabled && configuration.continuousAudio
                 ? SceneAudioMath.gain(distance: source.event.approximateDistanceMeters ?? configuration.warningDistanceMeters,
@@ -147,6 +171,8 @@ final class SpatialAudio {
 
     private func tick() {
         let now = ProcessInfo.processInfo.systemUptime
+        let elapsed = min(max(now - lastTick, 0), 0.1)
+        lastTick = now
         motionLock.lock()
         let currentHead = now - headTime < 0.5 ? head : nil
         motionLock.unlock()
@@ -160,8 +186,13 @@ final class SpatialAudio {
             if stereo, geometryAvailable, let currentHead, let alignment {
                 point = SceneAudioMath.listenerPoint(voice.position, camera: camera, head: currentHead, alignment: alignment)
             } else { point = voice.position }
-            voice.player.position = AVAudio3DPoint(x: Float(point.x), y: Float(point.y), z: Float(point.z))
-            voice.player.volume = voice.gain
+            voice.pitch.pitch += (voice.cue.pitchCents - voice.pitch.pitch) * 0.12
+            voice.color.bands[0].gain += (voice.cue.brightness - voice.color.bands[0].gain) * 0.12
+            voice.pulseRate += (voice.cue.pulseRate - voice.pulseRate) * 0.12
+            voice.pulseDepth += (voice.cue.pulseDepth - voice.pulseDepth) * 0.12
+            voice.pulsePhase = (voice.pulsePhase + elapsed * 2 * .pi * voice.pulseRate).truncatingRemainder(dividingBy: 2 * .pi)
+            voice.spatial.position = AVAudio3DPoint(x: Float(point.x), y: Float(point.y), z: Float(point.z))
+            voice.spatial.outputVolume = voice.gain * SceneTone.pulse(phase: voice.pulsePhase, depth: voice.pulseDepth)
             if target == 0, voice.gain < 0.0001 {
                 voice.player.stop()
                 voice.id = nil
@@ -176,13 +207,23 @@ final class SpatialAudio {
         for (slot, voice) in voices.enumerated() {
             voice.player.stop()
             engine.disconnectNodeOutput(voice.player)
-            engine.connect(voice.player, to: environment, format: format)
+            engine.disconnectNodeOutput(voice.pitch)
+            engine.disconnectNodeOutput(voice.color)
+            engine.disconnectNodeOutput(voice.spatial)
+            connect(voice)
             voice.buffer = voice.buffer ?? buffer(kind: voice.kind, slot: slot)
             if voice.id != nil, let buffer = voice.buffer {
                 voice.player.scheduleBuffer(buffer, at: nil, options: .loops)
                 voice.player.play()
             }
         }
+    }
+
+    private func connect(_ voice: Voice) {
+        engine.connect(voice.player, to: voice.pitch, format: format)
+        engine.connect(voice.pitch, to: voice.color, format: format)
+        engine.connect(voice.color, to: voice.spatial, format: format)
+        engine.connect(voice.spatial, to: environment, format: format)
     }
 
     private func buffer(kind: EventKind, slot: Int) -> AVAudioPCMBuffer? {

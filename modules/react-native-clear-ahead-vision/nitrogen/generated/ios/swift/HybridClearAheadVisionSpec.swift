@@ -15,6 +15,7 @@ public protocol HybridClearAheadVisionSpec_protocol: HybridObject {
 
   // Methods
   func processFrame(frame: (any HybridFrameSpec)) throws -> Void
+  func connectDepthOutputs(frameOutput: (any HybridCameraFrameOutputSpec), depthOutput: (any HybridCameraDepthFrameOutputSpec)) throws -> Void
   func reportDroppedFrame(reason: String) throws -> Void
 }
 

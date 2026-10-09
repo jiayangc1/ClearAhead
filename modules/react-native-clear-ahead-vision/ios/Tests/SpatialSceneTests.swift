@@ -139,6 +139,21 @@ final class SpatialSceneTests: XCTestCase {
         XCTAssertEqual(ground.scale, scale)
     }
 
+    func testMeasuredLidarNeverInheritsOrAppliesModelScale() {
+        var ground = GroundNormalizer()
+        let map = floor(height: 1.2)
+        for _ in 0..<12 { ground.update(map: map, geometry: geometry, gravity: gravity, cameraHeight: 1.44, stable: true) }
+        XCTAssertGreaterThan(ground.scale, 1)
+        for _ in 0..<12 {
+            ground.update(map: map, geometry: geometry, gravity: gravity, cameraHeight: 1.44, stable: true, metric: true)
+            XCTAssertEqual(ground.scale, 1)
+        }
+        XCTAssertNotNil(ground.plane)
+        ground.update(map: map, geometry: geometry, gravity: gravity, cameraHeight: 1.44, stable: true)
+        XCTAssertEqual(ground.scale, 1)
+        XCTAssertNil(ground.plane)
+    }
+
     private func floor(height: Double, slope: Double = 0, stairs: Bool = false) -> DepthMap {
         let radians = slope * .pi / 180
         let values = (0..<(32 * 48)).map { index -> Double in
