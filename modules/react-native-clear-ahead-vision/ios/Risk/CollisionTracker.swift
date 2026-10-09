@@ -151,6 +151,11 @@ final class CollisionTracker {
         track.lastSeen = now
     }
 
+    /// "Stop" means the next step or two would hit, "Careful" about three
+    /// steps at a walk. Spoken any earlier, the way ahead still feels open.
+    static let imminentSeconds = 1.0
+    static let cautionSeconds = 2.0
+
     private func event(
         for track: Track,
         now: TimeInterval,
@@ -203,11 +208,11 @@ final class CollisionTracker {
            track.observations >= 3,
            trajectoryConfidence >= minimumConfidence,
            distance != nil {
-            if let timeToCollision, timeToCollision <= 1.5, corridorOverlap >= 0.25 {
+            if let timeToCollision, timeToCollision <= Self.imminentSeconds, corridorOverlap >= 0.25 {
                 detectedRisk = .imminent
-            } else if let timeToCollision, timeToCollision <= 3, corridorOverlap >= 0.25 {
+            } else if let timeToCollision, timeToCollision <= Self.cautionSeconds, corridorOverlap >= 0.25 {
                 detectedRisk = .caution
-            } else if crossesSoon, let distance, distance <= min(configuration.warningDistanceMeters, 3),
+            } else if crossesSoon, let distance, distance <= min(configuration.warningDistanceMeters, GroundHazardTracker.warningRangeMeters),
                       abs(track.signedClosingSpeed) <= 0.15 {
                 // Angular corridor entry supports caution, not a physical TTC.
                 detectedRisk = .caution
@@ -336,8 +341,8 @@ final class CollisionTracker {
 struct GroundHazardTracker {
     /// Found and tracked from here, so a hazard is already confirmed when it
     /// comes within warning range a second or two later.
-    static let detectionRangeMeters = 4.0
-    static let warningRangeMeters = 3.0
+    static let detectionRangeMeters = 3.0
+    static let warningRangeMeters = 2.0
     static let label = "low obstacle"
 
     private var previous: PathObstacleObservation?

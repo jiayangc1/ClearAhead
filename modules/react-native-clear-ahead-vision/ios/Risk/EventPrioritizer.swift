@@ -212,7 +212,7 @@ final class SpeechGate {
             // sides is left to the tones.
             if configuration.speechDetail != "everything" {
                 guard event.direction == .center,
-                      distance <= min(configuration.warningDistanceMeters, 3) else { return false }
+                      distance <= min(configuration.warningDistanceMeters, GroundHazardTracker.warningRangeMeters) else { return false }
             }
             guard let previous else { return true }
             if since >= 30 { return true }
