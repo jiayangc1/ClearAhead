@@ -20,7 +20,6 @@ export function HomeScreen({
   onStart: () => void;
   onSettings: () => void;
 }) {
-  const enabledModes = [preferences.speechEnabled && 'Voice', preferences.audioEnabled && 'Sounds', preferences.hapticsEnabled && 'Vibration'].filter(Boolean);
   const feedbackReady = hasFeedbackChannel(preferences);
   const assistReady = hasCameraPermission && feedbackReady;
   const setupMessage = !hasCameraPermission
@@ -49,7 +48,6 @@ export function HomeScreen({
         <Text accessibilityRole="header" style={styles.title}>
           Clear Ahead
         </Text>
-        <Text style={styles.introduction}>Sound and vibration for the path ahead.</Text>
 
         <SpringPressable
           accessibilityRole="button"
@@ -69,9 +67,7 @@ export function HomeScreen({
           <Text accessibilityRole="alert" style={styles.setupMessage}>
             {setupMessage}
           </Text>
-        ) : (
-          <Text style={styles.summary}>{enabledModes.join(' · ')}</Text>
-        )}
+        ) : null}
       </View>
 
       {preferences.showFps && lastMetrics ? (
@@ -115,18 +111,11 @@ const styles = StyleSheet.create({
     letterSpacing: -0.8,
     textAlign: 'center',
   },
-  introduction: {
-    color: colors.muted,
-    fontSize: 17,
-    lineHeight: 24,
-    marginTop: 8,
-    textAlign: 'center',
-  },
   startContainer: {marginTop: 44, marginBottom: 28},
   startButton: {
     width: 208,
     height: 208,
-    borderRadius: 104,
+    borderRadius: 32,
     backgroundColor: colors.accent,
     borderWidth: 10,
     borderColor: colors.surfaceRaised,
@@ -135,7 +124,6 @@ const styles = StyleSheet.create({
   },
   startText: {color: colors.ink, fontSize: 32, fontWeight: '700', letterSpacing: -0.4},
   disabled: {opacity: 0.45},
-  summary: {color: colors.muted, fontSize: 15, lineHeight: 21, textAlign: 'center'},
   setupMessage: {
     color: colors.peachInk,
     backgroundColor: colors.peach,
