@@ -15,9 +15,15 @@
 
 // Forward declaration of `HybridFrameSpec` to properly resolve imports.
 namespace margelo::nitro::camera { class HybridFrameSpec; }
+// Forward declaration of `HybridCameraFrameOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraFrameOutputSpec; }
+// Forward declaration of `HybridCameraDepthFrameOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraDepthFrameOutputSpec; }
 
 #include <memory>
 #include <VisionCamera/HybridFrameSpec.hpp>
+#include <VisionCamera/HybridCameraFrameOutputSpec.hpp>
+#include <VisionCamera/HybridCameraDepthFrameOutputSpec.hpp>
 #include <string>
 
 namespace margelo::nitro::clearaheadvision {
@@ -52,6 +58,7 @@ namespace margelo::nitro::clearaheadvision {
     public:
       // Methods
       virtual void processFrame(const std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>& frame) = 0;
+      virtual void connectDepthOutputs(const std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>& frameOutput, const std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>& depthOutput) = 0;
       virtual void reportDroppedFrame(const std::string& reason) = 0;
 
     protected:

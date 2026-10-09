@@ -8,12 +8,24 @@
 #pragma once
 
 // Forward declarations of C++ defined types
+// Forward declaration of `HybridCameraDepthFrameOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraDepthFrameOutputSpec; }
+// Forward declaration of `HybridCameraFrameOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraFrameOutputSpec; }
+// Forward declaration of `HybridCameraOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraOutputSpec; }
 // Forward declaration of `HybridClearAheadVisionSpec` to properly resolve imports.
 namespace margelo::nitro::clearaheadvision { class HybridClearAheadVisionSpec; }
 // Forward declaration of `HybridFrameSpec` to properly resolve imports.
 namespace margelo::nitro::camera { class HybridFrameSpec; }
 
 // Forward declarations of Swift defined types
+// Forward declaration of `HybridCameraDepthFrameOutputSpec_cxx` to properly resolve imports.
+namespace VisionCamera { class HybridCameraDepthFrameOutputSpec_cxx; }
+// Forward declaration of `HybridCameraFrameOutputSpec_cxx` to properly resolve imports.
+namespace VisionCamera { class HybridCameraFrameOutputSpec_cxx; }
+// Forward declaration of `HybridCameraOutputSpec_cxx` to properly resolve imports.
+namespace VisionCamera { class HybridCameraOutputSpec_cxx; }
 // Forward declaration of `HybridClearAheadVisionSpec_cxx` to properly resolve imports.
 namespace ClearAheadVision { class HybridClearAheadVisionSpec_cxx; }
 // Forward declaration of `HybridFrameSpec_cxx` to properly resolve imports.
@@ -22,6 +34,9 @@ namespace VisionCamera { class HybridFrameSpec_cxx; }
 // Include C++ defined types
 #include "HybridClearAheadVisionSpec.hpp"
 #include <NitroModules/Result.hpp>
+#include <VisionCamera/HybridCameraDepthFrameOutputSpec.hpp>
+#include <VisionCamera/HybridCameraFrameOutputSpec.hpp>
+#include <VisionCamera/HybridCameraOutputSpec.hpp>
 #include <VisionCamera/HybridFrameSpec.hpp>
 #include <exception>
 #include <memory>
@@ -43,6 +58,48 @@ namespace margelo::nitro::clearaheadvision::bridge::swift {
   // pragma MARK: std::weak_ptr<margelo::nitro::camera::HybridFrameSpec>
   using std__weak_ptr_margelo__nitro__camera__HybridFrameSpec_ = std::weak_ptr<margelo::nitro::camera::HybridFrameSpec>;
   inline std__weak_ptr_margelo__nitro__camera__HybridFrameSpec_ weakify_std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_(const std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>& strong) noexcept { return strong; }
+  
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec>
+  /**
+   * Specialized version of `std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec>`.
+   */
+  using std__shared_ptr_margelo__nitro__camera__HybridCameraOutputSpec_ = std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec>;
+  std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec> create_std__shared_ptr_margelo__nitro__camera__HybridCameraOutputSpec_(void* NON_NULL swiftUnsafePointer) noexcept;
+  void* NON_NULL get_std__shared_ptr_margelo__nitro__camera__HybridCameraOutputSpec_(std__shared_ptr_margelo__nitro__camera__HybridCameraOutputSpec_ cppType);
+  
+  // pragma MARK: std::weak_ptr<margelo::nitro::camera::HybridCameraOutputSpec>
+  using std__weak_ptr_margelo__nitro__camera__HybridCameraOutputSpec_ = std::weak_ptr<margelo::nitro::camera::HybridCameraOutputSpec>;
+  inline std__weak_ptr_margelo__nitro__camera__HybridCameraOutputSpec_ weakify_std__shared_ptr_margelo__nitro__camera__HybridCameraOutputSpec_(const std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec>& strong) noexcept { return strong; }
+  
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>
+  /**
+   * Specialized version of `std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>`.
+   */
+  using std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_ = std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>;
+  std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec> create_std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_(void* NON_NULL swiftUnsafePointer) noexcept;
+  void* NON_NULL get_std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_(std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_ cppType);
+  
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec>
+  inline std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec> upcast_CameraFrameOutput_to_CameraOutput(std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec> child) noexcept { return child; }
+  
+  // pragma MARK: std::weak_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>
+  using std__weak_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_ = std::weak_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>;
+  inline std__weak_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_ weakify_std__shared_ptr_margelo__nitro__camera__HybridCameraFrameOutputSpec_(const std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>& strong) noexcept { return strong; }
+  
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>
+  /**
+   * Specialized version of `std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>`.
+   */
+  using std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_ = std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>;
+  std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec> create_std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_(void* NON_NULL swiftUnsafePointer) noexcept;
+  void* NON_NULL get_std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_(std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_ cppType);
+  
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec>
+  inline std::shared_ptr<margelo::nitro::camera::HybridCameraOutputSpec> upcast_CameraDepthFrameOutput_to_CameraOutput(std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec> child) noexcept { return child; }
+  
+  // pragma MARK: std::weak_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>
+  using std__weak_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_ = std::weak_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>;
+  inline std__weak_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_ weakify_std__shared_ptr_margelo__nitro__camera__HybridCameraDepthFrameOutputSpec_(const std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>& strong) noexcept { return strong; }
   
   // pragma MARK: std::shared_ptr<HybridClearAheadVisionSpec>
   /**

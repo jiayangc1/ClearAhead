@@ -50,6 +50,18 @@ test('announcements ignore metric churn but allow hazard change and risk escalat
   assert.equal(gate.event({ ...event, collisionRisk: 'imminent' }, 12), false);
 });
 
+test('LiDAR selection requires rear hardware depth and preserves explicit lenses', () => {
+  const wide = { id: 'wide', position: 'back', type: 'wide-angle', mediaTypes: ['video'] };
+  const lidar = { id: 'lidar', position: 'back', type: 'lidar-depth', mediaTypes: ['video', 'depth'] };
+  const cameras = [wide, lidar];
+  assert.equal(chooseRearCamera(cameras, 'standard', true)?.id, 'lidar');
+  assert.equal(chooseRearCamera(cameras, 'standard', false)?.id, 'wide');
+  assert.equal(chooseRearCamera(cameras, 'wide', true)?.id, 'wide');
+  assert.equal(chooseRearCamera([wide], 'standard', true)?.id, 'wide');
+  assert.equal(chooseRearCamera([wide, { ...lidar, mediaTypes: ['video'] }], 'standard', true)?.id, 'wide');
+  assert.equal(chooseRearCamera([wide, { ...lidar, position: 'front' }], 'standard', true)?.id, 'wide');
+});
+
 test('brief hazard dropouts and quality changes do not interrupt warnings', () => {
   const gate = new AnnouncementGate();
   const event: SpatialEvent = {

@@ -52,6 +52,21 @@ export interface SpatialEvent {
   box?: NormalizedBox;
 }
 
+export interface SceneSource extends SpatialEvent {
+  visibility: number;
+  isSurface: boolean;
+  contours: Array<Array<{ x: number; y: number }>>;
+  position?: { x: number; y: number; z: number };
+}
+
+export interface ScenePayload {
+  state: 'available' | 'clear' | 'unavailable';
+  sources: SceneSource[];
+  distanceStatus: string;
+  spatialCapability: string;
+  imageAspectRatio?: number;
+}
+
 export interface PipelineMetrics {
   cameraFps: number;
   detectorFps: number;
@@ -76,9 +91,14 @@ export interface FeedbackConfiguration {
   sensitivity: number;
   warningDistanceMeters: number;
   mountingMode: MountingMode;
+  cameraHeightMeters: number;
+  earHeightMeters: number;
+  cameraForwardOffsetMeters: number;
+  cameraRightOffsetMeters: number;
   processingMode: ProcessingMode;
   modelVariant: ModelVariant;
   depthMapEnabled: boolean;
+  lidarEnabled: boolean;
   showBoundingBoxes: boolean;
   boundingBoxVerbosity: BoundingBoxVerbosity;
   spokenCategories: EventKind[];
@@ -98,6 +118,9 @@ export interface ObjectDetectionOverlay {
 
 export interface DepthMapPayload {
   dataUrl: string | null;
+  nearMeters?: number;
+  farMeters?: number;
+  distanceStatus?: string;
 }
 
 export interface ModelDownloadProgressPayload {

@@ -16,11 +16,14 @@ Pod::Spec.new do |s|
   # reflected when CocoaPods regenerates the Pods project.
   s.source_files = [
     "ios/ClearAheadEngine.swift",
+    "ios/LidarCapture.swift",
     "ios/SessionHealth.swift",
+    "ios/SpatialScene.swift",
     "ios/Entry/Module.swift",
     "ios/Entry/ModuleBridge.m",
     "ios/Entry/ModuleEntry.swift",
     "ios/Feedback/AudioCue.swift",
+    "ios/Feedback/SpatialAudio.swift",
     "ios/Feedback/Feedback.swift",
     "ios/ModelOutput.swift",
     "ios/Models/ModelManager.swift",

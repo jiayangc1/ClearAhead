@@ -120,17 +120,17 @@ final class EventPrioritizerTests: XCTestCase {
             prioritizer.select(from: [collision], configuration: configuration, now: 10)?.collisionRisk,
             .imminent
         )
-        XCTAssertNil(prioritizer.select(from: [cleared], configuration: configuration, now: 11))
+        XCTAssertEqual(prioritizer.select(from: [cleared], configuration: configuration, now: 11)?.collisionRisk, .none)
     }
 
-    func testObstructionWithoutPredictedCollisionStaysSilent() {
+    func testOrdinaryVisibleSceneryRemainsSelectedWithoutCollision() {
         let prioritizer = EventPrioritizer()
         let wallAhead = makeEvent(id: "depth:path", kind: .obstacle, distance: 1.5)
         let nearbyPerson = makeEvent(id: "person:left", direction: .left, distance: 1.2)
-        XCTAssertNil(
+        XCTAssertNotNil(
             prioritizer.select(from: [wallAhead, nearbyPerson], configuration: configuration, now: 10)
         )
-        XCTAssertFalse(prioritizer.hasActiveEvent)
+        XCTAssertTrue(prioritizer.hasActiveEvent)
     }
 
     func testDepthPathOnCollisionCourseIsSelected() {

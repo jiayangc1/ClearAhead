@@ -87,6 +87,7 @@ final class ModelManager {
                 try request.check()
                 guard ["n", "s", "m", "l", "x"].contains(variant) else { throw Self.error("Unsupported model selection.") }
                 if let pair = self.bundledPair(variant, allowDetectorOnly: allowDetectorOnly) {
+                    progress(0.02, "Loading bundled models…")
                     try validate(pair)
                     try request.check()
                     progress(1, pair.depth == nil ? "Depth unavailable. Named object cues remain active." : "Bundled models are ready")
@@ -105,6 +106,7 @@ final class ModelManager {
                 let key = "\(variant)-\(assets[0].sha256.prefix(16))-\(assets[1].sha256.prefix(16))"
                 let destination = root.appendingPathComponent(key, isDirectory: true)
                 if let pair = self.cachedPair(at: destination, assets: assets) {
+                    progress(0.02, "Loading cached models…")
                     try validate(pair)
                     try request.check()
                     progress(1, "Cached models are ready")
@@ -117,17 +119,24 @@ final class ModelManager {
                 try self.manager.createDirectory(at: stage, withIntermediateDirectories: true)
                 defer { try? self.manager.removeItem(at: stage) }
                 var packages: [URL] = []
+                let totalBytes = assets.reduce(Int64(0)) { $0 + $1.size }
+                var completedBytes: Int64 = 0
                 for (index, asset) in assets.enumerated() {
                     try request.check()
-                    progress(Double(index) / 2, "Downloading YOLO26\(variant) \(index == 0 ? "detector" : "depth")…")
+                    let message = "Downloading YOLO26\(variant) \(index == 0 ? "detector" : "depth")…"
+                    progress(Double(completedBytes) / Double(totalBytes) * 0.85, message)
                     let archive = stage.appendingPathComponent(asset.name)
-                    try self.download(asset, to: archive, cellularAllowed: cellularAllowed, request: request)
+                    let offset = completedBytes
+                    try self.download(asset, to: archive, cellularAllowed: cellularAllowed, request: request) { received in
+                        progress(Double(offset + min(received, asset.size)) / Double(totalBytes) * 0.85, message)
+                    }
                     try Self.verify(archive, size: asset.size, sha256: asset.sha256)
                     packages.append(try Self.extract(archive, packageName: String(asset.name.dropLast(4)), to: stage, request: request))
                     try self.manager.removeItem(at: archive)
+                    completedBytes += asset.size
                 }
                 let pair = PreparedModelPair(detector: packages[0], depth: packages[1])
-                progress(0.95, "Validating downloaded models…")
+                progress(0.85, "Validating downloaded models…")
                 try request.check()
                 try validate(pair)
                 let identities = try packages.map { try Self.contentIdentity(at: $0) }
@@ -231,7 +240,7 @@ final class ModelManager {
     }
 
     private func download(_ asset: OfficialModelAsset, to destination: URL, cellularAllowed: Bool,
-                          request: ModelDownloadRequest) throws {
+                          request: ModelDownloadRequest, progress: @escaping (Int64) -> Void) throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.allowsCellularAccess = cellularAllowed
         configuration.allowsExpensiveNetworkAccess = cellularAllowed
@@ -239,6 +248,10 @@ final class ModelManager {
         configuration.timeoutIntervalForResource = 900
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
+        var observation: NSKeyValueObservation?
+        let progressLock = NSLock()
+        var lastProgressTime: TimeInterval = 0
+        defer { observation?.invalidate() }
         let _: Void = try request.wait { finish in
             let task = session.downloadTask(with: URL(string: releaseRoot + asset.name)!) { temporary, response, error in
                 do {
@@ -251,7 +264,26 @@ final class ModelManager {
                 } catch { finish(.failure(error)) }
             }
             request.onCancel { task.cancel() }
+            observation = task.observe(\.countOfBytesReceived, options: [.new]) { task, _ in
+                progressLock.lock()
+                let now = ProcessInfo.processInfo.systemUptime
+                let report = now - lastProgressTime >= 0.1
+                if report { lastProgressTime = now }
+                progressLock.unlock()
+                guard report else { return }
+                progress(task.countOfBytesReceived)
+            }
             task.resume()
+        }
+    }
+
+    static func packageBytes(_ url: URL) -> Int64 {
+        let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        guard let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: keys) else { return 1 }
+        return files.reduce(Int64(0)) { total, item in
+            guard let file = item as? URL, let values = try? file.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true else { return total }
+            return total + Int64(values.fileSize ?? 0)
         }
     }
 

@@ -35,6 +35,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Clear Ahead uses the rear camera to detect nearby objects on this device. Frames are not saved or uploaded.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Clear Ahead uses phone gravity and compatible headphone motion to position nearby sounds as you turn your head.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

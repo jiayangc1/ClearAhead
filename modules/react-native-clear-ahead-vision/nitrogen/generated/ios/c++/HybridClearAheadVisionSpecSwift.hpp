@@ -14,9 +14,15 @@ namespace ClearAheadVision { class HybridClearAheadVisionSpec_cxx; }
 
 // Forward declaration of `HybridFrameSpec` to properly resolve imports.
 namespace margelo::nitro::camera { class HybridFrameSpec; }
+// Forward declaration of `HybridCameraFrameOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraFrameOutputSpec; }
+// Forward declaration of `HybridCameraDepthFrameOutputSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridCameraDepthFrameOutputSpec; }
 
 #include <memory>
 #include <VisionCamera/HybridFrameSpec.hpp>
+#include <VisionCamera/HybridCameraFrameOutputSpec.hpp>
+#include <VisionCamera/HybridCameraDepthFrameOutputSpec.hpp>
 #include <string>
 
 #include "ClearAheadVision-Swift-Cxx-Umbrella.hpp"
@@ -71,6 +77,12 @@ namespace margelo::nitro::clearaheadvision {
     // Methods
     inline void processFrame(const std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>& frame) override {
       auto __result = _swiftPart.processFrame(frame);
+      if (__result.hasError()) [[unlikely]] {
+        std::rethrow_exception(__result.error());
+      }
+    }
+    inline void connectDepthOutputs(const std::shared_ptr<margelo::nitro::camera::HybridCameraFrameOutputSpec>& frameOutput, const std::shared_ptr<margelo::nitro::camera::HybridCameraDepthFrameOutputSpec>& depthOutput) override {
+      auto __result = _swiftPart.connectDepthOutputs(frameOutput, depthOutput);
       if (__result.hasError()) [[unlikely]] {
         std::rethrow_exception(__result.error());
       }

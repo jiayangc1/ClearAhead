@@ -159,16 +159,21 @@ struct SpatialEvent {
 struct FeedbackConfiguration {
     var hapticsEnabled = true
     var audioEnabled = true
-    var speechEnabled = false
+    var speechEnabled = true
     var hapticIntensity = 0.72
     var audioVolume = 0.65
     var continuousAudio = true
     var sensitivity = 0.65
     var warningDistanceMeters = 6.0
     var mountingMode = "handheld"
+    var cameraHeightMeters = 0.0
+    var earHeightMeters = 0.0
+    var cameraForwardOffsetMeters = 0.0
+    var cameraRightOffsetMeters = 0.0
     var processingMode = "responsive"
     var modelVariant = "n"
     var depthMapEnabled = false
+    var lidarEnabled = true
     var showBoundingBoxes = true
     var boundingBoxVerbosity = "standard"
     var spokenCategories: Set<String> = ["person", "vehicle", "obstacle", "furniture"]
@@ -178,7 +183,7 @@ struct FeedbackConfiguration {
     init(dictionary: [String: Any]) {
         hapticsEnabled = dictionary["hapticsEnabled"] as? Bool ?? true
         audioEnabled = dictionary["audioEnabled"] as? Bool ?? true
-        speechEnabled = dictionary["speechEnabled"] as? Bool ?? false
+        speechEnabled = dictionary["speechEnabled"] as? Bool ?? true
         hapticIntensity = Self.clamp(dictionary["hapticIntensity"] as? Double, fallback: 0.72)
         audioVolume = Self.clamp(dictionary["audioVolume"] as? Double, fallback: 0.65)
         continuousAudio = dictionary["continuousAudio"] as? Bool ?? true
@@ -188,11 +193,20 @@ struct FeedbackConfiguration {
             ? min(max(requestedWarningDistance ?? 6, 1), 12)
             : 6
         mountingMode = dictionary["mountingMode"] as? String == "chest" ? "chest" : "handheld"
+        cameraHeightMeters = Self.height(dictionary["cameraHeightMeters"] as? Double)
+        earHeightMeters = Self.height(dictionary["earHeightMeters"] as? Double)
+        if let offset = dictionary["cameraForwardOffsetMeters"] as? Double, offset.isFinite {
+            cameraForwardOffsetMeters = min(max(offset, 0), 0.8)
+        }
+        if let offset = dictionary["cameraRightOffsetMeters"] as? Double, offset.isFinite {
+            cameraRightOffsetMeters = min(max(offset, -0.5), 0.5)
+        }
         let requestedMode = dictionary["processingMode"] as? String
         processingMode = requestedMode == "detailed" ? "detailed" : "responsive"
         let requestedVariant = dictionary["modelVariant"] as? String ?? "n"
         modelVariant = ["n", "s", "m", "l", "x"].contains(requestedVariant) ? requestedVariant : "n"
         depthMapEnabled = dictionary["depthMapEnabled"] as? Bool ?? false
+        lidarEnabled = dictionary["lidarEnabled"] as? Bool ?? true
         showBoundingBoxes = dictionary["showBoundingBoxes"] as? Bool ?? true
         let requestedVerbosity = dictionary["boundingBoxVerbosity"] as? String ?? "standard"
         boundingBoxVerbosity = ["verbose", "standard", "less"].contains(requestedVerbosity)
@@ -201,6 +215,11 @@ struct FeedbackConfiguration {
             let supportedCategories = Set(EventKind.allCases.map(\.rawValue))
             spokenCategories = Set(requestedCategories.filter(supportedCategories.contains))
         }
+    }
+
+    private static func height(_ value: Double?) -> Double {
+        guard let value, value.isFinite, value >= 0.4 else { return 0 }
+        return min(value, 2.5)
     }
 
     private static func clamp(_ value: Double?, fallback: Double) -> Double {

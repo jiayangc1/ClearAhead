@@ -59,6 +59,8 @@ export function SettingsScreen({
   const modelRequest = useRef(0);
   const pendingModelVariant = useRef<ModelVariant | undefined>(undefined);
   const cameraDevices = useCameraDevices();
+  const supportsLidar = cameraDevices.some(device => device.position === 'back'
+    && device.type === 'lidar-depth' && device.mediaTypes.includes('depth'));
   const backCameras = useMemo(
     () =>
       cameraDevices
@@ -189,21 +191,21 @@ export function SettingsScreen({
         <Section {...sectionProps('Feedback')}>
           <ToggleRow
             label="Haptics"
-            description="Vibration patterns for direction and urgency."
+            description="Vibrations escalate for possible and imminent collisions. Ordinary scenery stays quiet."
             value={preferences.hapticsEnabled}
             onValueChange={value => onChange({ hapticsEnabled: value })}
           />
           <ToggleRow
             label="Directional audio"
             description={
-              'Closer hazards sound higher, louder and faster. Each kind has its own sound: a soft tone for people, a tick for obstacles, a low buzz for vehicles, a knock for furniture, a thump for low obstacles. Two pulses mean caution, three rough pulses mean stop. Headphones place the sound where the hazard is, and the pitch rises as it approaches. On speakers: falling pitch means left, steady means ahead, rising means right.'
+              'Up to six visible sources sound together. Nearer sources are louder and brighter. Pitch follows height and proximity; approaching or collision hazards pulse faster with a brighter timbre. People and vehicles have distinct registers. Stereo headphones add 3D position. Compatible AirPods track head turns after you start looking along the camera. Speakers cannot reliably convey height or front/back.'
             }
             value={preferences.audioEnabled}
             onValueChange={value => onChange({ audioEnabled: value })}
           />
           <ToggleRow
-            label="Repeat audio while a hazard remains"
-            description="The cue keeps sounding and changes as the hazard moves. Turn off to hear one cue when a hazard appears or gets worse."
+            label="Continuous scene tones"
+            description="Smooth tones follow visible surroundings. Turn off to use speech and urgency vibrations only."
             value={preferences.continuousAudio}
             onValueChange={value => onChange({ continuousAudio: value })}
           />
@@ -302,7 +304,7 @@ export function SettingsScreen({
             }
           />
           <AdjustableRow
-            label="Warning range"
+            label="Scene range"
             valueLabel={`${preferences.warningDistanceMeters.toFixed(
               1,
             )} meters`}
@@ -331,13 +333,36 @@ export function SettingsScreen({
           />
           <ToggleRow
             label="Bounding boxes"
-            description="Draw boxes and labels around objects detected by YOLO26."
+            description="Draw visible depth contours and distance labels for selected objects and unnamed surfaces."
             value={preferences.showBoundingBoxes}
             onValueChange={value => onChange({ showBoundingBoxes: value })}
           />
         </Section>
 
         <Section {...sectionProps('Phone position')}>
+          <Text style={styles.sectionHelp}>
+            Start looking along the rear camera with the phone upright. Measure camera and ear heights above level ground.
+            Measure how far the camera sits forward and right of the midpoint between your ears (negative right means left).
+            Keep this position steady. Without height calibration, distances are model estimates and sounds are camera-centered.
+          </Text>
+          {(['cameraHeightMeters', 'earHeightMeters'] as const).map(key => (
+            <AdjustableRow
+              key={key}
+              label={key === 'cameraHeightMeters' ? 'Camera height' : 'Ear height'}
+              valueLabel={preferences[key] >= 0.4 ? `${preferences[key].toFixed(1)} meters` : 'Not calibrated'}
+              onIncrement={() => onChange({ [key]: preferences[key] < 0.4 ? 0.4 : stepValue(preferences[key], 'increment', 0.1, 0, 2.5) })}
+              onDecrement={() => onChange({ [key]: preferences[key] <= 0.4 ? 0 : stepValue(preferences[key], 'decrement', 0.1, 0, 2.5) })}
+            />
+          ))}
+          {(['cameraForwardOffsetMeters', 'cameraRightOffsetMeters'] as const).map(key => (
+            <AdjustableRow
+              key={key}
+              label={key === 'cameraForwardOffsetMeters' ? 'Camera forward of ears' : 'Camera right of ears'}
+              valueLabel={`${preferences[key].toFixed(2)} meters`}
+              onIncrement={() => onChange({ [key]: stepValue(preferences[key], 'increment', 0.05, key === 'cameraRightOffsetMeters' ? -0.5 : 0, key === 'cameraRightOffsetMeters' ? 0.5 : 0.8) })}
+              onDecrement={() => onChange({ [key]: stepValue(preferences[key], 'decrement', 0.05, key === 'cameraRightOffsetMeters' ? -0.5 : 0, key === 'cameraRightOffsetMeters' ? 0.5 : 0.8) })}
+            />
+          ))}
           <MountingChoice
             mode="handheld"
             current={preferences.mountingMode}
@@ -387,16 +412,26 @@ export function SettingsScreen({
             {modelStatus}
           </Text>
           <ToggleRow
+            label="LiDAR backup"
+            description={supportsLidar
+              ? 'With the standard rear camera, measure close objects within 2 m and back up unavailable model depth. Choosing another lens uses model depth.'
+              : hasCameraPermission ? 'This phone does not expose a rear LiDAR camera. Model depth remains active.'
+              : 'Allow camera access to check whether rear LiDAR is available.'}
+            value={preferences.lidarEnabled && supportsLidar}
+            disabled={!supportsLidar}
+            onValueChange={value => onChange({ lidarEnabled: value })}
+          />
+          <ToggleRow
             label="Depth map view"
-            description="Replace the camera image with a red-near to blue-far view while keeping detector boxes visible."
+            description="Show estimated distances in meters, a fixed color scale, and calibration status. Set measured camera height to calibrate model depth; LiDAR supplies measured depth where available."
             value={preferences.depthMapEnabled}
             onValueChange={value => onChange({ depthMapEnabled: value })}
           />
           <Text style={styles.advancedSubheading}>Bounding box verbosity</Text>
           {([
-            ['verbose', 'Verbose', 'All detected objects with confidence scores.'],
-            ['standard', 'Standard', 'Confident people, vehicles, and obstacles in your path.'],
-            ['less', 'Less', 'Only objects with a confirmed collision risk.'],
+            ['verbose', 'Verbose', 'Selected surfaces with distance and confidence.'],
+            ['standard', 'Standard', 'Selected visible sources throughout the camera view.'],
+            ['less', 'Less', 'Only sources with a confirmed collision risk.'],
           ] as const).map(([value, label, description]) => (
             <CameraChoice
               key={value}

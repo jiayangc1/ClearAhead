@@ -20,16 +20,19 @@ import {
   CommonResolutions,
   useCameraDevices,
   useFrameOutput,
+  useDepthOutput,
   type Frame,
 } from 'react-native-vision-camera';
 import { ClearAheadVision } from 'react-native-clear-ahead-vision';
 import { PrimaryButton } from '../components/Controls';
 import { SoundField } from '../components/SoundField';
+import { LoadingBar } from '../components/LoadingBar';
 import { colors, toFeedbackConfiguration } from '../config';
 import { ClearAheadModule } from '../native/ClearAheadModule';
 import type {
   AppPreferences,
-  ObjectDetectionOverlay,
+  DepthMapPayload,
+  ScenePayload,
   PipelineMetrics,
   SessionQuality,
   SessionState,
@@ -55,8 +58,10 @@ export function AssistScreen({
   const [quality, setQuality] = useState<SessionQuality>('good');
   const [event, setEvent] = useState<SpatialEvent>();
   const [metrics, setMetrics] = useState<PipelineMetrics>();
-  const [detections, setDetections] = useState<ObjectDetectionOverlay[]>([]);
-  const [depthMapDataUrl, setDepthMapDataUrl] = useState<string>();
+  const [scene, setScene] = useState<ScenePayload>();
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [depthMap, setDepthMap] = useState<DepthMapPayload>();
+  const [lidarUnavailable, setLidarUnavailable] = useState(false);
   const latestMetrics = useRef<PipelineMetrics | undefined>(undefined);
   const [isForeground, setIsForeground] = useState(
     AppState.currentState === 'active',
@@ -72,8 +77,10 @@ export function AssistScreen({
   >(undefined);
   const cameraDevices = useCameraDevices();
   const cameraDevice = useMemo(() => {
-    return chooseRearCamera(cameraDevices, preferences.cameraDeviceId);
-  }, [cameraDevices, preferences.cameraDeviceId]);
+    return chooseRearCamera(cameraDevices, preferences.cameraDeviceId, preferences.lidarEnabled && !lidarUnavailable);
+  }, [cameraDevices, preferences.cameraDeviceId, preferences.lidarEnabled, lidarUnavailable]);
+  const usesLidar = preferences.lidarEnabled && !lidarUnavailable && cameraDevice?.type === 'lidar-depth'
+    && cameraDevice.mediaTypes.includes('depth');
 
   useEffect(() => {
     if (
@@ -111,17 +118,28 @@ export function AssistScreen({
         : CommonResolutions.HD_16_9,
     pixelFormat: 'yuv',
     dropFramesWhileBusy: true,
-    enablePreviewSizedOutputBuffers: true,
+    enablePreviewSizedOutputBuffers: !usesLidar,
+    enableCameraMatrixDelivery: true,
     onFrame: processFrame,
     onFrameDropped(reason) {
       ClearAheadVision.reportDroppedFrame(reason);
     },
   });
   const cameraConstraints = useMemo(
-    () => [{ fps: preferences.processingMode === 'responsive' ? 15 : 30 }],
+    () => [{ fps: preferences.processingMode === 'responsive' ? 15 : 30 }, { videoStabilizationMode: 'off' as const }],
     [preferences.processingMode],
   );
-  const cameraOutputs = useMemo(() => [frameOutput], [frameOutput]);
+  const depthOutput = useDepthOutput({
+    targetResolution: CommonResolutions.VGA_16_9,
+    enableFiltering: true,
+    onDepth(depth) {
+      'worklet';
+      depth.dispose();
+    },
+    onDepthFrameDropped() {},
+  });
+  const cameraOutputs = useMemo(() => usesLidar ? [frameOutput, depthOutput] : [frameOutput],
+    [frameOutput, depthOutput, usesLidar]);
 
   useEffect(() => {
     let active = true;
@@ -168,19 +186,16 @@ export function AssistScreen({
         setMetrics(payload);
         latestMetrics.current = payload;
       }),
-      ...(preferences.showBoundingBoxes
-        ? [ClearAheadModule.onDetections(setDetections)]
-        : []),
+      ClearAheadModule.onScene(setScene),
       ...(preferences.depthMapEnabled
         ? [
-            ClearAheadModule.onDepthMap(payload =>
-              setDepthMapDataUrl(payload.dataUrl ?? undefined),
-            ),
+            ClearAheadModule.onDepthMap(setDepthMap),
           ]
         : []),
-      ClearAheadModule.onModelDownload(payload =>
-        setStatusMessage(payload.message),
-      ),
+      ClearAheadModule.onModelDownload(payload => {
+        setStatusMessage(payload.message);
+        setLoadProgress(current => Math.max(current, payload.progress));
+      }),
     ];
 
     const configuration = toFeedbackConfiguration(preferences);
@@ -220,8 +235,8 @@ export function AssistScreen({
         cameraInterrupted.current = false;
         controller.stop().catch(() => undefined);
         setEvent(undefined);
-        setDetections([]);
-        setDepthMapDataUrl(undefined);
+        setScene(undefined);
+        setDepthMap(undefined);
         announcements.current.clear();
         setSessionState('paused');
         setStatusMessage('Paused while Clear Ahead is in the background');
@@ -255,8 +270,8 @@ export function AssistScreen({
   }, [cameraDevice, onMetrics, preferences]);
 
   const eventDescription = useMemo(
-    () => (event ? describeEvent(event) : 'Field clear'),
-    [event],
+    () => (event ? describeEvent(event) : scene?.state === 'clear' ? 'No nearby sources in the camera view' : 'Scene unavailable'),
+    [event, scene],
   );
   const statusHasWarning =
     sessionState === 'error' ||
@@ -286,18 +301,33 @@ export function AssistScreen({
           outputs={cameraOutputs}
           resizeMode="cover"
           onStarted={() => {
+            if (usesLidar) {
+              try {
+                ClearAheadVision.connectDepthOutputs(frameOutput, depthOutput);
+              } catch {
+                setLidarUnavailable(true);
+                setStatusMessage('LiDAR unavailable. Using the depth model.');
+              }
+            }
             setStatusMessage(current =>
               cameraStartedMessage(current, latestStatus.current),
             );
           }}
           onError={error => {
+            if (usesLidar) {
+              setLidarUnavailable(true);
+              setSessionState('starting');
+              setStatusMessage('LiDAR capture unavailable. Restarting with model depth.');
+              setDepthMap(undefined);
+              return;
+            }
             startupError.current = true;
             setSessionState('error');
             setStatusMessage(error.message);
             sessionController.current?.stop().catch(() => undefined);
             setEvent(undefined);
-            setDetections([]);
-            setDepthMapDataUrl(undefined);
+            setScene(undefined);
+            setDepthMap(undefined);
           }}
           onInterruptionStarted={() => {
             if (AppState.currentState !== 'active') {
@@ -308,8 +338,8 @@ export function AssistScreen({
             setSessionState('paused');
             setStatusMessage('Camera interrupted');
             setEvent(undefined);
-            setDetections([]);
-            setDepthMapDataUrl(undefined);
+            setScene(undefined);
+            setDepthMap(undefined);
             announcements.current.clear();
           }}
           onInterruptionEnded={() => {
@@ -333,11 +363,11 @@ export function AssistScreen({
         />
       ) : null}
       {preferences.depthMapEnabled ? (
-        depthMapDataUrl ? (
+        depthMap?.dataUrl ? (
           <Image
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
-            source={{ uri: depthMapDataUrl }}
+            source={{ uri: depthMap.dataUrl }}
             resizeMode="cover"
             style={StyleSheet.absoluteFill}
           />
@@ -346,8 +376,7 @@ export function AssistScreen({
         )
       ) : null}
       <SoundField
-        event={event}
-        detections={detections}
+        scene={scene}
         showBoundingBoxes={preferences.showBoundingBoxes}
         boundingBoxVerbosity={preferences.boundingBoxVerbosity}
       />
@@ -371,6 +400,12 @@ export function AssistScreen({
               </Text>
             ) : null}
           </View>
+
+          {sessionState === 'starting' ? <LoadingBar progress={loadProgress} message={statusMessage} /> : null}
+          <Text style={styles.fpsText}>
+            {scene?.spatialCapability ?? 'Spatial audio initializing'}
+            {' · '}{scene?.distanceStatus.replaceAll('-', ' ') ?? 'Distance unavailable'}
+          </Text>
 
           {preferences.showFps ? (
             <View
@@ -403,12 +438,14 @@ export function AssistScreen({
           {preferences.depthMapEnabled ? (
             <View
               accessible
-              accessibilityLabel="Depth colors: red is close, blue is far"
+              accessibilityLabel={depthMap?.dataUrl
+                ? `Estimated depth in meters. Red: ${depthMap.nearMeters} meters or closer. Blue: ${depthMap.farMeters} meters or farther. ${depthMap.distanceStatus?.replaceAll('-', ' ')}`
+                : 'Depth unavailable'}
               style={styles.depthLegend}
             >
-              <Text style={styles.depthNear}>CLOSE</Text>
+              <Text style={styles.depthNear}>{depthMap?.dataUrl ? `≤${depthMap.nearMeters} m` : 'DEPTH UNAVAILABLE'}</Text>
               <View style={styles.depthLegendLine} />
-              <Text style={styles.depthFar}>FAR</Text>
+              <Text style={styles.depthFar}>{depthMap?.dataUrl ? `≥${depthMap.farMeters} m · estimated` : ''}</Text>
             </View>
           ) : null}
 
@@ -432,7 +469,7 @@ export function AssistScreen({
                     ? 'POSSIBLE COLLISION'
                     : event
                     ? `${event.direction.toUpperCase()} · ${event.proximity.toUpperCase()}`
-                    : 'FIELD CLEAR'}
+                    : scene?.state === 'clear' ? 'SCENE CLEAR' : 'SCENE UNAVAILABLE'}
                 </Text>
                 {!event ? <View style={styles.clearMark} /> : null}
               </View>
@@ -443,10 +480,13 @@ export function AssistScreen({
                   ? 'Caution'
                   : event
                   ? event.label ?? event.kind.replace('-', ' ')
-                  : 'Listening'}
+                  : scene?.state === 'clear' ? 'Listening' : 'Waiting for scene'}
               </Text>
               {event ? (
                 <Text style={styles.eventDescription}>{eventDescription}</Text>
+              ) : null}
+              {scene?.state === 'available' ? (
+                <Text style={styles.eventDescription}>{scene.sources.length} visible sources · Camera view only</Text>
               ) : null}
             </View>
           </View>
