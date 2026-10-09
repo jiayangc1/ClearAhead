@@ -384,9 +384,11 @@ struct DepthMap: Sendable {
                     continue
                 }
                 let distance = min(max((value - near) / scale, 0), 1)
-                pixels[offset] = UInt8((1 - distance) * 255)
-                pixels[offset + 1] = UInt8((1 - abs(distance - 0.5) * 2) * 72)
-                pixels[offset + 2] = UInt8(distance * 255)
+                // Walk the spectrum from near to far: red, yellow, green, cyan, blue.
+                let hue = distance * 4
+                pixels[offset] = UInt8(min(max(2 - hue, 0), 1) * 255)
+                pixels[offset + 1] = UInt8(min(hue, 4 - hue, 1) * 255)
+                pixels[offset + 2] = UInt8(min(max(hue - 2, 0), 1) * 255)
                 pixels[offset + 3] = 255
             }
         }

@@ -47,6 +47,8 @@ import { SessionController } from '../utils/sessionController';
 // Capture at 30 fps in both modes; the native throttle decides how many of
 // those frames the models process.
 const cameraConstraints = [{ fps: 30 }, { videoStabilizationMode: 'off' as const }];
+// Matches the native depth preview ramp, nearest to farthest.
+const DEPTH_SPECTRUM = ['#FF0000', '#FF8000', '#FFFF00', '#00FF00', '#00FFFF', '#0000FF'];
 
 export function AssistScreen({
   preferences,
@@ -450,7 +452,11 @@ export function AssistScreen({
               style={styles.depthLegend}
             >
               <Text style={styles.depthNear}>{depthMap?.dataUrl ? `≤${depthMap.nearMeters} m` : 'DEPTH UNAVAILABLE'}</Text>
-              <View style={styles.depthLegendLine} />
+              <View style={styles.depthLegendLine}>
+                {DEPTH_SPECTRUM.map(color => (
+                  <View key={color} style={[styles.depthLegendStop, { backgroundColor: color }]} />
+                ))}
+              </View>
               <Text style={styles.depthFar}>{depthMap?.dataUrl ? `≥${depthMap.farMeters} m · estimated` : ''}</Text>
             </View>
           ) : null}
@@ -564,8 +570,9 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#080808CC',
   },
-  depthLegendLine: { width: 42, height: 3, backgroundColor: '#8A208A' },
-  depthNear: { color: '#FF4545', fontSize: 10, fontWeight: '800' },
+  depthLegendLine: { width: 42, height: 3, flexDirection: 'row' },
+  depthLegendStop: { flex: 1 },
+  depthNear: { color: '#FF0000', fontSize: 10, fontWeight: '800' },
   depthFar: { color: '#3291FF', fontSize: 10, fontWeight: '800' },
   spacer: { flex: 1 },
   bottomGroup: { gap: 10 },
