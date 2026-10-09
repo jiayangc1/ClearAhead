@@ -30,6 +30,7 @@ Pod::Spec.new do |s|
     "ios/Risk/CollisionTracker.swift",
     "ios/Risk/EventPrioritizer.swift",
     "ios/Types.swift",
+    "ios/WalkablePath.swift",
     "cpp/**/*.{hpp,cpp}",
   ]
 
