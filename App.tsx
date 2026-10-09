@@ -18,6 +18,7 @@ import {
   hasFeedbackChannel,
 } from './src/config';
 import { usePreferences } from './src/hooks/usePreferences';
+import { useSessionStats } from './src/hooks/useSessionStats';
 import { useReducedMotion } from './src/hooks/useReducedMotion';
 import { AssistScreen } from './src/screens/AssistScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -33,6 +34,7 @@ type Route =
 export default function App() {
   const { preferences, setPreferences, isHydrated, storageError } =
     usePreferences();
+  const { stats, recordSession } = useSessionStats();
   const cameraPermission = useCameraPermission();
   const [route, setRoute] = useState<Route>({ name: 'home' });
   const [lastMetrics, setLastMetrics] = useState<PipelineMetrics>();
@@ -173,6 +175,7 @@ export default function App() {
         {route.name === 'home' ? (
           <HomeScreen
             preferences={preferences}
+            stats={stats}
             lastMetrics={lastMetrics}
             hasCameraPermission={cameraPermission.hasPermission}
             onStart={() => {
@@ -195,6 +198,7 @@ export default function App() {
             preferences={preferences}
             onChange={setPreferences}
             onMetrics={setLastMetrics}
+            onSessionEnd={recordSession}
             onStop={() => navigate({ name: 'home' })}
           />
         ) : null}

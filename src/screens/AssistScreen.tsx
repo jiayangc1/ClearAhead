@@ -37,6 +37,7 @@ import type {
   PipelineMetrics,
   SessionQuality,
   SessionState,
+  SessionSummary,
   SpatialEvent,
 } from '../types';
 import { describeEvent, qualityMessage, summarizeEvent } from '../utils/eventLogic';
@@ -55,11 +56,13 @@ export function AssistScreen({
   preferences,
   onChange,
   onMetrics,
+  onSessionEnd,
   onStop,
 }: {
   preferences: AppPreferences;
   onChange: (update: Partial<AppPreferences>) => void;
   onMetrics: (metrics: PipelineMetrics) => void;
+  onSessionEnd: (summary: SessionSummary) => void;
   onStop: () => void;
 }) {
   const [sessionState, setSessionState] = useState<SessionState>('starting');
@@ -78,6 +81,7 @@ export function AssistScreen({
   const previousQuality = useRef(quality);
   const announcements = useRef(new AnnouncementGate());
   const announcedRisk = useRef<SpatialEvent['collisionRisk']>('none');
+  const sessionAlerts = useRef(0);
   const sessionController = useRef<SessionController | undefined>(undefined);
   const startupError = useRef(false);
   const cameraInterrupted = useRef(false);
@@ -155,6 +159,18 @@ export function AssistScreen({
     ClearAheadModule.updateConfiguration(configuration).catch(() => undefined);
   }, [configuration]);
 
+  // One summary per visit to this screen, however often the camera restarts.
+  useEffect(() => {
+    const startedAt = Date.now();
+    sessionAlerts.current = 0;
+    return () => {
+      onSessionEnd({
+        durationSeconds: Math.round((Date.now() - startedAt) / 1000),
+        alerts: sessionAlerts.current,
+      });
+    };
+  }, [onSessionEnd]);
+
   useEffect(() => {
     let active = true;
     const subscriptions = [
@@ -195,6 +211,9 @@ export function AssistScreen({
             queue: payload.collisionRisk !== 'imminent' || announcedRisk.current === 'imminent',
           });
           announcedRisk.current = payload.collisionRisk;
+          if (payload.collisionRisk !== 'none') {
+            sessionAlerts.current += 1;
+          }
         }
       }),
       ClearAheadModule.onEventCleared(() => {

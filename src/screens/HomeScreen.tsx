@@ -5,16 +5,30 @@ import {Settings} from 'lucide-react-native';
 import {BrandLogo} from '../components/BrandLogo';
 import {SpringPressable} from '../components/Motion';
 import {colors, hasFeedbackChannel} from '../config';
-import type {AppPreferences, PipelineMetrics} from '../types';
+import type {AppPreferences, PipelineMetrics, SessionStats} from '../types';
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds} sec`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = seconds / 3600;
+  return `${hours < 10 ? hours.toFixed(1) : Math.round(hours)} hr`;
+}
+
+function plural(value: number, noun: string): string {
+  return `${value} ${noun}${value === 1 ? '' : 's'}`;
+}
 
 export function HomeScreen({
   preferences,
+  stats,
   lastMetrics,
   hasCameraPermission,
   onStart,
   onSettings,
 }: {
   preferences: AppPreferences;
+  stats: SessionStats;
   lastMetrics?: PipelineMetrics;
   hasCameraPermission: boolean;
   onStart: () => void;
@@ -27,6 +41,14 @@ export function HomeScreen({
     : !feedbackReady
     ? 'Turn on voice, sounds, or vibration in Settings.'
     : undefined;
+  const tiles = [
+    {label: 'Walks', value: String(stats.walks)},
+    {label: 'Time guided', value: formatDuration(stats.totalSeconds)},
+    {label: 'Alerts', value: String(stats.alerts)},
+  ];
+  const lastWalk = stats.last
+    ? `Last walk · ${formatDuration(stats.last.durationSeconds)} · ${plural(stats.last.alerts, 'alert')}`
+    : 'Your walks will show up here';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -45,7 +67,12 @@ export function HomeScreen({
       </View>
 
       <View style={styles.center}>
-        <Text accessibilityRole="header" style={styles.title}>
+        <Text
+          accessibilityRole="header"
+          adjustsFontSizeToFit
+          numberOfLines={1}
+          style={styles.title}
+        >
           Clear Ahead
         </Text>
 
@@ -68,6 +95,26 @@ export function HomeScreen({
             {setupMessage}
           </Text>
         ) : null}
+      </View>
+
+      <View
+        accessible
+        accessibilityLabel={`${plural(stats.walks, 'walk')}, ${formatDuration(stats.totalSeconds)} guided, ${plural(stats.alerts, 'alert')}. ${lastWalk}`}
+        style={styles.statsBox}
+      >
+        <View style={styles.statsRow}>
+          {tiles.map(tile => (
+            <View key={tile.label} style={styles.statTile}>
+              <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>
+                {tile.value}
+              </Text>
+              <Text style={styles.statLabel} numberOfLines={1}>
+                {tile.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+        <Text style={styles.lastWalk}>{lastWalk}</Text>
       </View>
 
       {preferences.showFps && lastMetrics ? (
@@ -101,21 +148,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
-    paddingBottom: 40,
+    paddingBottom: 16,
   },
   title: {
     color: colors.ink,
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 48,
+    lineHeight: 54,
     fontWeight: '700',
-    letterSpacing: -0.8,
+    letterSpacing: -1.4,
     textAlign: 'center',
   },
   startContainer: {marginTop: 44, marginBottom: 28},
   startButton: {
-    width: 208,
-    height: 208,
-    borderRadius: 32,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
     backgroundColor: colors.accent,
     borderWidth: 10,
     borderColor: colors.surfaceRaised,
@@ -135,6 +182,42 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 16,
     overflow: 'hidden',
+  },
+  statsBox: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 28,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    gap: 14,
+  },
+  statsRow: {flexDirection: 'row', gap: 10},
+  statTile: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceRaised,
+    gap: 2,
+  },
+  statValue: {
+    color: colors.ink,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+    fontVariant: ['tabular-nums'],
+  },
+  statLabel: {color: colors.muted, fontSize: 13, fontWeight: '600'},
+  lastWalk: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   diagnostics: {
     color: colors.muted,

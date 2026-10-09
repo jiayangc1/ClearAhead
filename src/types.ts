@@ -83,6 +83,18 @@ export interface PipelineMetrics {
   depthInferenceError?: string;
 }
 
+export interface SessionSummary {
+  durationSeconds: number;
+  alerts: number;
+}
+
+export interface SessionStats {
+  walks: number;
+  totalSeconds: number;
+  alerts: number;
+  last?: SessionSummary;
+}
+
 export interface FeedbackConfiguration {
   version: 1;
   hapticsEnabled: boolean;
