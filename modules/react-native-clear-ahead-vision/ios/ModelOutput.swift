@@ -365,6 +365,120 @@ struct DepthMap: Sendable {
         return best
     }
 
+    /// Finds a step up that spans the path: a ledge, a curb, the edge of a
+    /// raised platform. Nothing in its image row sits nearer than the rest, so
+    /// `groundHazard` cannot see it. Each column is read from the feet outward
+    /// instead. Over flat ground inverse depth falls along a straight line
+    /// toward the horizon; raised ground jumps nearer than that line at its
+    /// edge and stays nearer while it goes on receding.
+    func groundStep(within maximumDistance: Double) -> PathObstacleObservation? {
+        let columns = 32
+        let rows = 32
+        // A phone tilted toward the ground shows floor well above mid-height.
+        let region = CGRect(x: 0.18, y: 0.34, width: 0.64, height: 0.65)
+        var sampled = [Double](repeating: .nan, count: columns * rows)
+        for row in 0..<rows {
+            let startY = min(height - 1, Int((Double(region.minY) + Double(row) * Double(region.height) / Double(rows)) * Double(height)))
+            let endY = min(height, max(startY + 1, Int((Double(region.minY) + Double(row + 1) * Double(region.height) / Double(rows)) * Double(height))))
+            for column in 0..<columns {
+                let startX = min(width - 1, Int((Double(region.minX) + Double(column) * Double(region.width) / Double(columns)) * Double(width)))
+                let endX = min(width, max(startX + 1, Int((Double(region.minX) + Double(column + 1) * Double(region.width) / Double(columns)) * Double(width))))
+                var sum = 0.0
+                var count = 0.0
+                for y in startY..<endY {
+                    for x in startX..<endX {
+                        let value = values[y * width + x]
+                        if value.isFinite, value > 0.15 { sum += 1 / value; count += 1 }
+                    }
+                }
+                if count > 0 { sampled[row * columns + column] = sum / count }
+            }
+        }
+        // A median across three columns drops single-cell depth noise.
+        var inverse = sampled
+        for row in 0..<rows {
+            for column in 1..<(columns - 1) {
+                let index = row * columns + column
+                let trio = [sampled[index - 1], sampled[index], sampled[index + 1]].filter(\.isFinite).sorted()
+                inverse[index] = trio.count == 3 ? trio[1] : .nan
+            }
+        }
+
+        // A 6 cm step seen from standing height is about 4.5% nearer than the
+        // ground it rises from. Past 60% it is a tall obstacle, not a step.
+        let raisedRatio = 1.045...1.6
+        var edges = [Int](repeating: -1, count: columns)
+        for column in 0..<columns {
+            // The nearest edge is the one that matters, so start at the feet.
+            search: for edge in stride(from: rows - 5, through: 2, by: -1) {
+                let near = (edge + 1)...min(edge + 8, rows - 1)
+                var sumY = 0.0, sumQ = 0.0, sumYY = 0.0, sumYQ = 0.0
+                for row in near {
+                    let value = inverse[row * columns + column]
+                    guard value.isFinite else { continue search }
+                    sumY += Double(row); sumQ += value
+                    sumYY += Double(row * row); sumYQ += Double(row) * value
+                }
+                let count = Double(near.count)
+                let slope = (count * sumYQ - sumY * sumQ) / (count * sumYY - sumY * sumY)
+                let intercept = (sumQ - slope * sumY) / count
+                // Ground comes nearer toward the feet, and it must really be flat.
+                guard slope > 0 else { continue }
+                for row in near {
+                    let expected = intercept + slope * Double(row)
+                    guard expected > 0, abs(inverse[row * columns + column] / expected - 1) <= 0.02 else { continue search }
+                }
+                // The riser itself may fill a row or two before the raised ground begins.
+                for gap in 0...2 where edge - gap - 2 >= 0 {
+                    let first = edge - gap
+                    var lowest = Double.infinity, highest = 0.0
+                    for row in (first - 2)...first {
+                        let expected = intercept + slope * Double(row)
+                        let ratio = expected > 0 ? inverse[row * columns + column] / expected : .nan
+                        lowest = min(lowest, ratio.isFinite ? ratio : 0)
+                        highest = max(highest, ratio.isFinite ? ratio : .infinity)
+                    }
+                    // Level raised ground is nearer by the same share at every
+                    // row. A wall or a box keeps one depth going up the image
+                    // instead of receding.
+                    guard raisedRatio.contains(lowest), raisedRatio.contains(highest), highest <= lowest * 1.06,
+                          inverse[(first - 2) * columns + column] <= inverse[first * columns + column] * 0.96,
+                          1 / inverse[first * columns + column] <= maximumDistance else { continue }
+                    edges[column] = first
+                    break search
+                }
+            }
+        }
+
+        // One column proves nothing. The edge has to run across a walking
+        // width, at about the same height from column to column.
+        var best: PathObstacleObservation?
+        var start = 0
+        while start < columns {
+            guard edges[start] >= 0 else { start += 1; continue }
+            var end = start
+            while end + 1 < columns, edges[end + 1] >= 0, abs(edges[end + 1] - edges[end]) <= 2 { end += 1 }
+            defer { start = end + 1 }
+            guard end - start + 1 >= 8 else { continue }
+            let run = start...end
+            let distance = Self.percentile(run.map { 1 / inverse[edges[$0] * columns + $0] }, fraction: 0.35)
+            let top = Double(region.minY) + Double(max(run.map { edges[$0] }.min()! - 1, 0)) * Double(region.height) / Double(rows)
+            let bottom = Double(region.minY) + Double(min(run.map { edges[$0] }.max()! + 2, rows)) * Double(region.height) / Double(rows)
+            let observation = PathObstacleObservation(
+                distanceMeters: distance,
+                box: CGRect(
+                    x: Double(region.minX) + Double(start) * Double(region.width) / Double(columns),
+                    y: 1 - bottom,
+                    width: Double(run.count) * Double(region.width) / Double(columns),
+                    height: bottom - top
+                ),
+                coverage: Double(run.count) / Double(columns)
+            )
+            if distance < (best?.distanceMeters ?? .infinity) { best = observation }
+        }
+        return best
+    }
+
     static func percentile(_ values: [Double], fraction: Double) -> Double {
         let sorted = values.sorted()
         let index = min(sorted.count - 1, max(0, Int(Double(sorted.count - 1) * fraction)))

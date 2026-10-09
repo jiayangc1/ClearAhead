@@ -719,10 +719,12 @@ final class ClearAheadEngine {
                 }
             }
         }
+        let groundRange = min(configuration.warningDistanceMeters, GroundHazardTracker.detectionRangeMeters)
+        // A step is read from how the ground recedes, and the seam where
+        // LiDAR is merged into the model's depth would look like one.
         let groundEvent = groundHazardTracker.update(
-            depthMap.groundHazard(
-                within: min(configuration.warningDistanceMeters, GroundHazardTracker.detectionRangeMeters)
-            ),
+            [depthMap.groundHazard(within: groundRange), (lidarMap ?? calibrated).groundStep(within: groundRange)]
+                .compactMap { $0 }.min { $0.distanceMeters < $1.distanceMeters },
             now: now,
             cameraStable: currentRotationRate() < 0.9
         )
