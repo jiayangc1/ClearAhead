@@ -9,6 +9,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
+  var launchOptions: [UIApplication.LaunchOptionsKey: Any]?
 
   func application(
     _ application: UIApplication,
@@ -25,15 +26,40 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     // whenever Clear Ahead is in the foreground.
     application.isIdleTimerDisabled = true
 
-    window = UIWindow(frame: UIScreen.main.bounds)
+    self.launchOptions = launchOptions
+
+    return true
+  }
+}
+
+// UIKit requires the scene lifecycle, so the window is created once the
+// scene connects rather than at launch.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    guard
+      let windowScene = scene as? UIWindowScene,
+      let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+      let factory = appDelegate.reactNativeFactory
+    else {
+      return
+    }
+
+    let window = UIWindow(windowScene: windowScene)
+    self.window = window
+    // Libraries still look the window up on the app delegate.
+    appDelegate.window = window
 
     factory.startReactNative(
       withModuleName: "ClearAhead",
       in: window,
-      launchOptions: launchOptions
+      launchOptions: appDelegate.launchOptions
     )
-
-    return true
   }
 }
 
