@@ -310,8 +310,10 @@ struct PathCueTracker {
         if steady {
             missed = false
             distance = shape?.endDistanceMeters
-        } else if current != nil, !missed {
-            // One frame may disagree. Two start over.
+        } else if current != nil, !missed, reading == nil || reading == current {
+            // One frame may fail to see it. Two start over, and so does a
+            // frame that sees something else: left and right taking turns is
+            // not a bend either way.
             missed = true
             return nil
         } else {
