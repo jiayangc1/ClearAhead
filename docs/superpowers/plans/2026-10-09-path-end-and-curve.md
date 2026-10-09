@@ -269,9 +269,10 @@ enum WalkablePath {
             for row in (last.row - 4)..<last.row {
                 for column in last.left...last.right where similar[row * columns + column] { alike += 1 }
             }
-            // Other ground lies past the stop, right across the path. A path
-            // that only thins to a point is running out of view instead.
-            let stopsAcross = alike * 4 < last.width * 4 && last.width * 2 >= nearer.width
+            // Under a quarter of the four rows past the stop still look like
+            // path. A path that only thins to a point is running out of view
+            // instead.
+            let stopsAcross = alike < last.width && last.width * 2 >= nearer.width
             // Ground keeps getting farther up the image. A wall or a parked
             // car stays at one depth, and the obstacle checks speak for those.
             if stopsAcross,
@@ -304,11 +305,12 @@ enum WalkablePath {
             // How far a row's centre sits from where the near path was heading.
             func drift(_ run: Run) -> Double { run.center - (intercept + slope * Double(run.row)) }
             let far = framed.suffix(framed.count / 2)
-            let final = drift(top)
-            let agreeing = far.filter { drift($0) * final > 0 }.count
+            let endDrift = drift(top)
+            let agreeing = far.filter { drift($0) * endDrift > 0 }.count
             let limit = max(3, Double(top.width) * 0.75)
-            if abs(final) > limit, agreeing * 5 >= far.count * 4, let first = far.first, abs(final) >= abs(drift(first)) {
-                shape.bend = final > 0 ? .right : .left
+            if abs(endDrift) > limit, agreeing * 5 >= far.count * 4, let first = far.first,
+               abs(endDrift) >= abs(drift(first)) {
+                shape.bend = endDrift > 0 ? .right : .left
             }
         }
         return shape.endDistanceMeters == nil && shape.bend == nil ? nil : shape
