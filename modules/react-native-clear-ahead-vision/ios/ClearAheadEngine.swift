@@ -515,9 +515,13 @@ final class ClearAheadEngine {
         ])
         let freshEvents = sources.map(\.event)
         // Unnamed surfaces keep their tones and outlines, but speech names one
-        // only when it is on a collision course. Ranking speech separately lets
-        // a named object be announced while a nearer wall holds the status card.
-        let spokenEvents = sources.filter { !$0.isSurface || $0.event.collisionRisk != .none }.map(\.event)
+        // only when it is on a collision course. A surface that is merely close
+        // carries caution without a time to collision, so it stays silent.
+        // Ranking speech separately lets a named object be announced while a
+        // nearer wall holds the status card.
+        let spokenEvents = sources.filter {
+            !$0.isSurface || ($0.event.collisionRisk != .none && $0.event.timeToCollisionSeconds != nil)
+        }.map(\.event)
         if let spoken = speechPrioritizer.select(
             from: spokenEvents,
             configuration: currentConfiguration,

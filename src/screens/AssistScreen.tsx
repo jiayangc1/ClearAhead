@@ -171,9 +171,11 @@ export function AssistScreen({
       ClearAheadModule.onEvent(payload => {
         setEvent(payload);
         // Unnamed surfaces stay on the card and in the tones; VoiceOver names
-        // one only when it is on a collision course.
+        // one only when it is on a collision course. A surface that is merely
+        // close carries caution without a time to collision.
         const quietSurface =
-          payload.label === 'surface' && payload.collisionRisk === 'none';
+          payload.label === 'surface' &&
+          (payload.collisionRisk === 'none' || payload.timeToCollisionSeconds == null);
         if (!quietSurface && announcements.current.event(payload, Date.now() / 1000)) {
           AccessibilityInfo.announceForAccessibilityWithOptions(describeEvent(payload), {
             queue: payload.collisionRisk !== 'imminent' || announcedRisk.current === 'imminent',
