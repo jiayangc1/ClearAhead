@@ -94,7 +94,7 @@ final class SpatialAudio {
         timer.resume()
     }
 
-    func stop() {
+    func invalidate() {
         timer?.cancel()
         timer = nil
         headphones.stopDeviceMotionUpdates()
@@ -104,6 +104,10 @@ final class SpatialAudio {
         motionLock.unlock()
         alignment = nil
         speechActive = false
+    }
+
+    func stop() {
+        invalidate()
         for voice in voices {
             voice.player.stop()
             voice.id = nil
@@ -214,8 +218,14 @@ final class SpatialAudio {
             voice.buffer = voice.buffer ?? buffer(kind: voice.kind, slot: slot)
             if voice.id != nil, let buffer = voice.buffer {
                 voice.player.scheduleBuffer(buffer, at: nil, options: .loops)
-                voice.player.play()
             }
+        }
+    }
+
+    func resume() {
+        guard engine.isRunning else { return }
+        for voice in voices where voice.id != nil && voice.buffer != nil && !voice.player.isPlaying {
+            voice.player.play()
         }
     }
 
