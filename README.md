@@ -4,7 +4,7 @@
 
 <h1 align="center">Clear Ahead</h1>
 
-<p align="center">Hear what's nearby. Feel what needs attention.</p>
+<p align="center"><i>Because awareness shouldn't depend on sight alone.</i></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/iOS-17%2B-black" alt="iOS 17 or newer" />
