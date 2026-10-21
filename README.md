@@ -1,76 +1,117 @@
-# Clear Ahead
+<p align="center">
+  <img src="assets/clear-ahead-logo.png" alt="Clear Ahead logo" width="128" />
+</p>
 
-Clear Ahead is an iPhone-only assistive vision prototype. It continuously
-represents visible nearby objects and unnamed surfaces with continuous spatial
-tones, visible depth contours, urgency vibrations, and short speech.
+<h1 align="center">Clear Ahead</h1>
 
-> Clear Ahead is experimental awareness support. It can miss or misjudge
-> hazards and does not replace a cane, guide dog, mobility training, or personal
-> judgment.
+<p align="center">Hear what's nearby. Feel what needs attention.</p>
 
-## What is implemented
+<p align="center">
+  <img src="https://img.shields.io/badge/iOS-17%2B-black" alt="iOS 17 or newer" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
+</p>
 
-- Bare React Native 0.87 and TypeScript interface with Hermes/New Architecture
-- VoiceOver-labelled onboarding, assist mode, and settings
-- Depth contours across the visible frame, with approximate distance labels
-- Persistent, independent haptic, directional-audio, and speech preferences
-- VisionCamera 5 frame output connected to a typed Nitro Swift module
-- On-device Core ML object detection and metric-depth estimates
-- Stable tracking for named people, vehicles, and furniture
-- Depth-connected surfaces throughout the frame, including walls and unnamed geometry
-- Up to six simultaneous sources, with stable selection based on visibility, distance, and collision risk
-- Urgency-only Core Haptics, continuous AVAudioEnvironmentNode sources, and speech ducking
-- Ground fitting with camera intrinsics, gravity, and optional measured camera-height calibration
-- Speech enabled by default; saved speech opt-outs remain respected
-- Startup progress from loaded model sizes and size-weighted download bytes
-- Low-light, covered-camera, and thermal-pressure reporting
-- Responsive and detailed processing modes, with an optional processed-frame-rate display
-- No account, backend, analytics, frame storage, or camera upload
+Clear Ahead is an experimental iPhone app that turns the scene in front of you
+into spatial sound, short spoken cues, and vibrations. It recognizes nearby
+objects and surfaces on the phone, with no account, backend, or camera uploads.
 
-## Requirements
+> **Experimental awareness support.** Clear Ahead can miss or misjudge hazards.
+> It does not replace a cane, guide dog, mobility training, or personal judgment.
 
-- iPhone 12 or newer is the physical-device benchmarking target. Installation
-  requires iOS 17 on an arm64 iPhone; older compatible iPhones are not hardware-gated
-  and their performance has not been validated.
-- iOS 17 or newer
-- Full Xcode installation with iOS 17 SDK
-- Node.js 22.11 or newer
-- Ruby and Bundler for CocoaPods
+## A scene you can hear
 
-TypeScript, Node tests, and Nitro code generation can run without Xcode.
-An iOS build and XCTest require macOS with full Xcode. Instruments profiling,
-camera, haptic, audio interruption, and Bluetooth verification require a physical iPhone.
+- **Continuous spatial sound.** Up to six nearby objects and surfaces have their
+  own tones. Tones get louder as you move closer; people and vehicles use
+  distinct registers. Compatible headphones support head tracking.
+- **Warnings you can feel.** Vibrations signal caution or imminent collision
+  risk. Ordinary scenery does not trigger vibration.
+- **Short spoken cues.** Hear warnings and choose whether voice also names
+  everything nearby. Voice, sound, and vibration have separate controls.
+- **More than object boxes.** Depth contours represent walls and unnamed
+  surfaces as well as recognized objects. Optional outlines and a color depth
+  view show what the app is seeing.
+- **Depth with or without LiDAR.** On-device YOLO26 models estimate depth;
+  supported iPhones can also use rear LiDAR for close-range measurements.
+- **Made for the phone.** VoiceOver labels, saved preferences, faster or more
+  detailed processing, and bundled Nano models. Larger models are optional
+  downloads in Settings.
 
-## Setup
+Camera frames are processed on-device and are not saved or uploaded. There is
+no analytics service. The bundled models let you start without a model download;
+optional larger models require internet access and approval on metered connections.
+
+## Build and run
+
+You'll need **macOS with full Xcode and the iOS 17 SDK**, **Node.js 22.11+**,
+and **Ruby with Bundler**. Run the app on a physical arm64 iPhone with iOS 17+.
+iPhone 12 or newer is the benchmarking target; older compatible devices are not
+blocked, but their performance has not been validated. LiDAR is optional.
 
 ```sh
-npm install
-python3 -m pip install -r scripts/model-requirements.txt
-npm run models
+git clone https://github.com/jiayangc1/cac.git
+cd cac
+npm ci
 bundle install
 cd ios && bundle exec pod install && cd ..
 npm start
 ```
 
-Open `ios/ClearAhead.xcworkspace` in Xcode and run on a physical iPhone.
+Open `ios/ClearAhead.xcworkspace` in Xcode, select your signing team and connected
+iPhone, then build and run. Keep Metro running in the terminal.
 
-Install the pinned Python exporter first. `npm run models` then downloads the
-official weights, verifies GitHub's published SHA-256 digests, and installs:
+The Nano detector and depth packages are already bundled in the repository.
+To reproduce them, install the pinned Python exporter and run:
 
-- YOLO26 nano INT8 Core ML for selected COCO object classes
-- YOLO26 nano depth INT8 Core ML for dense metric depth
+```sh
+python3 -m pip install -r scripts/model-requirements.txt
+npm run models
+```
 
-The Nano model packages are committed distributable app resources and bundled
-with the app. `scripts/download-models.sh` reproduces them. Settings lets users
-download Small, Medium, Large and Extra Large detector/depth pairs from the
-official [Ultralytics Core ML release](https://github.com/ultralytics/yolo-ios-app/releases/tag/v8.3.0).
-Cellular or metered downloads require approval. Downloads use checksums pinned
-in the app and install only after both models load successfully. Other variants
-are stored on the user's device; only Nano binaries belong in this repository.
-Source and license details are documented in
-`modules/react-native-clear-ahead-vision/models/README.md`.
+See [model setup and provenance](modules/react-native-clear-ahead-vision/models/README.md)
+for export details, checksums, optional model downloads, and licensing.
 
-## Checks
+## First run
+
+1. Complete onboarding, choose whether the phone is in your hand or on your
+   chest, and allow camera access.
+2. In **Settings**, choose Voice, Sounds, and Vibration. Set your warning range
+   and sensitivity, and use headphones for directional listening.
+3. For calibrated model depth and audio placement, open **Calibration** in
+   Settings. Enter measured camera and ear heights above level ground, plus
+   the camera's forward and right offsets from the midpoint between your ears.
+   Keep the phone in that position during use.
+4. Tap **Start** with the rear camera facing ahead. For head tracking, begin
+   looking along the upright rear camera. Restart Assist to recenter after
+   repositioning the phone or reconnecting headphones.
+5. Tap **Stop** to end the session. Assist pauses when the app leaves the
+   foreground.
+
+Without measured calibration, model distances remain approximate. Speaker
+output cannot reliably convey elevation or front/back direction; speech helps
+identify what is nearby.
+
+## Know the limits
+
+Clear Ahead only represents the rear camera's current view. It has no persistent
+map of what's behind you. Small or thin obstacles can be missed, touching surfaces
+can merge, and model depth can be wrong. Stair and drop-off recognition is not
+guaranteed. A clear scene is not proof that walking is safe.
+
+Poor light, a covered camera, stale frames, or unavailable depth can interrupt
+scene feedback. Head tracking depends on compatible hardware and motion access;
+otherwise audio falls back to camera-relative direction. Thermal pressure can
+reduce processing frequency.
+
+Camera accuracy, headphone localization, haptics, and camera-to-cue latency still
+need physical-device validation. The 150 ms median urgent-event latency target is
+a goal, not a measured result. See the [device acceptance checks](docs/development.md#focused-verification-and-physical-acceptance)
+before physical trials.
+
+## Development
+
+The app uses React Native and TypeScript, with VisionCamera feeding a Swift
+module through Nitro. Core ML inference, tracking, spatial audio, speech, and
+haptics run natively; camera frames never enter React state.
 
 ```sh
 npm run typecheck
@@ -79,194 +120,22 @@ npm test
 npm --prefix modules/react-native-clear-ahead-vision run typecheck
 ```
 
-The JavaScript/domain suite uses the native Node test runner, not Jest. Native
-XCTest coverage lives in the ClearAheadVision pod test spec and runs with the
-full iOS toolchain.
-
-Application checks run on pull requests and main pushes. The iOS job installs
-the pod's `Tests` test spec, builds the app, and selects the generated native
-test scheme with `python3 scripts/check-ios.py`. Re-run `bundle exec pod install`
-after changing native sources or test specs. See [audit dispositions](docs/bug-audit.md)
-for verification limits and remaining physical-device validation.
-
-## Architecture
-
-```text
-VisionCamera preview + bounded frame output
-                   |
-            Nitro JSI boundary
-                   |
-    Swift bounded scheduler (frames never enter React state)
-        |               |                     |
-  object detector    metric depth        quality checks
-        \               |                    /
-       named tracks + visible depth surfaces + ground fit
-                          |
-             six-source selector + risk/speech priority
-                       |
-              native feedback engine
-              /         |          \
-         Core Haptics  spatial tones  speech
-                       |
-          throttled status/overlay events
-                       |
-              React Native interface
-```
-
-The detector and depth estimator share a bounded frame schedule. New
-frames are dropped while the native processor is busy, preventing an unbounded
-camera queue. Serious thermal pressure reduces model frequency while retaining
-the light quality checks and existing feedback path.
-
-Responsive mode requests smaller frame buffers and checks depth less often to
-favor object updates. Detailed mode requests larger buffers and checks depth
-more often. The on-screen FPS value counts frames accepted for processing, not
-the camera capture rate; object and depth rates are shown separately. The home
-screen displays the last live assist-session reading. Device profiling is still
-needed to establish the actual rate and detection tradeoffs on an iPhone 12.
-
-## Live scene and audio
-
-The matched detector/depth frame supplies visible geometry. A coarse 32 × 48
-connected depth grid makes continuous surfaces, rather than a collection of
-warning boxes. Semantic detections annotate depth-supported regions; they never
-create hidden geometry. Foreground overlap and insufficient depth support suppress
-occluded labels. Contours retain holes and match the camera's aspect-fill crop.
-They are depth estimates, not instance segmentation masks. Thin or small objects
-can be missed; ambiguous touching surfaces can merge. An extended connected wall
-uses one source. The camera covers only its current rear-camera field of view.
-There is no persistent map or remembered geometry behind the user.
-
-Up to six sources are selected by distance, visibility, confidence, and collision
-risk. Existing visible identities receive selection hysteresis. Missing candidates
-leave selection immediately and their tones fade. New urgent sources can displace
-ordinary scenery. Depth failures, stale frames, covered cameras, and incoherent
-near geometry report **scene unavailable**, separately from **scene clear**. Clear
-means no selected nearby geometry in this camera view, not proof that walking is safe.
-
-Six mono AVAudioPlayerNode loops feed AVAudioEnvironmentNode with automatic route
-rendering. Most surfaces share a soft harmonic tone; people and vehicles use
-distinct registers. Source slots have slightly different pitches to separate
-simultaneous tones. Distance changes loudness, not repetition rate or urgency
-rhythm. Slow modulation softens sustained tones. Gain and positions interpolate
-at 50 Hz; appearance/disappearance fade. The sum of source gains is at most 0.21
-before the 0.8 mixer volume. This bounds source levels, not physical
-headphone SPL. Speech volume is 0.75 and ducks tones to 20%; VoiceOver also receives quieter tones.
-The existing continuous-audio opt-out now disables scene tones. Speech and
-urgency haptics remain independently selectable.
-
-Apple's [AVAudioEnvironmentNode documentation](https://developer.apple.com/documentation/avfaudio/avaudioenvironmentnode)
-specifies mono inputs for 3D spatialization. This uses Apple's binaural rendering,
-not ordinary stereo panning presented as full 3D. Compatible headphones can carry
-direction, elevation, and front/back of **currently observed** geometry relative
-to a turning head. Generic HRTFs can still cause perceptual front/back ambiguity.
-Speaker/receiver output cannot reliably convey height or front/back; use speech
-for identification/direction. Geometry/motion missing means a camera-relative
-horizontal fallback, explicitly shown as limited in the interface.
-
-[CMHeadphoneMotionManager](https://developer.apple.com/documentation/coremotion/cmheadphonemotionmanager)
-is available from iOS 14, requires NSMotionUsageDescription, and must be checked
-for availability. The app manually combines phone and headphone attitudes, converts
-headphone axes to the audio coordinate system, and aligns arbitrary yaw origins.
-Start looking along the upright rear camera. Restart Assist after repositioning
-the phone or to recenter. Motion denial, unavailable motion, stale updates, and
-unsupported headphones disable head tracking. Automatic
-[isListenerHeadTrackingEnabled](https://developer.apple.com/documentation/avfaudio/avaudioenvironmentnode/islistenerheadtrackingenabled)
-requires Apple's Head Pose entitlement; this app does not enable that entitlement
-or automatic API. Personalized spatial-audio profile access is also not configured.
-Manual motion tracking does not depend on those capabilities. Reconnecting an
-output restarts motion and requires the same forward-facing calibration.
-
-## Distance normalization and urgency
-
-The existing YOLO26 monocular model produces metric-trained depth **estimates**.
-Its metric training is a prior, not an independent measurement of absolute scale.
-[CaneEye's Devpost](https://devpost.com/software/cane-t7v4oi) describes ground fitting
-to address frame rescaling, but does not supply a calibrated algorithm. This app
-uses robust lower-frame plane fitting with delivered camera intrinsics and fresh
-gravity. A plane alone never establishes meters. With no measured camera height,
-plane fitting only checks geometric consistency and excludes supported ground;
-model distance remains explicitly approximate.
-
-In Settings / Phone position, measure camera height and the midpoint-of-ears
-height above level ground. Measure camera forward/right offsets from that midpoint.
-Zero heights mean uncalibrated; zero offsets mean vertically aligned camera/ears.
-Keep the phone position steady, especially in handheld mode. Camera height is the
-independent metric reference: its ratio to fitted plane height corrects depth scale.
-Ear height and horizontal offsets shift source positions to the center of hearing.
-Absolute camera-to-ear pose cannot be inferred from IMU data alone. Incorrect
-measurements, repositioning, model depth error, or camera calibration error affect
-both distance and height. Camera intrinsics delivery is enabled and video
-stabilization disabled; if intrinsics are unavailable, no ground normalization or
-confident 3D geometry is substituted from a guessed field of view.
-
-Fits need broad lower-frame support, at least 65% inliers, plausible camera height,
-three consistent observations, and a normal within 12 degrees of gravity-up.
-Only near-level fits within 5 degrees may adjust scale; corrections are limited
-to 0.01 per depth frame and a 0.65–1.5 calibration ratio. Slopes do not rescale the
-scene. Missing ground, stairs, poor support, rapid phone movement, or mismatch
-invalidate the current plane. The last scale is held and labeled as such rather
-than abruptly rescaling. Never replace a failed fit with confident ground distances.
-Stair and drop-off recognition are not guaranteed by this normalization.
-
-CollisionTracker and the existing path/ground hazard checks still determine risk.
-Scene presence alone does not vibrate. Caution uses a spaced triple vibration at
-most once per 1.5 seconds; imminent risk uses four sharper vibrations at most once
-per 0.45 seconds. Escalation preempts the cooldown. Camera rotation still suppresses
-motion-derived collision predictions. Collision corridor checks remain an image
-corridor, not a calibrated physical walking trajectory.
-
-## Focused verification and physical acceptance
-
-JS tests cover preference migration, calibration bounds/native forwarding, and
-aspect-fill projection. TypeScript and ESLint cover the bridge and UI integration.
-Native XCTest fixtures in SpatialSceneTests and AudioCueTests cover simultaneous
-wall/person/low-chair sources, hidden-chair suppression, occlusion holes, wall
-consolidation, stable selection, urgent displacement, camera/head/ear transforms,
-plane versus metric calibration, missing ground/slopes/stairs/tilt, waveform/gain
-bounds, and urgency-only haptics. Existing risk/session/model tests remain included.
-Run the native suite on macOS after regenerating Pods for the new source files:
+The JavaScript tests use Node's native test runner. These checks can run without
+Xcode. To build iOS and run native XCTest coverage on macOS:
 
 ```sh
 cd ios && bundle exec pod install && cd ..
 python3 scripts/check-ios.py
 ```
 
-Windows cannot build AVFoundation/CoreMotion or run these XCTest checks. Native
-compilation and tests remain required before physical trials. Simulator checks
-cannot validate camera depth accuracy, headphone motion, route rendering, or haptics.
+Application checks run on pull requests and pushes to main. For more detail:
 
-Physical iPhone/AirPods acceptance:
+- [Architecture, spatial audio, calibration, and device validation](docs/development.md)
+- [Native module and interface generation](modules/react-native-clear-ahead-vision/README.md)
+- [Audit findings and verification limits](docs/bug-audit.md)
 
-1. Place a right wall, ahead-left person, and low chair in view. Confirm three
-   sustained, distinguishable sources; chair lower than person. Walk closer and
-   confirm loudness rises without faster repetition or scenery vibrations.
-2. Put the chair behind a table. Confirm only the visible table remains represented;
-   move to reveal the chair and confirm smooth appearance. Check extended walls,
-   partially occluded objects, crowds over six sources, and small/thin obstacles.
-3. Calibrate camera/ear pose. Turn head left/right, pitch and roll while the phone
-   stays fixed, then turn both together. Check axes and front/back against actual
-   object locations. Test reconnects, unavailable/denied motion, wired headphones,
-   speaker output, VoiceOver, and speech intelligibility. Generic HRTF localization
-   and manual attitude drift need listener testing; do not claim this passed from
-   mathematical transform tests.
-4. Compare distance to tape measurements on level ground, slopes, stairs, floor
-   absence, camera tilt, lens changes, and deliberate bad calibration. Check slow
-   bounded correction and explicit degraded states without fictitious meters.
-5. Approach an obstacle under controlled supervision. Verify caution/imminent
-   haptic escalation and immediate stop/background/interruption silence. Measure
-   camera-to-audio latency and thermal/FPS performance on the oldest target iPhone.
-6. Test cold/warm startup, cached models, download progress, cancellation, offline
-   failure and recovery. Bar advancement must follow actual loads/received bytes;
-   100% appears only after validation. No model download is needed to use bundled Nano.
+## License
 
-Ultralytics software and YOLO26 weights are AGPL-3.0. This repository and any
-distributed app containing those models must satisfy the corresponding-source
-requirements; use an Ultralytics Enterprise license for incompatible
-distribution terms.
-
-The initial physical-device performance target is median urgent-event
-camera-to-cue latency below 150 ms with no growing frame backlog. The in-app
-processing metric starts when native frame processing begins and stops before
-feedback playback. Measure camera-to-cue latency separately on the oldest
-supported iPhone before any field trial.
+[AGPL-3.0-only](LICENSE). YOLO26 models also use AGPL-3.0; see the
+[model licensing notes](modules/react-native-clear-ahead-vision/models/README.md)
+for source and distribution requirements.
