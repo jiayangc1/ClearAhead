@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Clear Ahead App Store Screens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=block" rel="stylesheet">
+<style>
+  /* Colors mirror src/config.ts so the phone screens match the app. */
+  :root {
+    --background: #FAF7F2;
+    --surface: #FFFFFF;
+    --surface-raised: #EFEDF9;
+    --ink: #2B2838;
+    --muted: #6B6779;
+    --line: #E7E2EC;
+    --accent: #BCC8F9;
+    --accent-strong: #8C9CEB;
+    --accent-ink: #4A53A6;
+    --mint: #C5E9D7;
+    --mint-ink: #2C6549;
+    --peach: #FBDDBB;
+    --peach-ink: #8A5210;
+    --coral: #F8C1BC;
+    --coral-ink: #9C2F2F;
+    --glass: rgba(250, 247, 242, 0.95);
+
+    --navy: #1D2035;
+    --headline-accent: #B4C0FA;
+    --frame: #BCC8F9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #0E0F1A; }
+  body { display: flex; flex-wrap: wrap; gap: 40px; padding: 40px; }
+  body.single { padding: 0; gap: 0; }
+  body.single .slide:not(.active) { display: none; }
+
+  .slide {
+    position: relative;
+    width: 1320px;
+    height: 2868px;
+    overflow: hidden;
+    background: var(--navy);
+    flex: none;
+  }
+  .glow {
+    position: absolute;
+    width: 1400px; height: 1400px;
+    right: -520px; bottom: -300px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(140, 156, 235, 0.22), rgba(140, 156, 235, 0) 65%);
+  }
+  .headline {
+    position: absolute;
+    left: 110px; top: 210px;
+    width: 1120px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 132px;
+    line-height: 1.1;
+    letter-spacing: -2px;
+    color: #FFFFFF;
+  }
+  .headline em { font-style: normal; color: var(--headline-accent); }
+
+  /* The phone is laid out in iPhone points and scaled up as one piece. */
+  .phone {
+    position: absolute;
+    left: 120px; top: 880px;
+    width: 423px; height: 882px;
+    padding: 12px;
+    border-radius: 68px;
+    background: var(--frame);
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.35) inset, 0 60px 120px rgba(0,0,0,0.45);
+    transform-origin: top left;
+    transform: rotate(-7deg) scale(2.25);
+  }
+  .screen {
+    position: relative;
+    width: 399px; height: 858px;
+    border-radius: 56px;
+    border: 3px solid #12131C;
+    overflow: hidden;
+    background: var(--background);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .screen-inner { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .island {
+    position: absolute; z-index: 10;
+    top: 11px; left: 50%;
+    width: 124px; height: 36px;
+    margin-left: -62px;
+    border-radius: 18px;
+    background: #000;
+  }
+  .status-bar {
+    position: relative; z-index: 9;
+    height: 54px; flex: none;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 34px 0 50px;
+    font-size: 17px; font-weight: 600; letter-spacing: -0.2px;
+  }
+  .status-bar.light { color: #FFFFFF; }
+  .status-icons { display: flex; align-items: center; gap: 6px; }
+  .status-icons svg { display: block; fill: currentColor; }
+  .home-indicator {
+    position: absolute; z-index: 9;
+    bottom: 8px; left: 50%;
+    width: 140px; height: 5px; margin-left: -70px;
+    border-radius: 3px;
+    background: var(--ink);
+  }
+  .home-indicator.light { background: #FFFFFF; }
+  .icon { display: block; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Assist screen */
+  .camera { position: absolute; inset: 0; background-size: cover; background-position: center; }
+  .field { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .field-label {
+    position: absolute;
+    font-size: 12px; font-weight: 600; color: var(--ink);
+    background: rgba(250, 247, 242, 0.9);
+    padding: 4px 8px; border-radius: 10px;
+    white-space: nowrap;
+  }
+  .assist { position: absolute; inset: 54px 16px 34px; display: flex; flex-direction: column; padding-top: 10px; }
+  .top-row { display: flex; align-items: center; gap: 10px; }
+  .status-pill {
+    flex: 1; min-height: 48px;
+    border-radius: 24px;
+    background: var(--glass);
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px;
+    font-size: 15px; line-height: 20px; font-weight: 600;
+  }
+  .status-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--mint-ink); flex: none; }
+  .round-button {
+    width: 48px; height: 48px; border-radius: 24px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent); color: var(--ink);
+  }
+  .spacer { flex: 1; }
+  .event-card {
+    min-height: 112px;
+    display: flex; flex-direction: column; justify-content: center;
+    background: var(--glass);
+    border-radius: 28px;
+    padding: 18px 24px;
+    margin-bottom: 12px;
+  }
+  .event-card.clear { background: var(--mint); }
+  .event-card.caution { background: var(--peach); }
+  .event-card.critical { background: var(--coral); }
+  .event-title { font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.4px; }
+  .event-title.urgent { font-size: 44px; line-height: 50px; letter-spacing: -1px; }
+  .event-detail { font-size: 18px; line-height: 24px; font-weight: 500; margin-top: 2px; }
+  .primary-button {
+    min-height: 64px; border-radius: 32px;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px; line-height: 25px; font-weight: 700;
+  }
+  .primary-button.destructive { background: var(--coral); }
+
+  /* Home screen */
+  .top-bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px 0; }
+  .logo { width: 40px; height: 35.4px; background: url(logo.png) center / contain no-repeat; }
+  .settings-button { width: 48px; height: 48px; border-radius: 24px; background: var(--surface-raised); display: flex; align-items: center; justify-content: center; }
+  .home-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 28px 16px; }
+  .home-title { font-size: 48px; line-height: 54px; font-weight: 700; letter-spacing: -1.4px; }
+  .start-button {
+    margin: 44px 0 28px;
+    width: 220px; height: 220px; border-radius: 110px;
+    background: var(--accent);
+    border: 10px solid var(--surface-raised);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; font-weight: 700; letter-spacing: -0.4px;
+  }
+  .stats-box { margin: 0 20px 50px; padding: 16px; border-radius: 28px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; }
+  .stats-row { display: flex; gap: 10px; }
+  .stat-tile { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 14px 6px; border-radius: 18px; background: var(--surface-raised); }
+  .stat-value { font-size: 24px; line-height: 30px; font-weight: 700; letter-spacing: -0.4px; font-variant-numeric: tabular-nums; }
+  .stat-label { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .last-walk { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--muted); text-align: center; }
+
+  /* Onboarding */
+  .ob-top { display: flex; align-items: center; gap: 12px; padding: 12px 20px 8px; }
+  .ob-slot { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  .progress { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .progress-track { display: flex; gap: 6px; }
+  .progress-track span { flex: 1; height: 3px; border-radius: 2px; background: var(--accent-strong); }
+  .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: var(--muted); }
+  .ob-content { flex: 1; padding: 24px 20px; display: flex; flex-direction: column; gap: 20px; }
+  .ob-title { font-size: 32px; line-height: 38px; font-weight: 700; letter-spacing: -0.8px; }
+  .ob-body { font-size: 18px; line-height: 27px; color: var(--muted); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+  .panel.row { flex-direction: row; align-items: center; justify-content: space-between; }
+  .panel-label { font-size: 15px; font-weight: 600; color: var(--muted); }
+  .ready { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 700; }
+  .ready i { width: 8px; height: 8px; border-radius: 4px; background: var(--mint-ink); }
+  .ob-footer { padding: 12px 20px 46px; }
+
+  /* Settings */
+  .set-header { display: flex; align-items: center; gap: 12px; padding: 8px 20px 12px; }
+  .back-button { width: 48px; height: 48px; border-radius: 24px; background: var(--surface-raised); display: flex; align-items: center; justify-content: center; }
+  .set-title { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.6px; }
+  .set-content { padding: 0 20px; display: flex; flex-direction: column; gap: 14px; }
+  .card { background: var(--surface); border-radius: 24px; padding: 8px 18px; }
+  .row { min-height: 60px; display: flex; align-items: center; gap: 16px; padding: 10px 0; }
+  .row-copy { flex: 1; }
+  .row-label { font-size: 17px; line-height: 22px; font-weight: 600; }
+  .row-description { font-size: 14px; line-height: 19px; color: var(--muted); margin-top: 2px; }
+  .switch { width: 51px; height: 31px; border-radius: 16px; background: var(--accent-strong); position: relative; flex: none; }
+  .switch::after { content: ''; position: absolute; top: 2px; right: 2px; width: 27px; height: 27px; border-radius: 14px; background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.15); }
+  .segmented-row { padding: 10px 0; display: flex; flex-direction: column; gap: 10px; }
+  .segments { display: flex; gap: 4px; padding: 4px; border-radius: 16px; background: var(--surface-raised); }
+  .segment { flex: 1; min-height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 0 8px; font-size: 15px; font-weight: 600; color: var(--muted); text-align: center; }
+  .segment.selected { background: var(--accent); color: var(--ink); font-weight: 700; }
+  .adjustable { min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; }
+  .adjustable-value { font-size: 15px; font-weight: 600; color: var(--accent-ink); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stepper { display: flex; gap: 8px; }
+  .step { width: 48px; height: 48px; border-radius: 24px; background: var(--surface-raised); display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 500; }
+  .section { background: var(--surface); border-radius: 24px; padding: 0 18px; min-height: 60px; display: flex; align-items: center; justify-content: space-between; font-size: 17px; font-weight: 600; color: var(--ink); }
+  .section .icon { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<template id="status-icons">
+  <span class="status-icons">
+    <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+    <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 2.6c2.2 0 4.2.9 5.7 2.3l1.2-1.2C13.1 1.9 10.7.9 8 .9S2.9 1.9 1.1 3.7l1.2 1.2C3.8 3.5 5.8 2.6 8 2.6zm0 3.4c1.3 0 2.4.5 3.3 1.3l1.2-1.2C11.3 5 9.7 4.3 8 4.3S4.7 5 3.5 6.1l1.2 1.2C5.6 6.5 6.7 6 8 6zm0 3.3c-.5 0-1 .2-1.3.5L8 11.1l1.3-1.3c-.3-.3-.8-.5-1.3-.5z"/></svg>
+    <svg width="27" height="13" viewBox="0 0 27 13"><rect x="0.5" y="0.5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity="0.4"/><rect x="2" y="2" width="20" height="9" rx="2.5"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" opacity="0.4"/></svg>
+  </span>
+</template>
+
+<!-- 1 · Hero: live awareness outdoors -->
+<section class="slide" data-name="01-ahead">
+  <div class="glow"></div>
+  <h1 class="headline">Know what's <em>ahead</em></h1>
+  <div class="phone"><div class="screen">
+    <div class="camera" style="background-image:url(camera/street.jpg)"></div>
+    <svg class="field" viewBox="0 0 399 858" preserveAspectRatio="none">
+      <path d="M50 450 L66 428 L108 414 L150 410 L196 414 L240 426 L270 440 L278 462 L268 480 L206 486 L120 486 L60 482 L48 466 Z"
+            fill="#FBDDBB" fill-opacity="0.28" stroke="#FBDDBB" stroke-width="2.5" stroke-linejoin="round"/>
+    </svg>
+    <span class="field-label" style="left:56px; top:380px">car · ~7.8 m</span>
+    <div class="screen-inner">
+      <div class="status-bar light"><span>9:41</span><slot-icons></slot-icons></div>
+    </div>
+    <div class="assist">
+      <div class="top-row">
+        <div class="status-pill"><i class="status-dot"></i>Watching the path</div>
+        <div class="round-button"><svg class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="event-card caution">
+        <div class="event-title urgent">Careful</div>
+        <div class="event-detail">Car on your left · 7.8 m</div>
+      </div>
+      <div class="primary-button destructive">Stop</div>
+    </div>
+    <div class="island"></div>
+    <div class="home-indicator light"></div>
+  </div></div>
+</section>
+
+<!-- 2 · Imminent warning indoors -->
+<section class="slide" data-name="02-stop">
+  <div class="glow"></div>
+  <h1 class="headline">A clear <em>Stop</em> before you bump</h1>
+  <div class="phone"><div class="screen">
+    <div class="camera" style="background-image:url(camera/chair.jpg)"></div>
+    <svg class="field" viewBox="0 0 399 858" preserveAspectRatio="none">
+      <path d="M188 410 L262 408 L266 440 L264 478 L268 520 L266 588 L256 596 L252 548 L206 546 L204 600 L192 600 L190 540 L186 470 Z"
+            fill="#F8C1BC" fill-opacity="0.3" stroke="#F8C1BC" stroke-width="2.5" stroke-linejoin="round"/>
+    </svg>
+    <span class="field-label" style="left:186px; top:380px">chair · ~1.6 m</span>
+    <div class="screen-inner">
+      <div class="status-bar light"><span>9:41</span><slot-icons></slot-icons></div>
+    </div>
+    <div class="assist">
+      <div class="top-row">
+        <div class="status-pill"><i class="status-dot"></i>Watching the path</div>
+        <div class="round-button"><svg class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="event-card critical">
+        <div class="event-title urgent">Stop</div>
+        <div class="event-detail">Chair ahead · 1.6 m</div>
+      </div>
+      <div class="primary-button destructive">Stop</div>
+    </div>
+    <div class="island"></div>
+    <div class="home-indicator light"></div>
+  </div></div>
+</section>
+
+<!-- 3 · Clear path -->
+<section class="slide" data-name="03-clear">
+  <div class="glow"></div>
+  <h1 class="headline">Hear when the path is <em>clear</em></h1>
+  <div class="phone"><div class="screen">
+    <div class="camera" style="background-image:url(camera/hallway.jpg)"></div>
+    <div class="screen-inner">
+      <div class="status-bar light"><span>9:41</span><slot-icons></slot-icons></div>
+    </div>
+    <div class="assist">
+      <div class="top-row">
+        <div class="status-pill"><i class="status-dot"></i>Watching the path</div>
+        <div class="round-button"><svg class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="event-card clear">
+        <div class="event-title">Path clear</div>
+      </div>
+      <div class="primary-button destructive">Stop</div>
+    </div>
+    <div class="island"></div>
+    <div class="home-indicator light"></div>
+  </div></div>
+</section>
+
+<!-- 4 · Home -->
+<section class="slide" data-name="04-start">
+  <div class="glow"></div>
+  <h1 class="headline">Start with <em>one tap</em></h1>
+  <div class="phone"><div class="screen">
+    <div class="screen-inner">
+      <div class="status-bar"><span>9:41</span><slot-icons></slot-icons></div>
+      <div class="top-bar">
+        <div class="logo"></div>
+        <div class="settings-button"><svg class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></div>
+      </div>
+      <div class="home-center">
+        <div class="home-title">Clear Ahead</div>
+        <div class="start-button">Start</div>
+      </div>
+      <div class="stats-box">
+        <div class="stats-row">
+          <div class="stat-tile"><div class="stat-value">24</div><div class="stat-label">Walks</div></div>
+          <div class="stat-tile"><div class="stat-value">3.6 hr</div><div class="stat-label">Time guided</div></div>
+          <div class="stat-tile"><div class="stat-value">58</div><div class="stat-label">Alerts</div></div>
+        </div>
+        <div class="last-walk">Last walk · 18 min · 3 alerts</div>
+      </div>
+    </div>
+    <div class="island"></div>
+    <div class="home-indicator"></div>
+  </div></div>
+</section>
+
+<!-- 5 · Privacy -->
+<section class="slide" data-name="05-private">
+  <div class="glow"></div>
+  <h1 class="headline">Your camera stays <em>on your phone</em></h1>
+  <div class="phone"><div class="screen">
+    <div class="screen-inner">
+      <div class="status-bar"><span>9:41</span><slot-icons></slot-icons></div>
+      <div class="ob-top">
+        <div class="ob-slot"><svg class="icon" width="26" height="26" viewBox="0 0 24 24" stroke-width="2.2"><path d="m15 18-6-6 6-6"/></svg></div>
+        <div class="progress">
+          <div class="progress-track"><span></span><span></span><span></span></div>
+          <div class="eyebrow">STEP 3 OF 3</div>
+        </div>
+      </div>
+      <div class="ob-content">
+        <div class="ob-title">Camera access stays on this phone.</div>
+        <div class="ob-body">Frames are analyzed on-device. Clear Ahead does not save, upload, or share camera images.</div>
+        <div class="panel row">
+          <span class="panel-label">Camera</span>
+          <span class="ready"><i></i>Ready</span>
+        </div>
+      </div>
+      <div class="ob-footer"><div class="primary-button">Finish setup</div></div>
+    </div>
+    <div class="island"></div>
+    <div class="home-indicator"></div>
+  </div></div>
+</section>
+
+<!-- 6 · Settings -->
+<section class="slide" data-name="06-settings">
+  <div class="glow"></div>
+  <h1 class="headline">Voice, sound and touch, <em>your way</em></h1>
+  <div class="phone"><div class="screen">
+    <div class="screen-inner">
+      <div class="status-bar"><span>9:41</span><slot-icons></slot-icons></div>
+      <div class="set-header">
+        <div class="back-button"><svg class="icon" width="26" height="26" viewBox="0 0 24 24" stroke-width="2.2"><path d="m15 18-6-6 6-6"/></svg></div>
+        <div class="set-title">Settings</div>
+      </div>
+      <div class="set-content">
+        <div class="card">
+          <div class="row"><div class="row-copy"><div class="row-label">Voice</div><div class="row-description">Spoken warnings.</div></div><div class="switch"></div></div>
+          <div class="segmented-row">
+            <div class="row-label">Voice says</div>
+            <div class="segments"><div class="segment selected">What is in my way</div><div class="segment">Everything nearby</div></div>
+          </div>
+          <div class="row"><div class="row-copy"><div class="row-label">Sounds</div><div class="row-description">Tones that get louder as things get closer.</div></div><div class="switch"></div></div>
+          <div class="row"><div class="row-copy"><div class="row-label">Vibration</div><div class="row-description">Pulses when something is in your way.</div></div><div class="switch"></div></div>
+        </div>
+        <div class="card">
+          <div class="segmented-row">
+            <div class="row-label">Phone position</div>
+            <div class="segments"><div class="segment selected">In my hand</div><div class="segment">On my chest</div></div>
+          </div>
+          <div class="adjustable">
+            <div class="row-copy"><div class="row-label">Warning range</div><div class="adjustable-value">6.0 meters</div></div>
+            <div class="stepper"><div class="step">−</div><div class="step">+</div></div>
+          </div>
+          <div class="adjustable">
+            <div class="row-copy"><div class="row-label">Sensitivity</div><div class="adjustable-value">65 percent</div></div>
+            <div class="stepper"><div class="step">−</div><div class="step">+</div></div>
+          </div>
+        </div>
+        <div class="section">Sound and vibration<svg class="icon" width="22" height="22" viewBox="0 0 24 24" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg></div>      </div>
+    </div>
+    <div class="island"></div>
+    <div class="home-indicator"></div>
+  </div></div>
+</section>
+
+<script>
+  const icons = document.getElementById('status-icons');
+  document.querySelectorAll('slot-icons').forEach(slot => slot.replaceWith(icons.content.cloneNode(true)));
+  // ?slide=name renders one screenshot at full size for capture.
+  const only = new URLSearchParams(location.search).get('slide');
+  if (only) {
+    document.body.classList.add('single');
+    document.querySelector(`[data-name="${only}"]`)?.classList.add('active');
+  }
+</script>
+</body>
+</html>
