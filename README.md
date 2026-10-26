@@ -3,8 +3,8 @@
 </p>
 
 <h1 align="center">ClearAhead</h1>
-
 <p align="center"><i>because awareness shouldn't depend on sight alone.</i></p>
+<p align="center"><a href="https://clearahead.lekangji.cc"><strong>Explore the website</strong></a> · <a href="https://github.com/lekangji/Clear-Ahead-Website">View the website source</a> · <a href="https://youtu.be/DHR70mPy4-0">Watch the demo</a></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/iOS-17%2B-black" alt="iOS 17 or newer" />
