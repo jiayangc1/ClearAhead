@@ -388,7 +388,7 @@ export function SettingsScreen({
           <Pressable
             accessibilityRole="link"
             accessibilityLabel="View Clear Ahead source code and license"
-            onPress={() => Linking.openURL('https://github.com/jiayangc1/cac')}
+            onPress={() => Linking.openURL('https://github.com/jiayangc1/ClearAhead')}
             style={styles.link}
           >
             <Text style={styles.linkText}>View source code and license</Text>

@@ -48,7 +48,7 @@ iPhone 12 or newer is the benchmarking target; older compatible devices are not
 blocked, but their performance has not been validated. LiDAR is optional.
 
 ```sh
-git clone https://github.com/jiayangc1/cac.git
+git clone https://github.com/jiayangc1/ClearAhead.git cac
 cd cac
 npm ci
 bundle install
