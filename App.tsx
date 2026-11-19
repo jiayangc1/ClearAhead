@@ -20,7 +20,6 @@ import {
 import { usePreferences } from './src/hooks/usePreferences';
 import { useSessionStats } from './src/hooks/useSessionStats';
 import { useReducedMotion } from './src/hooks/useReducedMotion';
-import { AssistScreen } from './src/screens/AssistScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -42,6 +41,8 @@ export default function App() {
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadMessage, setLoadMessage] = useState('Loading settings');
   const [loadError, setLoadError] = useState<string>();
+  const [AssistScreen, setAssistScreen] =
+    useState<typeof import('./src/screens/AssistScreen').AssistScreen>();
   useEffect(() => {
     if (!isHydrated) return;
     let active = true;
@@ -179,7 +180,18 @@ export default function App() {
             lastMetrics={lastMetrics}
             hasCameraPermission={cameraPermission.hasPermission}
             onStart={() => {
-              if (canStartAssist) navigate({ name: 'assist' });
+              if (!canStartAssist) return;
+              try {
+                // Native registration errors must not prevent Home or Settings from opening.
+                const screen = require('./src/screens/AssistScreen').AssistScreen as
+                  typeof import('./src/screens/AssistScreen').AssistScreen;
+                setAssistScreen(() => screen);
+                navigate({ name: 'assist' });
+              } catch (error) {
+                setLoadError(error instanceof Error ? error.message : 'Assist mode could not start');
+                setLoadMessage('Assist mode could not start');
+                setModelsReady(false);
+              }
             }}
             onSettings={() => navigate({ name: 'settings' })}
           />
@@ -193,7 +205,7 @@ export default function App() {
             onBack={() => navigate({ name: 'home' })}
           />
         ) : null}
-        {route.name === 'assist' ? (
+        {route.name === 'assist' && AssistScreen ? (
           <AssistScreen
             preferences={preferences}
             onChange={setPreferences}

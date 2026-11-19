@@ -9,8 +9,8 @@
     "typecheck": "tsc --noEmit",
     "codegen": "nitrogen --logLevel=\"debug\""
   },
-  "repository": "https://github.com/jiayangc1/cac.git",
-  "homepage": "https://github.com/jiayangc1/cac/tree/main/modules/react-native-clear-ahead-vision",
+  "repository": "https://github.com/jiayangc1/ClearAhead.git",
+  "homepage": "https://github.com/jiayangc1/ClearAhead/tree/main/modules/react-native-clear-ahead-vision",
   "author": "Jiayang Chen",
   "license": "AGPL-3.0-only",
   "devDependencies": {

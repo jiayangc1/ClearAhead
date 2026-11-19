@@ -10,7 +10,7 @@ Pod::Spec.new do |s|
   s.authors      = package["author"]
 
   s.platforms    = { :ios => min_ios_version_supported }
-  s.source       = { :git => "https://github.com/jiayangc1/cac.git", :tag => "#{s.version}" }
+  s.source       = { :git => "https://github.com/jiayangc1/ClearAhead.git", :tag => "#{s.version}" }
 
   # Keep this list explicit so source moves change the podspec checksum and are
   # reflected when CocoaPods regenerates the Pods project.

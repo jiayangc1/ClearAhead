@@ -1,7 +1,77 @@
+import AVFoundation
 import XCTest
 @testable import ClearAheadVision
 
 final class AudioCueTests: XCTestCase {
+    func testRecoveryWaitsForEngineStartAndResumesAllActiveSources() throws {
+        let engine = AVAudioEngine()
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 512)
+        let audio = SpatialAudio(engine: engine)
+        defer { audio.stop(); engine.stop() }
+        try engine.start()
+        let sources = (0..<SceneSelector.maximumSources).map { index in
+            let event = SpatialEvent(id: "source-\(index)", kind: .person, direction: .center, proximity: .near,
+                                     approximateDistanceMeters: 1, approachSpeed: 0, motionState: .stationary,
+                                     collisionRisk: .none, confidence: 0.9, urgency: 0, timestamp: 10, box: nil)
+            return SceneSource(event: event, position: SIMD3(0, 0, -1), contours: [], visibility: 1, isSurface: false)
+        }
+        audio.update(sources, configuration: FeedbackConfiguration(), camera: nil, earCalibrated: false)
+        let players = engine.attachedNodes.compactMap { $0 as? AVAudioPlayerNode }
+        XCTAssertEqual(players.filter(\.isPlaying).count, SceneSelector.maximumSources)
+        for _ in 0..<2 {
+            engine.stop()
+            engine.reset()
+            audio.recover()
+            audio.resume()
+            XCTAssertFalse(engine.isRunning)
+            XCTAssertTrue(players.allSatisfy { !$0.isPlaying })
+            try engine.start()
+            audio.resume()
+            XCTAssertEqual(players.filter(\.isPlaying).count, SceneSelector.maximumSources)
+        }
+    }
+
+    func testMediaServicesResetReplacesEngineWithoutStartingAnIdleSession() {
+        onMain {
+            let feedback = Feedback()
+            let original = feedback.audioEngine
+            NotificationCenter.default.post(name: AVAudioSession.mediaServicesWereResetNotification, object: AVAudioSession.sharedInstance())
+            XCTAssertFalse(feedback.audioEngine === original)
+            XCTAssertFalse(feedback.audioEngine.isRunning)
+            let replacement = feedback.audioEngine
+            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: original)
+            _ = feedback.spatialCapability
+            XCTAssertTrue(feedback.audioEngine === replacement)
+            XCTAssertFalse(feedback.audioEngine.isRunning)
+        }
+    }
+
+    func testMediaServicesResetPreservesActiveSessionForTheNextFrame() throws {
+        try onMain {
+            let feedback = Feedback()
+            feedback.start()
+            defer { feedback.stop() }
+            let original = feedback.audioEngine
+            NotificationCenter.default.post(name: AVAudioSession.mediaServicesWereResetNotification, object: AVAudioSession.sharedInstance())
+            XCTAssertFalse(feedback.audioEngine === original)
+            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: original)
+            _ = feedback.spatialCapability
+            // A new frame restarts playback; the reset itself must not play stale cues.
+            XCTAssertFalse(feedback.audioEngine.isRunning)
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+            try feedback.audioEngine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 512)
+            feedback.updateScene([], configuration: FeedbackConfiguration(), camera: nil, earCalibrated: false)
+            _ = feedback.spatialCapability
+            XCTAssertTrue(feedback.audioEngine.isRunning)
+        }
+    }
+
+    private func onMain(_ action: () throws -> Void) rethrows {
+        if Thread.isMainThread { try action() }
+        else { try DispatchQueue.main.sync(execute: action) }
+    }
+
     func testDistanceChangesGainAndCategoriesKeepDistinctRegisters() {
         let near = SceneAudioMath.gain(distance: 0.5, range: 6, volume: 1, count: 6)
         let far = SceneAudioMath.gain(distance: 5.5, range: 6, volume: 1, count: 6)

@@ -17,10 +17,10 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
     private var hapticEngine: CHHapticEngine?
     private var hapticPlayer: (any CHHapticPatternPlayer)?
     private let deliveryLock = NSLock()
-    private let audioEngine = AVAudioEngine()
+    private(set) var audioEngine = AVAudioEngine()
     private lazy var sceneAudio = SpatialAudio(engine: audioEngine)
     private var urgencyHaptics = UrgencyHaptics()
-    private let speechSynthesizer = AVSpeechSynthesizer()
+    private var speechSynthesizer = AVSpeechSynthesizer()
     private let audioQueue = DispatchQueue(label: "com.clearahead.feedback.audio", qos: .userInitiated)
     private var lastAudioRoute: String?
     private var pendingSpeech: PendingSpeech?
@@ -43,8 +43,12 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { [weak self] _ in
             self?.recoverAudioOutput(force: true)
         })
-        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: nil) { [weak self] _ in
-            self?.recoverAudioOutput(force: false)
+        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil) { [weak self] notification in
+            guard let engine = notification.object as? AVAudioEngine else { return }
+            self?.recoverAudioOutput(force: false, changedEngine: engine)
+        })
+        observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.resetAudioOutput()
         })
     }
 
@@ -243,6 +247,7 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         if audioEngine.isRunning { return true }
         do {
             try audioEngine.start()
+            sceneAudio.resume()
             return true
         } catch {
             logger.error("Audio engine failed: \(String(describing: error), privacy: .public)")
@@ -250,10 +255,11 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    private func recoverAudioOutput(force: Bool) {
+    private func recoverAudioOutput(force: Bool, changedEngine: AVAudioEngine? = nil) {
         let token = generation.current
         audioQueue.async { [weak self] in
             guard let self, acceptsAudio(token), force || !audioEngine.isRunning else { return }
+            guard changedEngine == nil || changedEngine === audioEngine else { return }
             if force, currentAudioRoute() == lastAudioRoute { return }
             audioEngine.stop()
             audioEngine.reset()
@@ -262,6 +268,29 @@ final class Feedback: NSObject, AVSpeechSynthesizerDelegate {
             audioSessionActive = false
             lastAudioRoute = currentAudioRoute()
             _ = activateAudioEngine()
+        }
+    }
+
+    private func resetAudioOutput() {
+        precondition(Thread.isMainThread)
+        let wasActive = generation.accepts(generation.current)
+        generation.stop()
+        pendingSpeech = nil
+        activeSpeech = nil
+        activeUtterance = nil
+        lastSpeechTimes.removeAll()
+        speechSynthesizer.delegate = nil
+        speechSynthesizer = AVSpeechSynthesizer()
+        speechSynthesizer.delegate = self
+        audioQueue.sync {
+            // A media-services reset orphans the old nodes; do not call them again.
+            sceneAudio.invalidate()
+            audioEngine = AVAudioEngine()
+            sceneAudio = SpatialAudio(engine: audioEngine)
+            audioSessionActive = false
+            lastAudioRoute = nil
+            if wasActive { generation.start() }
+            if acceptsAudio(generation.current) { sceneAudio.start(queue: audioQueue) }
         }
     }
 

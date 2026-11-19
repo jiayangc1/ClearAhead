@@ -69,7 +69,6 @@ export function HomeScreen({
       <View style={styles.center}>
         <Text
           accessibilityRole="header"
-          adjustsFontSizeToFit
           numberOfLines={1}
           style={styles.title}
         >
