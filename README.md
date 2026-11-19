@@ -11,9 +11,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
 </p>
 
-Clear Ahead is a beta iPhone app that turns the scene in front of you
-into spatial sound, short spoken cues, and vibrations. It recognizes nearby
-objects and surfaces on the phone completely on-device.
+Clear Ahead is an iPhone assistive vision app that allows users to build real-time mental maps through intuitive spatial audio and on-device machine learning.
 
 > **Experimental awareness support.** Clear Ahead can miss or misjudge hazards.
 > It does not replace a cane, guide dog, mobility training, or personal judgment.
